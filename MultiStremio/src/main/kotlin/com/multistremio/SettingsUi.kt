@@ -354,7 +354,7 @@ object SettingsUi {
         val state = initial.toBooleanArray()
         val root = shell(ctx, title, description)
         val list = vertical(ctx)
-        labels.forEachIndexed { index, label ->
+        val checks = labels.mapIndexed { index, label ->
             val check = CheckBox(ctx).apply {
                 text = label
                 textSize = 14f
@@ -363,12 +363,55 @@ object SettingsUi {
                 buttonTintList = ColorStateList.valueOf(colors.accent)
                 setPadding(dp(ctx, 8), dp(ctx, 8), dp(ctx, 8), dp(ctx, 8))
                 minHeight = dp(ctx, 48)
-                setOnCheckedChangeListener { _, checked -> state[index] = checked }
+                setOnCheckedChangeListener { _, checked ->
+                    if (index in state.indices) state[index] = checked
+                }
             }
-            list.addView(check)
+            check to label
         }
+
+        fun render(query: String = "") {
+            list.removeAllViews()
+            val matching = checks.filter { (_, label) -> label.contains(query, ignoreCase = true) }
+            if (matching.isEmpty()) {
+                list.addView(text(ctx, "No matching options.", 13f, colors.secondary).apply {
+                    setPadding(dp(ctx, 12), dp(ctx, 16), dp(ctx, 12), dp(ctx, 16))
+                })
+            } else {
+                matching.forEach { (check, _) -> list.addView(check) }
+            }
+        }
+
+        if (labels.size >= 8) {
+            val search = EditText(ctx).apply {
+                hint = "Search options"
+                textSize = 14f
+                setTextColor(colors.primary)
+                setHintTextColor(colors.secondary)
+                setSingleLine(true)
+                inputType = InputType.TYPE_CLASS_TEXT
+                setPadding(dp(ctx, 14), dp(ctx, 8), dp(ctx, 14), dp(ctx, 8))
+                background = rounded(ctx, withAlpha(colors.accent, 12), colors.outline)
+            }
+            root.addView(search, LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT,
+                dp(ctx, 46),
+            ).apply { bottomMargin = dp(ctx, 8) })
+            search.addTextChangedListener(object : TextWatcher {
+                override fun beforeTextChanged(s: CharSequence?, start: Int, count: Int, after: Int) = Unit
+                override fun onTextChanged(s: CharSequence?, start: Int, before: Int, count: Int) {
+                    render(s?.toString().orEmpty())
+                }
+                override fun afterTextChanged(s: Editable?) = Unit
+            })
+        }
+        render()
+
         val scroll = ScrollView(ctx).apply {
-            addView(list, ViewGroup.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT))
+            addView(list, ViewGroup.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT,
+                ViewGroup.LayoutParams.WRAP_CONTENT,
+            ))
         }
         root.addView(scroll, LinearLayout.LayoutParams(
             ViewGroup.LayoutParams.MATCH_PARENT,
