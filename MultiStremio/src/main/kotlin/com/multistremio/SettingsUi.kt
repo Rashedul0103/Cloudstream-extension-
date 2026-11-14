@@ -945,8 +945,8 @@ object SettingsUi {
             thread(start = true) {
                 val text = SimpleHttp.get(Urls.manifest(url))
                 val m = Json.parse<Manifest>(text)
-                if (text == null || m == null || (m.name == null && m.resources == null)) {
-                    toast(ctx, "Could not read a manifest from that link"); return@thread
+                if (text == null || m == null || !m.isUsableByMultiStremio()) {
+                    toast(ctx, "Manifest is missing a name or supported resource list"); return@thread
                 }
                 val addon = AddonConfig(
                     id = Config.idFor(url), url = url, name = m.name ?: host(url),
