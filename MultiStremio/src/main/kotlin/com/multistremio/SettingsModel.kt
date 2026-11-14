@@ -73,10 +73,24 @@ data class SortSettings(
 fun catalogOrderKey(addonId: String, type: String, catalogId: String): String =
     "$addonId|$type|$catalogId"
 
+/** A stable reference to a homepage row owned by another installed CloudStream extension. */
+data class ExternalRowConfig(
+    var key: String = "",
+    var providerName: String = "",
+    var providerClass: String = "",
+    var sourcePlugin: String = "",
+    var rowName: String = "",
+    var dataHash: String = "",
+    var horizontalImages: Boolean = false,
+    var enabled: Boolean = true,
+)
+
 data class Settings(
     var addons: MutableList<AddonConfig> = mutableListOf(),
-    /** Stable keys defining the user's global order for home-page catalog rows. */
+    /** Stable keys defining the user's global order for all homepage rows. */
     var catalogOrder: MutableList<String> = mutableListOf(),
+    /** Homepage rows selected from other installed CloudStream extensions. */
+    var externalRows: MutableList<ExternalRowConfig> = mutableListOf(),
     var filter: FilterSettings = FilterSettings(),
     var sort: SortSettings = SortSettings(),
     var timeoutSec: Int = 30,
