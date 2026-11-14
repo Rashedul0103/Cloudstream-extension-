@@ -18,11 +18,11 @@ The manifest points to the generated `plugins.json` index in the `builds` branch
 
 ## Build and publishing
 
-The GitHub Actions workflow in `.github/workflows/build.yml` runs on pushes to `main` (and can also be started manually). It builds the `.cs3` plugin and publishes it together with `plugins.json` to the `builds` branch. The first GitHub Actions run must be checked before treating the extension as installable.
+The GitHub Actions workflow in `.github/workflows/build.yml` builds and tests pull requests without publishing. A separate, write-enabled job publishes the `.cs3` plugin and `plugins.json` to the `builds` branch only from `main`; the build job uses read-only repository permissions.
 
 ## Settings interface
 
-The settings use a theme-aware mobile layout with clearer section descriptions, searchable option lists, and consistent save, cancel, and navigation controls. It follows the active CloudStream theme, including light and dark appearances.
+The settings use a theme-aware mobile layout with clearer section descriptions, searchable option lists and multi-select screens, and consistent save, cancel, and navigation controls. Long checkbox lists can be searched without losing checked options. It follows the active CloudStream theme, including light and dark appearances.
 
 ## Catalog layout
 
@@ -42,7 +42,7 @@ Leaving every box unchecked under **Allowed resolutions** means no resolution re
 
 ## Language matching
 
-Language filters accept common ISO 639 codes, three-letter codes, regional tags such as `pt-BR`, and language names. Release-name detection recognizes common audio-language labels, country flags and selected native-language names. Detection is heuristic: an addon that does not describe the audio language cannot be identified reliably from its stream label alone.
+Language filters accept common ISO 639 codes, three-letter codes, regional tags such as `pt-BR`, and language names. Release-name detection recognizes common audio-language labels, country flags and selected native-language names. In stream sorting, the first language in **Prefer languages** has the highest priority; a stream containing multiple detected languages is ranked as a multi-audio option. Detection is heuristic: an addon that does not describe the audio language cannot be identified reliably from its stream label alone.
 
 ## Backup privacy
 
