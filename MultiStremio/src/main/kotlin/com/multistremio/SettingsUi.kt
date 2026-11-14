@@ -1,100 +1,367 @@
 package com.multistremio
 
+import android.app.AlertDialog
 import android.content.ClipData
 import android.content.ClipboardManager
 import android.content.Context
+import android.content.res.ColorStateList
+import android.graphics.Color
+import android.graphics.Typeface
+import android.graphics.drawable.GradientDrawable
+import android.graphics.drawable.RippleDrawable
 import android.os.Handler
 import android.os.Looper
+import android.text.Editable
 import android.text.InputType
+import android.text.TextWatcher
+import android.util.TypedValue
+import android.view.Gravity
+import android.view.View
+import android.view.ViewGroup
+import android.widget.CheckBox
 import android.widget.EditText
-import android.widget.FrameLayout
+import android.widget.LinearLayout
+import android.widget.ScrollView
+import android.widget.TextView
 import android.widget.Toast
-import android.app.AlertDialog
 import java.net.URL
 import kotlin.concurrent.thread
 
-/** Settings screens built from plain AlertDialogs, so the plugin needs no XML resources. */
+/** Theme-aware settings UI built from Android views; no XML or extra UI dependency required. */
 object SettingsUi {
     private val main = Handler(Looper.getMainLooper())
 
     fun show(ctx: Context) = mainMenu(ctx)
 
-    // ---- small building blocks ------------------------------------------------------------
+    private data class Palette(
+        val background: Int,
+        val primary: Int,
+        val secondary: Int,
+        val accent: Int,
+        val outline: Int,
+        val ripple: Int,
+    )
 
-    private fun toast(ctx: Context, msg: String) =
-        main.post { Toast.makeText(ctx, msg, Toast.LENGTH_LONG).show() }
+    private fun dp(ctx: Context, value: Int) =
+        (value * ctx.resources.displayMetrics.density + 0.5f).toInt()
 
-    private fun dp(ctx: Context, v: Int) = (v * ctx.resources.displayMetrics.density).toInt()
+    private fun color(ctx: Context, attribute: Int, fallback: Int): Int {
+        val value = TypedValue()
+        if (!ctx.theme.resolveAttribute(attribute, value, true)) return fallback
+        if (value.type in TypedValue.TYPE_FIRST_COLOR_INT..TypedValue.TYPE_LAST_COLOR_INT) return value.data
+        return if (value.resourceId != 0) {
+            try { ctx.resources.getColor(value.resourceId) } catch (_: Exception) { fallback }
+        } else fallback
+    }
 
-    private fun menu(ctx: Context, title: String, items: List<String>, back: (() -> Unit)?, pick: (Int) -> Unit) {
-        AlertDialog.Builder(ctx)
-            .setTitle(title)
-            .setItems(items.toTypedArray()) { _, which -> pick(which) }
-            .setNegativeButton(if (back != null) "Back" else "Close") { _, _ -> back?.invoke() }
-            .show()
+    private fun palette(ctx: Context): Palette {
+        val background = color(ctx, android.R.attr.colorBackground, Color.rgb(250, 250, 250))
+        val primary = color(ctx, android.R.attr.textColorPrimary, Color.rgb(28, 28, 30))
+        val secondary = color(ctx, android.R.attr.textColorSecondary, Color.rgb(112, 112, 118))
+        val accent = color(ctx, android.R.attr.colorAccent, Color.rgb(70, 110, 230))
+        return Palette(background, primary, secondary, accent, withAlpha(secondary, 54), withAlpha(accent, 42))
+    }
+
+    private fun withAlpha(color: Int, alpha: Int): Int =
+        (color and 0x00ffffff) or (alpha.coerceIn(0, 255) shl 24)
+
+    private fun rounded(ctx: Context, fill: Int, stroke: Int = Color.TRANSPARENT): GradientDrawable =
+        GradientDrawable().apply {
+            setColor(fill)
+            cornerRadius = dp(ctx, 16).toFloat()
+            if (stroke != Color.TRANSPARENT) setStroke(dp(ctx, 1), stroke)
+        }
+
+    private fun ripple(ctx: Context, fill: Int, colors: Palette): RippleDrawable =
+        RippleDrawable(ColorStateList.valueOf(colors.ripple), rounded(ctx, fill, colors.outline), null)
+
+    private fun text(ctx: Context, value: String, size: Float, tint: Int, bold: Boolean = false) =
+        TextView(ctx).apply {
+            text = value
+            textSize = size
+            setTextColor(tint)
+            if (bold) setTypeface(typeface, Typeface.BOLD)
+            includeFontPadding = true
+        }
+
+    private fun vertical(ctx: Context, padding: Int = 0) =
+        LinearLayout(ctx).apply {
+            orientation = LinearLayout.VERTICAL
+            if (padding > 0) setPadding(padding, padding, padding, padding)
+        }
+
+    private fun shell(ctx: Context, title: String, description: String? = null): LinearLayout {
+        val colors = palette(ctx)
+        val root = vertical(ctx, dp(ctx, 18)).apply { background = rounded(ctx, colors.background) }
+        val header = vertical(ctx).apply {
+            addView(text(ctx, "MULTISTREMIO  /  SETTINGS", 10f, colors.accent, true).apply {
+                letterSpacing = 0.11f
+            })
+            addView(text(ctx, title, 22f, colors.primary, true).apply {
+                setPadding(0, dp(ctx, 5), 0, 0)
+            })
+            if (!description.isNullOrBlank()) {
+                addView(text(ctx, description, 13f, colors.secondary).apply {
+                    setPadding(0, dp(ctx, 5), 0, dp(ctx, 3))
+                })
+            }
+        }
+        root.addView(header)
+        root.addView(View(ctx).apply {
+            setBackgroundColor(colors.outline)
+            layoutParams = LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(ctx, 1)).apply {
+                topMargin = dp(ctx, 14)
+                bottomMargin = dp(ctx, 12)
+            }
+        })
+        return root
+    }
+
+    private fun addFooter(
+        ctx: Context,
+        root: LinearLayout,
+        label: String,
+        onClick: () -> Unit,
+        secondaryLabel: String? = null,
+        onSecondary: (() -> Unit)? = null,
+    ) {
+        val colors = palette(ctx)
+        val footer = LinearLayout(ctx).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.END or Gravity.CENTER_VERTICAL
+            setPadding(0, dp(ctx, 10), 0, 0)
+        }
+        if (secondaryLabel != null && onSecondary != null) {
+            footer.addView(text(ctx, secondaryLabel.uppercase(), 12f, colors.secondary, true).apply {
+                gravity = Gravity.CENTER
+                setPadding(dp(ctx, 14), dp(ctx, 11), dp(ctx, 14), dp(ctx, 11))
+                background = ripple(ctx, colors.background, colors)
+                setOnClickListener { onSecondary() }
+            })
+        }
+        footer.addView(text(ctx, label.uppercase(), 12f, colors.accent, true).apply {
+            gravity = Gravity.CENTER
+            setPadding(dp(ctx, 16), dp(ctx, 11), dp(ctx, 16), dp(ctx, 11))
+            background = ripple(ctx, colors.background, colors)
+            setOnClickListener { onClick() }
+        })
+        root.addView(footer)
+    }
+
+    private fun window(dialog: AlertDialog, ctx: Context) {
+        dialog.show()
+        dialog.window?.let { window ->
+            window.setBackgroundDrawableResource(android.R.color.transparent)
+            window.setLayout(minOf(dp(ctx, 520), ctx.resources.displayMetrics.widthPixels - dp(ctx, 36)), ViewGroup.LayoutParams.WRAP_CONTENT)
+        }
+    }
+
+    private fun splitItem(item: String): Pair<String, String?> {
+        val separator = item.indexOf(": ")
+        if (separator in 2..54) return item.substring(0, separator) to item.substring(separator + 2)
+        return item to null
+    }
+
+    private fun menu(
+        ctx: Context,
+        title: String,
+        items: List<String>,
+        back: (() -> Unit)?,
+        description: String? = null,
+        itemDetails: List<String>? = null,
+        pick: (Int) -> Unit,
+    ) {
+        val colors = palette(ctx)
+        val root = shell(ctx, title, description ?: "Choose an item to manage this section.")
+        val scroll = ScrollView(ctx).apply { isFillViewport = false }
+        val list = vertical(ctx)
+        scroll.addView(list, ScrollView.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT))
+        val rowViews = mutableListOf<Pair<View, String>>()
+
+        items.forEachIndexed { index, value ->
+            val (parsedTitle, parsedDetail) = splitItem(value)
+            val detail = itemDetails?.getOrNull(index) ?: parsedDetail
+            val body = vertical(ctx).apply {
+                addView(text(ctx, parsedTitle, 15f, colors.primary, true))
+                if (!detail.isNullOrBlank()) {
+                    addView(text(ctx, detail, 12f, colors.secondary).apply {
+                        setPadding(0, dp(ctx, 3), 0, 0)
+                    })
+                }
+            }
+            val arrow = text(ctx, "›", 25f, colors.secondary).apply { gravity = Gravity.CENTER }
+            val row = LinearLayout(ctx).apply {
+                orientation = LinearLayout.HORIZONTAL
+                gravity = Gravity.CENTER_VERTICAL
+                setPadding(dp(ctx, 14), dp(ctx, 12), dp(ctx, 12), dp(ctx, 12))
+                background = ripple(ctx, colors.background, colors)
+                minimumHeight = dp(ctx, 52)
+                addView(body, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
+                addView(arrow, LinearLayout.LayoutParams(dp(ctx, 24), ViewGroup.LayoutParams.MATCH_PARENT))
+                setOnClickListener {
+                    (root.getTag() as? AlertDialog)?.dismiss()
+                    pick(index)
+                }
+            }
+            rowViews += row to value
+        }
+
+        fun render(filter: String = "") {
+            list.removeAllViews()
+            val matching = rowViews.filter { (_, label) -> label.contains(filter, ignoreCase = true) }
+            if (matching.isEmpty()) {
+                list.addView(text(ctx, "No matching settings.", 13f, colors.secondary).apply {
+                    setPadding(dp(ctx, 14), dp(ctx, 18), dp(ctx, 14), dp(ctx, 18))
+                })
+            } else {
+                matching.forEachIndexed { visibleIndex, (row, _) ->
+                    if (visibleIndex > 0) {
+                        list.addView(View(ctx).apply {
+                            setBackgroundColor(colors.outline)
+                            layoutParams = LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(ctx, 1)).apply {
+                                leftMargin = dp(ctx, 14)
+                                rightMargin = dp(ctx, 14)
+                            }
+                        })
+                    }
+                    list.addView(row)
+                }
+            }
+        }
+
+        if (items.size >= 8) {
+            val search = EditText(ctx).apply {
+                hint = "Search settings"
+                textSize = 14f
+                setTextColor(colors.primary)
+                setHintTextColor(colors.secondary)
+                singleLine = true
+                inputType = InputType.TYPE_CLASS_TEXT
+                setPadding(dp(ctx, 14), dp(ctx, 8), dp(ctx, 14), dp(ctx, 8))
+                background = rounded(ctx, withAlpha(colors.accent, 12), colors.outline)
+            }
+            root.addView(search, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(ctx, 46)).apply {
+                bottomMargin = dp(ctx, 8)
+            })
+            search.addTextChangedListener(object : TextWatcher {
+                override fun beforeTextChanged(s: CharSequence?, start: Int, count: Int, after: Int) = Unit
+                override fun onTextChanged(s: CharSequence?, start: Int, before: Int, count: Int) = render(s?.toString().orEmpty())
+                override fun afterTextChanged(s: Editable?) = Unit
+            })
+        }
+
+        render()
+        root.addView(scroll, LinearLayout.LayoutParams(
+            ViewGroup.LayoutParams.MATCH_PARENT,
+            minOf(dp(ctx, 430), dp(ctx, maxOf(88, items.size * 62))),
+        ))
+        val dialog = AlertDialog.Builder(ctx).setView(root).create()
+        root.setTag(dialog)
+        addFooter(ctx, root, if (back != null) "Back" else "Close", {
+            dialog.dismiss()
+            back?.invoke()
+        })
+        window(dialog, ctx)
     }
 
     private fun prompt(
         ctx: Context, title: String, message: String?, initial: String, numeric: Boolean,
         onOk: (String) -> Unit,
     ) {
-        val input = EditText(ctx)
-        input.setText(initial)
-        if (numeric) input.inputType = InputType.TYPE_CLASS_NUMBER
-        val box = FrameLayout(ctx)
-        val pad = dp(ctx, 20)
-        box.setPadding(pad, dp(ctx, 8), pad, 0)
-        box.addView(input)
-        AlertDialog.Builder(ctx)
-            .setTitle(title)
-            .apply { if (message != null) setMessage(message) }
-            .setView(box)
-            .setPositiveButton("OK") { _, _ -> onOk(input.text.toString().trim()) }
-            .setNegativeButton("Cancel", null)
-            .show()
+        val colors = palette(ctx)
+        val root = shell(ctx, title, message ?: "Enter a value below.")
+        val input = EditText(ctx).apply {
+            setText(initial)
+            textSize = 16f
+            setTextColor(colors.primary)
+            setHintTextColor(colors.secondary)
+            if (numeric) inputType = InputType.TYPE_CLASS_NUMBER
+            setPadding(dp(ctx, 14), dp(ctx, 12), dp(ctx, 14), dp(ctx, 12))
+            background = rounded(ctx, withAlpha(colors.accent, 12), colors.outline)
+        }
+        root.addView(input, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply {
+            topMargin = dp(ctx, 6)
+        })
+        val dialog = AlertDialog.Builder(ctx).setView(root).create()
+        addFooter(ctx, root, "Save", {
+            dialog.dismiss()
+            onOk(input.text.toString().trim())
+        }, "Cancel", { dialog.dismiss() })
+        window(dialog, ctx)
     }
 
     private fun confirm(ctx: Context, title: String, message: String, onYes: () -> Unit) {
-        AlertDialog.Builder(ctx).setTitle(title).setMessage(message)
-            .setPositiveButton("Yes") { _, _ -> onYes() }
-            .setNegativeButton("Cancel", null)
-            .show()
+        val root = shell(ctx, title, message)
+        val dialog = AlertDialog.Builder(ctx).setView(root).create()
+        addFooter(ctx, root, "Continue", {
+            dialog.dismiss()
+            onYes()
+        }, "Cancel", { dialog.dismiss() })
+        window(dialog, ctx)
     }
 
     private fun choose(
         ctx: Context, title: String, labels: List<String>, checked: Int, onPick: (Int) -> Unit,
     ) {
-        AlertDialog.Builder(ctx)
-            .setTitle(title)
-            .setSingleChoiceItems(labels.toTypedArray(), checked) { d, which -> onPick(which); d.dismiss() }
-            .setNegativeButton("Cancel", null)
-            .show()
+        val rows = labels.mapIndexed { index, label ->
+            if (index == checked) "✓  $label  ·  SELECTED" else label
+        }
+        menu(ctx, title, rows, null, "Select one option. Your choice is saved immediately.") { onPick(it) }
     }
 
     private fun multi(
         ctx: Context, title: String, labels: List<String>, initial: List<Boolean>, onSave: (List<Boolean>) -> Unit,
     ) {
+        val colors = palette(ctx)
         val state = initial.toBooleanArray()
-        AlertDialog.Builder(ctx)
-            .setTitle(title)
-            .setMultiChoiceItems(labels.toTypedArray(), state) { _, which, isChecked -> state[which] = isChecked }
-            .setPositiveButton("Save") { _, _ -> onSave(state.toList()) }
-            .setNegativeButton("Cancel", null)
-            .show()
+        val root = shell(ctx, title, "Select all options that should remain enabled.")
+        val list = vertical(ctx)
+        labels.forEachIndexed { index, label ->
+            val check = CheckBox(ctx).apply {
+                text = label
+                textSize = 14f
+                setTextColor(colors.primary)
+                isChecked = state.getOrElse(index) { false }
+                buttonTintList = ColorStateList.valueOf(colors.accent)
+                setPadding(dp(ctx, 8), dp(ctx, 8), dp(ctx, 8), dp(ctx, 8))
+                minHeight = dp(ctx, 48)
+                setOnCheckedChangeListener { _, checked -> state[index] = checked }
+            }
+            list.addView(check)
+        }
+        val scroll = ScrollView(ctx).apply {
+            addView(list, ScrollView.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT))
+        }
+        root.addView(scroll, LinearLayout.LayoutParams(
+            ViewGroup.LayoutParams.MATCH_PARENT,
+            minOf(dp(ctx, 430), dp(ctx, maxOf(72, labels.size * 54))),
+        ))
+        val dialog = AlertDialog.Builder(ctx).setView(root).create()
+        addFooter(ctx, root, "Save", {
+            dialog.dismiss()
+            onSave(state.toList())
+        }, "Cancel", { dialog.dismiss() })
+        window(dialog, ctx)
     }
 
     private fun csv(list: List<String>) = if (list.isEmpty()) "none" else list.joinToString(", ")
     private fun parseCsv(s: String) = s.split(',', '\n').map { it.trim() }.filter { it.isNotEmpty() }.toMutableList()
     private fun onOff(b: Boolean) = if (b) "ON" else "OFF"
-    private fun limit(n: Int, unit: String) = if (n <= 0) "off" else "$n $unit"
+    private fun limit(n: Int, unit: String) = if (n <= 0) "off" else if (unit.isEmpty()) n.toString() else "$n $unit"
     private fun modeLabel(m: Int) = when (m) { MODE_HIDE -> "hide"; MODE_ONLY -> "only"; else -> "any" }
 
     private fun host(url: String) = try { URL(url).host } catch (e: Exception) { url }
 
     // ---- main menu -------------------------------------------------------------------------
+// ---- main menu -------------------------------------------------------------------------
 
     private fun mainMenu(ctx: Context) {
         val s = Config.settings
+        val activeRows = s.addons.sumOf { addon ->
+            Config.manifestOf(addon)?.catalogs.orEmpty().count {
+                it.isHomeCatalog() && "${it.type}/${it.id}" !in addon.hiddenCatalogs && addon.enabled && addon.useCatalogs
+            }
+        } + s.externalRows.count { it.enabled }
         menu(
             ctx, "MultiStremio",
             listOf(
@@ -107,6 +374,16 @@ object SettingsUi {
                 "Backup / restore / reset",
             ),
             null,
+            "Manage your sources, homepage layout and playback preferences.",
+            listOf(
+                "${s.addons.size} sources configured · ${s.addons.count { it.enabled }} active",
+                "$activeRows homepage rows currently enabled",
+                "Choose which streams are allowed",
+                "Set the order in which streams appear",
+                "Control subtitle sources and languages",
+                "Request timeout and link display options",
+                "Protect, copy or restore your configuration",
+            ),
         ) {
             when (it) {
                 0 -> addonsMenu(ctx)
@@ -131,7 +408,7 @@ object SettingsUi {
             ).joinToString("/")
             "${i + 1}. ${if (a.enabled) "✓" else "✗"} ${a.name} (${host(a.url)}) $caps"
         } + "+ Add addon"
-        menu(ctx, "Addons (order = priority)", rows, { mainMenu(ctx) }) { which ->
+        menu(ctx, "Addons", rows, { mainMenu(ctx) }, "Enable or disable sources and set their priority. This order is separate from homepage row order.") { which ->
             if (which == addons.size) addAddon(ctx) else addonMenu(ctx, addons[which])
         }
     }
@@ -332,7 +609,7 @@ object SettingsUi {
             "Unhide all Stremio catalog rows",
         )
 
-        menu(ctx, "Catalog rows · tap a row to manage it", labels, { mainMenu(ctx) }) { which ->
+        menu(ctx, "Catalog rows", labels, { mainMenu(ctx) }, "Arrange Stremio catalogs and rows imported from other installed extensions. Changes apply after refreshing the home page.") { which ->
             when {
                 which < rows.size -> catalogRowMenu(ctx, rows[which])
                 which == rows.size -> addExternalRowsMenu(ctx)
@@ -480,7 +757,7 @@ object SettingsUi {
             "Max results total: ${limit(f.maxTotal, "")}",
         )
         val again = { filtersMenu(ctx) }
-        menu(ctx, "Stream filters", rows, { mainMenu(ctx) }) { which ->
+        menu(ctx, "Stream filters", rows, { mainMenu(ctx) }, "Remove unwanted sources and narrow results by quality, size, language and keywords.") { which ->
             when (which) {
                 0 -> multi(ctx, "Allowed resolutions", RES_OPTIONS.map { it.second },
                     RES_OPTIONS.map { it.first in f.allowedResolutions }) { v ->
@@ -534,7 +811,7 @@ object SettingsUi {
             "Use my order across resolutions: ${onOff(s.overrideAppQuality)}",
         )
         val again = { sortMenu(ctx) }
-        menu(ctx, "Stream sorting", rows, { mainMenu(ctx) }) { which ->
+        menu(ctx, "Stream sorting", rows, { mainMenu(ctx) }, "Choose how available streams are ranked before they are shown.") { which ->
             when (which) {
                 0 -> choose(ctx, "Sort order", SortPreset.values().map { it.label }, preset.ordinal) {
                     Config.update { s.preset = SortPreset.values()[it].name }; again()
@@ -563,7 +840,7 @@ object SettingsUi {
             "Fetch from subtitle addons: ${onOff(s.fetchSubtitles)}",
             "Only these languages: ${csv(s.subtitleLanguages)}",
         )
-        menu(ctx, "Subtitles", rows, { mainMenu(ctx) }) { which ->
+        menu(ctx, "Subtitles", rows, { mainMenu(ctx) }, "Choose whether subtitle addons are queried and which languages are preferred.") { which ->
             when (which) {
                 0 -> { Config.update { fetchSubtitles = !fetchSubtitles }; subtitlesMenu(ctx) }
                 1 -> prompt(ctx, "Subtitle languages", "e.g. en, es, bengali. Leave empty for all languages.",
@@ -580,7 +857,7 @@ object SettingsUi {
             "Request timeout: ${s.timeoutSec} s",
             "Detailed link names (resolution, size, seeders…): ${onOff(s.detailedLabels)}",
         )
-        menu(ctx, "General", rows, { mainMenu(ctx) }) { which ->
+        menu(ctx, "General", rows, { mainMenu(ctx) }, "Tune request limits and the amount of technical detail shown on stream links.") { which ->
             when (which) {
                 0 -> number(ctx, "Timeout per addon request (seconds)", s.timeoutSec) {
                     Config.update { timeoutSec = it.coerceIn(5, 180) }; generalMenu(ctx)
@@ -592,9 +869,10 @@ object SettingsUi {
 
     private fun backupMenu(ctx: Context) {
         menu(
-            ctx, "Backup / restore / reset",
+            ctx, "Backup & maintenance",
             listOf("Copy settings to clipboard", "Restore from pasted settings", "Reset filters & sorting", "Remove ALL addons and settings"),
             { mainMenu(ctx) },
+            "Back up your configuration before making major changes. Backups include addon URLs, which may contain private keys.",
         ) { which ->
             when (which) {
                 0 -> confirm(
