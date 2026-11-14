@@ -359,6 +359,16 @@ object StreamFilter {
     fun anyMatch(lowerText: String, keywords: List<String>): Boolean =
         keywords.any { matchesKeyword(lowerText, it) }
 
+    /** Finds slash-delimited regular expressions that cannot be compiled before settings are saved. */
+    fun invalidRegexPatterns(keywords: List<String>): List<String> =
+        keywords.map { it.trim() }
+            .filter { it.length > 2 && it.startsWith("/") && it.endsWith("/") }
+            .filter { pattern ->
+                runCatching { Regex(pattern.substring(1, pattern.length - 1), RegexOption.IGNORE_CASE) }
+                    .isFailure
+            }
+            .distinct()
+
     fun passes(p: ParsedStream, f: FilterSettings): Boolean =
         passes(p, f, f.requireLanguages.map { Langs.normalize(it) }.toSet())
 
