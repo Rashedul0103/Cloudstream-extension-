@@ -42,32 +42,39 @@ object SettingsBackupManager {
      * Reads current backup envelopes and the raw Settings JSON format used by older releases.
      * The old format always contains addon URLs, so it is treated as a sensitive full backup.
      */
-    fun parse(text: String): SettingsBackup? {
-        val root = runCatching { Json.mapper.readTree(text) }.getOrNull() ?: return null
+    fun parse(text: String): SettingsBackup? =
+        runCatching { parseUnchecked(text) }.getOrNull()
+
+    private fun parseUnchecked(text: String): SettingsBackup? {
+        if (text.isBlank()) return null
+        val root = Json.mapper.readTree(text) ?: return null
         val isEnvelope = root.get("format")?.asText() == FORMAT
         if (isEnvelope) {
             val envelope = Json.parse<SettingsBackup>(text) ?: return null
             if (envelope.version !in 1..CURRENT_VERSION || envelope.settings == null) return null
 
-            // Do not trust the privacy flag by itself: an edited or malformed envelope can claim
-            // to be preferences-only while still containing addon URLs or private row references.
+            // Determine sensitivity before normalization so malformed/duplicate source entries
+            // cannot be erased before the privacy warning is selected.
+            val rawSettings = envelope.settings
             val containsSourceData = envelope.includesAddonUrls ||
-                envelope.settings.addons.isNotEmpty() ||
-                envelope.settings.externalRows.isNotEmpty() ||
-                envelope.settings.catalogOrder.isNotEmpty()
-            return envelope.copy(includesAddonUrls = containsSourceData)
+                rawSettings.addons.isNotEmpty() ||
+                rawSettings.externalRows.isNotEmpty() ||
+                rawSettings.catalogOrder.isNotEmpty()
+            return envelope.copy(
+                includesAddonUrls = containsSourceData,
+                settings = rawSettings.sanitized(),
+            )
         }
 
         // Older releases stored the Settings object directly. Require its defining root
-        // field so arbitrary JSON objects (which Jackson would otherwise deserialize as defaults)
-        // cannot be mistaken for a valid backup and overwrite the user's configuration.
+        // field so arbitrary JSON objects cannot be mistaken for a valid backup.
         if (!root.isObject || !root.has("addons")) return null
         val legacy = Json.parse<Settings>(text) ?: return null
         return SettingsBackup(
             format = FORMAT,
             version = 0,
             includesAddonUrls = true,
-            settings = legacy,
+            settings = legacy.sanitized(),
         )
     }
 }
