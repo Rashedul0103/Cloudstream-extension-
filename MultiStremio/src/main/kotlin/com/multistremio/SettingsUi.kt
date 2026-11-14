@@ -374,17 +374,19 @@ object SettingsUi {
                 "Catalog rows (visibility & order)",
                 "Stream filters",
                 "Stream sorting",
+                "Last streaming diagnostics",
                 "Subtitles",
                 "General",
                 "Backup / restore / reset",
             ),
             null,
-            "Manage your sources, homepage layout and playback preferences.",
+            "Manage sources, homepage layout and playback. Search is available inside longer settings lists.",
             listOf(
                 "${s.addons.size} sources configured · ${s.addons.count { it.enabled }} active",
                 "$activeRows homepage rows currently enabled",
                 "Choose which streams are allowed",
-                "Set the order in which streams appear",
+                "Control quality, language, codec and audio ranking",
+                "See the most recent source responses and filtered-link counts",
                 "Control subtitle sources and languages",
                 "Request timeout and link display options",
                 "Protect, copy or restore your configuration",
@@ -395,11 +397,106 @@ object SettingsUi {
                 1 -> catalogRowsMenu(ctx)
                 2 -> filtersMenu(ctx)
                 3 -> sortMenu(ctx)
-                4 -> subtitlesMenu(ctx)
-                5 -> generalMenu(ctx)
-                6 -> backupMenu(ctx)
+                4 -> streamDiagnosticsMenu(ctx)
+                5 -> subtitlesMenu(ctx)
+                6 -> generalMenu(ctx)
+                7 -> backupMenu(ctx)
             }
         }
+    }
+
+    private fun streamDiagnosticsMenu(ctx: Context) {
+        val snapshot = StreamDiagnostics.latest()
+        if (snapshot == null) {
+            menu(
+                ctx,
+                "Streaming diagnostics",
+                listOf("No completed stream lookup recorded yet."),
+                { mainMenu(ctx) },
+                "Open a movie or episode and load its links first. The report is kept in memory and is cleared when CloudStream restarts.",
+            ) { }
+            return
+        }
+
+        val colors = palette(ctx)
+        val time = java.text.SimpleDateFormat("yyyy-MM-dd HH:mm:ss", java.util.Locale.getDefault())
+            .format(java.util.Date(snapshot.startedAt))
+        val root = shell(
+            ctx,
+            "Streaming diagnostics",
+            "Latest lookup · $time · ${snapshot.durationMs} ms total. This report contains addon names and counts only, never stream URLs or addon access keys.",
+        )
+        val summary = vertical(ctx, dp(ctx, 12)).apply {
+            background = rounded(ctx, withAlpha(colors.accent, 12), colors.outline)
+            listOf(
+                "Raw streams returned: ${snapshot.rawStreams}",
+                "Addon subtitle tracks: ${snapshot.addonSubtitles}",
+                "Playable candidates before filters: ${snapshot.playableCandidates}",
+                "Streams kept after filters and deduplication: ${snapshot.keptAfterFilters}",
+                "Links handed to CloudStream: ${snapshot.emittedLinks}",
+                "Addon requests recorded: ${snapshot.requests.size}",
+            ).forEach { addView(text(ctx, it, 13f, colors.primary).apply {
+                setPadding(0, dp(ctx, 3), 0, dp(ctx, 3))
+            }) }
+        }
+        root.addView(summary)
+        val list = vertical(ctx)
+        if (snapshot.requests.isEmpty()) {
+            list.addView(text(ctx, "No addon request details were recorded.", 13f, colors.secondary))
+        } else {
+            snapshot.requests.sortedWith(compareBy<StreamRequestDiagnostic> { it.responseReceived }.thenByDescending { it.elapsedMs })
+                .forEach { item ->
+                    val status = when {
+                        !item.responseReceived -> "NO RESPONSE"
+                        item.resultCount == 0 -> "EMPTY"
+                        else -> "${item.resultCount} items"
+                    }
+                    val card = vertical(ctx, dp(ctx, 10)).apply {
+                        background = rounded(ctx, colors.background, colors.outline)
+                        addView(text(
+                            ctx,
+                            "${item.addonName} · ${item.resource}",
+                            13f,
+                            colors.primary,
+                            true,
+                        ))
+                        addView(text(ctx, "$status · ${item.elapsedMs} ms", 12f, colors.secondary).apply {
+                            setPadding(0, dp(ctx, 3), 0, 0)
+                        })
+                    }
+                    list.addView(card, LinearLayout.LayoutParams(
+                        ViewGroup.LayoutParams.MATCH_PARENT,
+                        ViewGroup.LayoutParams.WRAP_CONTENT,
+                    ).apply { topMargin = dp(ctx, 7) })
+                }
+        }
+        val scroll = ScrollView(ctx).apply {
+            addView(list, ViewGroup.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT))
+        }
+        root.addView(scroll, LinearLayout.LayoutParams(
+            ViewGroup.LayoutParams.MATCH_PARENT,
+            minOf(dp(ctx, 300), dp(ctx, maxOf(72, snapshot.requests.size * 62))),
+        ).apply { topMargin = dp(ctx, 10) })
+        val dialog = AlertDialog.Builder(ctx).setView(root).create()
+        val report = buildString {
+            appendLine("MultiStremio streaming diagnostics")
+            appendLine("Time: $time")
+            appendLine("Duration: ${snapshot.durationMs} ms")
+            appendLine("Raw streams: ${snapshot.rawStreams}")
+            appendLine("Addon subtitles: ${snapshot.addonSubtitles}")
+            appendLine("Playable before filters: ${snapshot.playableCandidates}")
+            appendLine("Kept after filters/deduplication: ${snapshot.keptAfterFilters}")
+            appendLine("Links handed to CloudStream: ${snapshot.emittedLinks}")
+            snapshot.requests.forEach { item ->
+                appendLine("${item.addonName} | ${item.resource} | ${if (item.responseReceived) "response" else "no response"} | ${item.resultCount} items | ${item.elapsedMs} ms")
+            }
+        }
+        addFooter(ctx, root, "Close", { dialog.dismiss() }, "Copy report", {
+            val clipboard = ctx.getSystemService(Context.CLIPBOARD_SERVICE) as? ClipboardManager
+            clipboard?.setPrimaryClip(ClipData.newPlainText("MultiStremio streaming diagnostics", report))
+            toast(ctx, "Diagnostics copied. The report contains no addon URLs.")
+        })
+        window(dialog, ctx)
     }
 
     // ---- addons ----------------------------------------------------------------------------
@@ -1047,10 +1144,12 @@ object SettingsUi {
             "Cached debrid links first: ${onOff(s.cachedFirst)}",
             "Prefer keywords: ${csv(s.preferKeywords)}",
             "Prefer languages: ${csv(s.preferLanguages)}",
+            "Prefer video codecs: ${csv(s.preferCodecs)}",
+            "Prefer audio formats: ${csv(s.preferAudio)}",
             "Use my order across resolutions: ${onOff(s.overrideAppQuality)}",
         )
         val again = { sortMenu(ctx) }
-        menu(ctx, "Stream sorting", rows, { mainMenu(ctx) }, "Choose how available streams are ranked before they are shown.") { which ->
+        menu(ctx, "Stream sorting", rows, { mainMenu(ctx) }, "Choose how available streams are ranked. The first item in each preference list has the highest priority; leave a list empty to disable that preference.") { which ->
             when (which) {
                 0 -> choose(ctx, "Sort order", SortPreset.values().map { it.label }, preset.ordinal) {
                     Config.update { s.preset = SortPreset.values()[it].name }; again()
@@ -1058,11 +1157,15 @@ object SettingsUi {
                 1 -> { Config.update { s.cachedFirst = !s.cachedFirst }; again() }
                 2 -> prompt(ctx, "Prefer keywords", "Streams containing any of these go first. Comma separated.",
                     s.preferKeywords.joinToString(", "), false) { Config.update { s.preferKeywords = parseCsv(it) }; again() }
-                3 -> prompt(ctx, "Prefer languages", "e.g. en, hi. Streams in these languages go first.",
+                3 -> prompt(ctx, "Prefer languages", "e.g. bn, en, hi. Streams matching an earlier language go first.",
                     s.preferLanguages.joinToString(", "), false) { Config.update { s.preferLanguages = parseCsv(it) }; again() }
-                4 -> confirm(
+                4 -> prompt(ctx, "Prefer video codecs", "Enter a priority order, comma separated. Example: HEVC, AV1, AVC. Unlisted and unknown codecs go after listed codecs. This does not filter streams.",
+                    s.preferCodecs.joinToString(", "), false) { Config.update { s.preferCodecs = parseCsv(it) }; again() }
+                5 -> prompt(ctx, "Prefer audio formats", "Enter a priority order, comma separated. Example: Atmos, TrueHD, DTS-HD, DD+, AAC. Unlisted and unknown formats go after listed formats.",
+                    s.preferAudio.joinToString(", "), false) { Config.update { s.preferAudio = parseCsv(it) }; again() }
+                6 -> confirm(
                     ctx, "Use my order across resolutions?",
-                    "CloudStream normally ranks links by its own quality profile and only keeps this plugin's " +
+                    "CloudStream normally ranks links by its own quality profile first and only keeps this plugin's " +
                         "order between links of equal quality. Turning this ON makes every link report " +
                         "'unknown quality' so the order chosen here is shown exactly. Resolution still appears " +
                         "in each link's name. Currently ${onOff(s.overrideAppQuality)}; switch it?",
