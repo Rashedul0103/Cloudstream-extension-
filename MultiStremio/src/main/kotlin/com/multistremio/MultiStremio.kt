@@ -12,6 +12,7 @@ import com.lagradost.cloudstream3.utils.Qualities
 import com.lagradost.cloudstream3.utils.SubtitleHelper
 import com.lagradost.cloudstream3.utils.loadExtractor
 import com.lagradost.cloudstream3.utils.newExtractorLink
+import java.util.concurrent.CancellationException
 import java.util.concurrent.ConcurrentHashMap
 
 /**
@@ -90,7 +91,7 @@ class MultiStremio : MainAPI() {
                     page,
                     MainPageRequest(installed.row.name, installed.row.data, installed.row.horizontalImages),
                 ) ?: newHomePageResponse(request, emptyList(), false)
-            } catch (e: kotlinx.coroutines.CancellationException) {
+            } catch (e: CancellationException) {
                 throw e
             } catch (_: Exception) {
                 // A broken external provider row must not take down MultiStremio's other rows.
