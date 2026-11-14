@@ -110,6 +110,8 @@ object HomeRows {
     }
 
     /** Number of rows expected to be visible using the currently known source configuration. */
-    fun visibleCount(settings: Settings): Int =
-        resolve(settings).count { it.visibleOnHome }
+    fun visibleCount(
+        settings: Settings,
+        manifestOf: (AddonConfig) -> Manifest? = { Json.parse<Manifest>(it.manifest) },
+    ): Int = resolve(settings, manifestOf = manifestOf).count { it.visibleOnHome }
 }
