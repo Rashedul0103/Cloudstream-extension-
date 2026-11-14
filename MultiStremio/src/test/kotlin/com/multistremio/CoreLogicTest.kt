@@ -46,6 +46,20 @@ class CoreLogicTest {
     }
 
     @Test
+    fun playbackHeadersMergeAndExposeRefererSeparately() {
+        val headers = StreamRequestHeaders.from(
+            BehaviorHints(
+                headers = mapOf("User-Agent" to "AddonAgent", "X-Addon" to "kept"),
+                proxyHeaders = ProxyHeaders(request = mapOf("Referer" to "https://origin.example/", "User-Agent" to "ProxyAgent")),
+            ),
+        )
+        assertEquals("ProxyAgent", headers["User-Agent"])
+        assertEquals("kept", headers["X-Addon"])
+        assertEquals("https://origin.example/", StreamRequestHeaders.referer(headers))
+        assertEquals("", StreamRequestHeaders.referer(mapOf("Authorization" to "token")))
+    }
+
+    @Test
     fun streamUrlNormalizationPreservesSignedQueriesAndPlaybackFragments() {
         assertEquals(
             "https://example.com/video.mkv?token=first#t=12",
