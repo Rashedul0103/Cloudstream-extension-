@@ -468,13 +468,22 @@ object StreamSorter {
             }
         }
         if (s.preferLanguages.isNotEmpty()) {
-            val want = s.preferLanguages.map { Langs.normalize(it) }.toSet()
-            chain += compareByDescending<ParsedStream> {
-                val have = it.info.languages
-                when {
-                    "multi" in have || have.any { l -> l in want } -> 2
-                    have.isEmpty() -> 1
-                    else -> 0
+            // Preserve the user's language order instead of treating every preferred language
+            // as an equal-priority member of a Set. When a release has multiple tracks, its best
+            // (earliest) matching preference determines its rank.
+            val wanted = s.preferLanguages.map { Langs.normalize(it) }
+                .filter { it.isNotBlank() && it != "und" }
+                .distinct()
+            if (wanted.isNotEmpty()) {
+                val positions = wanted.withIndex().associate { it.value to it.index }
+                chain += compareBy<ParsedStream> {
+                    val have = it.info.languages
+                    when {
+                        "multi" in have -> -1
+                        have.isEmpty() -> wanted.size
+                        else -> have.mapNotNull { language -> positions[language] }.minOrNull()
+                            ?: wanted.size + 1
+                    }
                 }
             }
         }
