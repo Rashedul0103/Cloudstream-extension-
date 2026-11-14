@@ -24,7 +24,7 @@ object StremioClient {
 
     suspend fun meta(addon: AddonConfig, type: String, id: String): Meta? {
         val text = fetch(Urls.resource(addon.url, "meta", type, id))
-        return Json.parse<MetaResponse>(text)?.meta?.takeIf { !it.name.isNullOrBlank() }
+        return Json.parse<MetaResponse>(text)?.meta
     }
 
     suspend fun streams(addon: AddonConfig, type: String, id: String): List<RawStream> {
