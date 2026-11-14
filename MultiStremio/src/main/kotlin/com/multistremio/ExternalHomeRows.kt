@@ -19,6 +19,7 @@ object ExternalHomeRows {
     fun installedRows(exclude: MainAPI? = null): List<InstalledExternalHomeRow> {
         val providers = APIHolder.allProviders.withLock { APIHolder.allProviders.toList() }
         val rows = mutableListOf<InstalledExternalHomeRow>()
+        val occurrences = HashMap<String, Int>()
 
         for (provider in providers) {
             if (provider === exclude || provider is MultiStremio) continue
@@ -29,9 +30,10 @@ object ExternalHomeRows {
             val providerClass = provider.javaClass.name
             for (row in mainRows) {
                 val dataHash = Hashing.sha256(row.data)
-                val key = externalHomeRowKey(
-                    source, provider.name, providerClass, row.name, dataHash, row.horizontalImages
-                )
+                val identity = externalRowIdentity(source, provider.name, providerClass, row.name, row.horizontalImages)
+                val occurrence = occurrences[identity] ?: 0
+                occurrences[identity] = occurrence + 1
+                val key = externalHomeRowKey(identity, occurrence)
                 rows += InstalledExternalHomeRow(
                     ExternalRowConfig(
                         key = key,
@@ -40,6 +42,7 @@ object ExternalHomeRows {
                         sourcePlugin = source,
                         rowName = row.name,
                         dataHash = dataHash,
+                        occurrence = occurrence,
                         horizontalImages = row.horizontalImages,
                     ),
                     provider,
@@ -50,20 +53,45 @@ object ExternalHomeRows {
         return rows.distinctBy { it.config.key }
     }
 
-    /** Resolve the saved reference against the providers that are loaded right now. */
+    /**
+     * Resolve exact new keys first. For older saved rows, fall back to the stable provider/row
+     * identity; dataHash is used only to disambiguate duplicate row titles, never as identity.
+     */
     fun resolve(config: ExternalRowConfig, exclude: MainAPI? = null): InstalledExternalHomeRow? =
-        installedRows(exclude).firstOrNull { it.config.key == config.key }
+        resolve(config, installedRows(exclude))
 
-    private fun externalHomeRowKey(
+    fun resolve(
+        config: ExternalRowConfig,
+        availableRows: List<InstalledExternalHomeRow>,
+    ): InstalledExternalHomeRow? {
+        availableRows.firstOrNull { it.config.key == config.key }?.let { return it }
+
+        val matches = availableRows.filter {
+            it.config.sourcePlugin == config.sourcePlugin &&
+                it.config.providerName == config.providerName &&
+                it.config.providerClass == config.providerClass &&
+                it.config.rowName == config.rowName &&
+                it.config.horizontalImages == config.horizontalImages
+        }
+        if (matches.isEmpty()) return null
+        if (config.dataHash.isNotBlank()) {
+            matches.firstOrNull { it.config.dataHash == config.dataHash }?.let { return it }
+        }
+        // A legacy row with no exact data match can only be safely migrated when unambiguous.
+        return matches.singleOrNull()
+    }
+
+    private fun externalRowIdentity(
         sourcePlugin: String,
         providerName: String,
         providerClass: String,
         rowName: String,
-        dataHash: String,
         horizontalImages: Boolean,
-    ): String = "external:" + Hashing.sha256(
-        listOf(sourcePlugin, providerName, providerClass, rowName, dataHash, horizontalImages.toString())
-            .joinToString("\u0000")
-    )
+    ): String = listOf(
+        sourcePlugin, providerName, providerClass, rowName, horizontalImages.toString()
+    ).joinToString("\u0000")
+
+    private fun externalHomeRowKey(identity: String, occurrence: Int): String =
+        "external:" + Hashing.sha256("$identity\u0000$occurrence")
 
 }
