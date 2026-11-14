@@ -257,24 +257,20 @@ object SettingsUi {
     // ---- global catalog row manager ---------------------------------------------------------
 
     private data class CatalogRow(
-        val addon: AddonConfig,
-        val type: String,
-        val id: String,
+        val key: String,
+        val sourceLabel: String,
         val name: String,
-    ) {
-        val key: String get() = catalogOrderKey(addon.id, type, id)
-        val rowEnabled: Boolean get() = "$type/$id" !in addon.hiddenCatalogs
-        val status: String get() = when {
-            !addon.enabled -> "ADDON OFF"
-            !addon.useCatalogs -> "CATALOGS OFF"
-            rowEnabled -> "ON"
-            else -> "HIDDEN"
-        }
-    }
+        val status: String,
+        val rowEnabled: Boolean,
+        val addon: AddonConfig? = null,
+        val type: String? = null,
+        val id: String? = null,
+        val external: ExternalRowConfig? = null,
+    )
 
     /**
-     * Includes rows whose addon/catalog source is currently disabled so the user can switch
-     * them back on from this screen. Rows not yet in catalogOrder retain manifest/addon order.
+     * Combines Stremio catalogs and selected rows from installed CloudStream extensions.
+     * Unavailable external rows remain visible here so users can remove stale references.
      */
     private fun catalogRows(): List<CatalogRow> {
         val rows = mutableListOf<CatalogRow>()
@@ -284,12 +280,39 @@ object SettingsUi {
                 val type = catalog.type ?: continue
                 val id = catalog.id ?: continue
                 if (!catalog.isHomeCatalog()) continue
-                rows += CatalogRow(addon, type, id, catalog.name ?: id)
+                val enabled = "$type/$id" !in addon.hiddenCatalogs
+                val status = when {
+                    !addon.enabled -> "ADDON OFF"
+                    !addon.useCatalogs -> "CATALOGS OFF"
+                    enabled -> "ON"
+                    else -> "HIDDEN"
+                }
+                rows += CatalogRow(
+                    catalogOrderKey(addon.id, type, id), addon.name, catalog.name ?: id,
+                    status, enabled, addon, type, id,
+                )
             }
         }
 
+        val installed = ExternalHomeRows.installedRows().associateBy { it.config.key }
+        for (external in Config.settings.externalRows) {
+            val available = installed.containsKey(external.key)
+            rows += CatalogRow(
+                key = external.key,
+                sourceLabel = external.providerName,
+                name = external.rowName,
+                status = when {
+                    !available -> "EXTENSION MISSING"
+                    external.enabled -> "ON"
+                    else -> "HIDDEN"
+                },
+                rowEnabled = external.enabled,
+                external = external,
+            )
+        }
+
         val positions = Config.settings.catalogOrder.withIndex().associate { it.value to it.index }
-        return rows.withIndex()
+        return rows.distinctBy { it.key }.withIndex()
             .sortedWith(
                 compareBy<IndexedValue<CatalogRow>> { positions[it.value.key] ?: Int.MAX_VALUE }
                     .thenBy { it.index },
@@ -299,22 +322,24 @@ object SettingsUi {
 
     private fun catalogRowsMenu(ctx: Context) {
         val rows = catalogRows()
-        if (rows.isEmpty()) {
-            menu(ctx, "Catalog rows", listOf("No browsable catalog rows found"), { mainMenu(ctx) }) { }
-            return
-        }
-
         val labels = rows.mapIndexed { index, row ->
-            "${index + 1}. [${row.status}] ${row.addon.name} · ${row.name} (${row.type})"
-        } + listOf("Reset row order to addon priority", "Unhide all catalog rows")
+            val source = row.external?.let { "Extension: ${row.sourceLabel}" }
+                ?: "${row.sourceLabel} (${row.type})"
+            "${index + 1}. [${row.status}] $source · ${row.name}"
+        } + listOf(
+            "Add rows from installed extensions",
+            "Reset row order",
+            "Unhide all Stremio catalog rows",
+        )
 
         menu(ctx, "Catalog rows · tap a row to manage it", labels, { mainMenu(ctx) }) { which ->
             when {
                 which < rows.size -> catalogRowMenu(ctx, rows[which])
-                which == rows.size -> confirm(
+                which == rows.size -> addExternalRowsMenu(ctx)
+                which == rows.size + 1 -> confirm(
                     ctx,
                     "Reset catalog row order?",
-                    "Rows will return to addon order and each addon's manifest order.",
+                    "Rows will return to Stremio addon order, followed by newly added extension rows.",
                 ) {
                     Config.update { catalogOrder.clear() }
                     toast(ctx, "Catalog row order reset. Refresh the home page to apply.")
@@ -322,40 +347,78 @@ object SettingsUi {
                 }
                 else -> confirm(
                     ctx,
-                    "Unhide every catalog row?",
-                    "This clears row-level hiding. Addons that are disabled or excluded from catalogs remain inactive.",
+                    "Unhide every Stremio catalog row?",
+                    "This clears row-level hiding. Disabled addons and disabled catalog use remain inactive. Extension rows are unchanged.",
                 ) {
                     Config.update { addons.forEach { it.hiddenCatalogs.clear() } }
-                    toast(ctx, "All catalog rows unhidden. Refresh the home page to apply.")
+                    toast(ctx, "Stremio catalog rows unhidden. Refresh the home page to apply.")
                     catalogRowsMenu(ctx)
                 }
             }
         }
     }
 
+    private fun addExternalRowsMenu(ctx: Context) {
+        val selected = Config.settings.externalRows.map { it.key }.toSet()
+        val installed = ExternalHomeRows.installedRows()
+        val candidates = installed.filter { it.config.key !in selected }
+        if (candidates.isEmpty()) {
+            val message = if (installed.isEmpty()) {
+                "No other installed extensions with homepage rows were found."
+            } else {
+                "All available extension homepage rows have already been added."
+            }
+            menu(ctx, "Add rows from installed extensions", listOf(message), { catalogRowsMenu(ctx) }) { }
+            return
+        }
+
+        val labels = candidates.map { "${it.config.providerName} · ${it.row.name}" }
+        menu(ctx, "Choose an installed extension homepage row", labels, { catalogRowsMenu(ctx) }) { which ->
+            val chosen = candidates[which].config
+            Config.update {
+                if (externalRows.none { it.key == chosen.key }) externalRows.add(chosen)
+                if (chosen.key !in catalogOrder) catalogOrder.add(chosen.key)
+            }
+            toast(ctx, "Added ${chosen.rowName}. Reorder it from Catalog rows, then refresh the home page.")
+            catalogRowsMenu(ctx)
+        }
+    }
+
     private fun catalogRowMenu(ctx: Context, row: CatalogRow) {
         val rows = catalogRows()
         val position = rows.indexOfFirst { it.key == row.key }
+        val external = row.external
         val labels = listOf(
             if (row.rowEnabled) "Hide this row" else "Show this row",
             "Move up",
             "Move down",
             "Move to top",
             "Move to bottom",
-            "Manage addon settings",
+            if (external != null) "Remove row from MultiStremio" else "Manage addon settings",
         )
         menu(
             ctx,
-            "${row.addon.name} · ${row.name}",
+            "${row.sourceLabel} · ${row.name}",
             labels,
             { catalogRowsMenu(ctx) },
         ) { which ->
             when (which) {
                 0 -> {
-                    Config.update {
-                        val localKey = "${row.type}/${row.id}"
-                        if (row.rowEnabled) row.addon.hiddenCatalogs.add(localKey)
-                        else row.addon.hiddenCatalogs.remove(localKey)
+                    if (external != null) {
+                        Config.update {
+                            externalRows.firstOrNull { it.key == external.key }?.enabled = !row.rowEnabled
+                        }
+                    } else {
+                        val addon = row.addon
+                        val type = row.type
+                        val id = row.id
+                        if (addon != null && type != null && id != null) {
+                            Config.update {
+                                val localKey = "$type/$id"
+                                if (row.rowEnabled) addon.hiddenCatalogs.add(localKey)
+                                else addon.hiddenCatalogs.remove(localKey)
+                            }
+                        }
                     }
                     toast(ctx, "Saved row visibility. Refresh the home page to apply.")
                     catalogRowsMenu(ctx)
@@ -364,7 +427,20 @@ object SettingsUi {
                 2 -> { moveCatalogRow(ctx, row, position + 1); catalogRowsMenu(ctx) }
                 3 -> { moveCatalogRow(ctx, row, 0); catalogRowsMenu(ctx) }
                 4 -> { moveCatalogRow(ctx, row, rows.lastIndex); catalogRowsMenu(ctx) }
-                5 -> addonMenu(ctx, row.addon)
+                5 -> {
+                    if (external != null) {
+                        confirm(ctx, "Remove extension row?", "This only removes the row from MultiStremio. The source extension remains installed.") {
+                            Config.update {
+                                externalRows.removeAll { it.key == external.key }
+                                catalogOrder.removeAll { it == external.key }
+                            }
+                            toast(ctx, "Extension row removed.")
+                            catalogRowsMenu(ctx)
+                        }
+                    } else {
+                        row.addon?.let { addonMenu(ctx, it) } ?: catalogRowsMenu(ctx)
+                    }
+                }
             }
         }
     }
