@@ -135,6 +135,11 @@ data class ProxyHeaders(
 // Short keys keep the strings small.
 // ---------------------------------------------------------------------------------------------
 
+/** Points at an external installed extension homepage row; stored as MainPageData.data. */
+data class ExternalPageRef(
+    @JsonProperty("key") val key: String = "",
+)
+
 /** Points at a catalog entry; stored as the SearchResponse url. */
 @JsonIgnoreProperties(ignoreUnknown = true)
 data class ItemRef(
