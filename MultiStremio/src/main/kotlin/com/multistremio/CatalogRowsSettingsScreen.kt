@@ -374,7 +374,7 @@ internal object CatalogRowsSettingsScreen {
                             catalogRowsMenu(ctx)
                         }
                     } else {
-                        row.addon?.let { addonMenu(ctx, it) } ?: catalogRowsMenu(ctx)
+                        row.addon?.let { AddonsSettingsScreen.showAddon(ctx, it) } ?: catalogRowsMenu(ctx)
                     }
                 }
             }
