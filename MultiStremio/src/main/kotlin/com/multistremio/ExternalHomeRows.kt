@@ -44,7 +44,6 @@ object ExternalHomeRows {
                         sourcePlugin = source,
                         rowName = row.name,
                         dataHash = dataHash,
-                        occurrence = occurrence,
                         horizontalImages = row.horizontalImages,
                     ),
                     provider,
