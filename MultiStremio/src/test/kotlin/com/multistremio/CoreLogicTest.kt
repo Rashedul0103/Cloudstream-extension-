@@ -556,7 +556,7 @@ class CoreLogicTest {
             "Addon?token=[redacted]&region=bd",
             StreamDiagnostics.safeAddonName("Addon?token=secret&region=bd"),
         )
-        assertEquals("First Second", StreamDiagnostics.safeAddonName("First\\nSecond"))
+        assertEquals("First Second", StreamDiagnostics.safeAddonName("First\nSecond"))
     }
 
     @Test
