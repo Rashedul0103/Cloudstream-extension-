@@ -42,11 +42,26 @@ object StreamDiagnostics {
     @Volatile
     private var latestSnapshot: StreamDiagnosticSnapshot? = null
 
+    @Volatile
+    private var latestCompletedRunId: Long = 0L
+
+    /** Addon names come from remote manifests or user input, so redact URL and query credentials. */
+    fun safeAddonName(value: String): String = value
+        .replace(Regex("""(?i)https?://[^\\s]+"""), "[URL redacted]")
+        .replace(
+            Regex("""(?i)([?&](?:token|key|api[_-]?key|auth|password|secret)=)[^&\\s]+"""),
+            "$1[redacted]",
+        )
+        .replace(Regex("""[\\r\\n]+"""), " ")
+        .trim()
+        .take(80)
+        .ifBlank { "Unnamed addon" }
+
     fun begin(): Long {
         val id = ids.incrementAndGet()
         active[id] = ActiveRun()
         if (active.size > 8) {
-            active.entries.sortedBy { it.value.startedAt }
+            active.entries.sortedBy { it.key }
                 .take(active.size - 8).forEach { active.remove(it.key) }
         }
         return id
@@ -64,7 +79,7 @@ object StreamDiagnostics {
         val run = active[runId] ?: return
         synchronized(run.requests) {
             run.requests += StreamRequestDiagnostic(
-                addonName, resource, elapsedMs.coerceAtLeast(0L),
+                safeAddonName(addonName), resource, elapsedMs.coerceAtLeast(0L),
                 status, resultCount.coerceAtLeast(0),
             )
         }
@@ -93,7 +108,7 @@ object StreamDiagnostics {
         val run = active.remove(runId) ?: return
         val requests = synchronized(run.requests) { run.requests.toList() }
         val stageTimes = synchronized(run) { Triple(run.parseWorkMs, run.pipelineMs, run.emissionMs) }
-        latestSnapshot = StreamDiagnosticSnapshot(
+        val snapshot = StreamDiagnosticSnapshot(
             startedAt = run.startedAt,
             durationMs = ((System.nanoTime() - run.startedNanos) / 1_000_000L).coerceAtLeast(0L),
             parseWorkMs = stageTimes.first,
@@ -106,6 +121,13 @@ object StreamDiagnostics {
             emittedLinks = emittedLinks.coerceAtLeast(0),
             requests = requests,
         )
+        // A slow older lookup must not overwrite a newer lookup that completed first.
+        synchronized(this) {
+            if (runId > latestCompletedRunId) {
+                latestSnapshot = snapshot
+                latestCompletedRunId = runId
+            }
+        }
     }
 
     fun latest(): StreamDiagnosticSnapshot? = latestSnapshot
