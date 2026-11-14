@@ -43,8 +43,10 @@ object SettingsBackupManager {
      * The old format always contains addon URLs, so it is treated as a sensitive full backup.
      */
     fun parse(text: String): SettingsBackup? {
-        val envelope = Json.parse<SettingsBackup>(text)
-        if (envelope?.format == FORMAT) {
+        val root = runCatching { Json.mapper.readTree(text) }.getOrNull() ?: return null
+        val isEnvelope = root.get("format")?.asText() == FORMAT
+        if (isEnvelope) {
+            val envelope = Json.parse<SettingsBackup>(text) ?: return null
             if (envelope.version !in 1..CURRENT_VERSION || envelope.settings == null) return null
             return envelope
         }
