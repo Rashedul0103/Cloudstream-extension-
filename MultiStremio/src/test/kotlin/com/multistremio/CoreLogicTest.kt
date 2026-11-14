@@ -101,6 +101,100 @@ class CoreLogicTest {
     }
 
     @Test
+    fun duplicatePrimaryNormalHeadersBeatSecondaryProxyHeaders() {
+        val primary = StreamParser.parsed(
+            0,
+            "Primary addon",
+            RawStream(
+                url = "https://example.com/cross-map.m3u8?sig=same",
+                behaviorHints = BehaviorHints(
+                    headers = mapOf("X-Session" to "primary", "Referer" to "https://primary.example/"),
+                ),
+            ),
+        )
+        val secondary = StreamParser.parsed(
+            1,
+            "Secondary addon",
+            RawStream(
+                url = "https://EXAMPLE.com:443/a/../cross-map.m3u8?sig=same",
+                behaviorHints = BehaviorHints(
+                    proxyHeaders = ProxyHeaders(
+                        request = mapOf("x-session" to "secondary", "referer" to "https://secondary.example/"),
+                    ),
+                ),
+            ),
+        )
+
+        val merged = StreamPipeline.process(listOf(primary, secondary), FilterSettings(), SortSettings()).single()
+        val headers = StreamRequestHeaders.from(merged.raw.behaviorHints)
+        assertEquals("primary", headers.entries.single { it.key.equals("x-session", ignoreCase = true) }.value)
+        assertEquals("https://primary.example/", StreamRequestHeaders.referer(headers))
+    }
+
+    @Test
+    fun dragInsertionMathSupportsTopMiddleAndBottomDropTargets() {
+        val remainingCenters = listOf(30f, 80f, 130f)
+        assertEquals(0, DragReorderMath.insertionIndex(remainingCenters, 10f))
+        assertEquals(1, DragReorderMath.insertionIndex(remainingCenters, 55f))
+        assertEquals(2, DragReorderMath.insertionIndex(remainingCenters, 120f))
+        assertEquals(3, DragReorderMath.insertionIndex(remainingCenters, 180f))
+        assertEquals(0, DragReorderMath.insertionIndex(emptyList(), 180f))
+    }
+
+    @Test
+    fun addonHealthClassificationDistinguishesTransportAndManifestFailures() {
+        val cases = listOf(
+            SimpleHttpStatus.TIMEOUT to "Connection timed out after 8 seconds",
+            SimpleHttpStatus.DNS_ERROR to "Could not resolve the addon host",
+            SimpleHttpStatus.INVALID_URL to "Addon URL is invalid",
+            SimpleHttpStatus.NETWORK_ERROR to "Network connection failed",
+            SimpleHttpStatus.EMPTY_BODY to "Server responded but returned an empty manifest",
+        )
+        cases.forEach { (status, detail) ->
+            val result = AddonHealthClassifier.assess(SimpleHttpResult(null, status), null)
+            assertFalse(result.success)
+            assertEquals(detail, result.detail)
+        }
+
+        val http = AddonHealthClassifier.assess(
+            SimpleHttpResult(null, SimpleHttpStatus.HTTP_ERROR, 503),
+            null,
+        )
+        assertFalse(http.success)
+        assertEquals("Server returned HTTP 503", http.detail)
+
+        val malformed = AddonHealthClassifier.assess(
+            SimpleHttpResult("{broken", SimpleHttpStatus.OK, 200),
+            null,
+        )
+        assertFalse(malformed.success)
+        assertEquals("Server response is not valid JSON", malformed.detail)
+
+        val invalidManifest = AddonHealthClassifier.assess(
+            SimpleHttpResult("{}", SimpleHttpStatus.OK, 200),
+            Manifest(),
+        )
+        assertFalse(invalidManifest.success)
+        assertEquals("JSON response is not a valid Stremio addon manifest", invalidManifest.detail)
+
+        val validManifest = AddonHealthClassifier.assess(
+            SimpleHttpResult("{\"name\":\"Working addon\"}", SimpleHttpStatus.OK, 200),
+            Manifest(name = "Working addon"),
+        )
+        assertTrue(validManifest.success)
+    }
+
+    @Test
+    fun legacySettingsJsonUsesDefaultsForNewSettings() {
+        val settings = Json.parse<Settings>("""{"addons":[],"filter":{},"sort":{}}""")
+        assertNotNull(settings)
+        assertFalse(settings!!.streamFormat.enabled)
+        assertTrue(settings.streamFormat.fields.isNotEmpty())
+        assertTrue(settings.sort.preferCodecs.isEmpty())
+        assertTrue(settings.sort.preferAudio.isEmpty())
+    }
+
+    @Test
     fun streamUrlNormalizationPreservesSignedQueriesAndPlaybackFragments() {
         assertEquals(
             "https://example.com/video.mkv?token=first#t=12",

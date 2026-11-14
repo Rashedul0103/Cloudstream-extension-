@@ -60,29 +60,68 @@ object Json {
 }
 
 /** Blocking HTTP used only by settings/background threads (the provider uses CloudStream's `app`). */
+enum class SimpleHttpStatus {
+    OK,
+    EMPTY_BODY,
+    HTTP_ERROR,
+    TIMEOUT,
+    DNS_ERROR,
+    INVALID_URL,
+    NETWORK_ERROR,
+}
+
+data class SimpleHttpResult(
+    val body: String?,
+    val status: SimpleHttpStatus,
+    val httpCode: Int? = null,
+)
+
+/** Blocking HTTP used only by settings/background threads (the provider uses CloudStream's `app`). */
 object SimpleHttp {
-    fun get(url: String, timeoutMs: Int = 20000): String? {
-        // Invalid pasted URLs must fail as a normal null result, not crash the settings thread.
+    /** Backwards-compatible body-only helper for addon creation and manifest refresh. */
+    fun get(url: String, timeoutMs: Int = 20000): String? =
+        getDetailed(url, timeoutMs).body
+
+    /** Returns transport outcome and HTTP status without exposing the requested URL. */
+    fun getDetailed(url: String, timeoutMs: Int = 20000): SimpleHttpResult {
+        val parsedUrl = try {
+            URL(url)
+        } catch (_: java.net.MalformedURLException) {
+            return SimpleHttpResult(null, SimpleHttpStatus.INVALID_URL)
+        }
+
         val conn = try {
-            URL(url).openConnection() as? HttpURLConnection
+            parsedUrl.openConnection() as? HttpURLConnection
         } catch (_: Exception) {
             null
-        } ?: return null
+        } ?: return SimpleHttpResult(null, SimpleHttpStatus.INVALID_URL)
 
         return try {
             conn.connectTimeout = timeoutMs
             conn.readTimeout = timeoutMs
             conn.instanceFollowRedirects = true
             conn.setRequestProperty("User-Agent", "Mozilla/5.0 (Linux; Android) CloudStream-MultiStremio")
-            if (conn.responseCode in 200..299) conn.inputStream.bufferedReader().use { it.readText() } else null
+            val code = conn.responseCode
+            if (code !in 200..299) {
+                SimpleHttpResult(null, SimpleHttpStatus.HTTP_ERROR, code)
+            } else {
+                val body = conn.inputStream.bufferedReader().use { it.readText() }
+                if (body.isBlank()) SimpleHttpResult(body, SimpleHttpStatus.EMPTY_BODY, code)
+                else SimpleHttpResult(body, SimpleHttpStatus.OK, code)
+            }
+        } catch (_: java.net.SocketTimeoutException) {
+            SimpleHttpResult(null, SimpleHttpStatus.TIMEOUT)
+        } catch (_: java.net.UnknownHostException) {
+            SimpleHttpResult(null, SimpleHttpStatus.DNS_ERROR)
+        } catch (_: java.net.MalformedURLException) {
+            SimpleHttpResult(null, SimpleHttpStatus.INVALID_URL)
         } catch (_: Exception) {
-            null
+            SimpleHttpResult(null, SimpleHttpStatus.NETWORK_ERROR)
         } finally {
             conn.disconnect()
         }
     }
 }
-
 object Hashing {
     fun sha256(value: String): String {
         val bytes = MessageDigest.getInstance("SHA-256").digest(value.toByteArray(Charsets.UTF_8))

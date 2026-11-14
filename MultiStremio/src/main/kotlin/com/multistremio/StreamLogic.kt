@@ -587,21 +587,19 @@ object StreamPipeline {
         val b = second.raw
         val firstHints = a.behaviorHints
         val secondHints = b.behaviorHints
-        val proxyHeaders = StreamRequestHeaders.merge(
-            preferred = firstHints?.proxyHeaders?.request,
-            fallback = secondHints?.proxyHeaders?.request,
-        ).takeIf { it.isNotEmpty() }
-            ?.let { ProxyHeaders(request = it) }
+        // Flatten each stream's effective headers first (proxy overrides normal within
+        // that stream), then let the primary stream win across both sources.
+        // This prevents a secondary proxy map from overriding primary normal headers.
         val headers = StreamRequestHeaders.merge(
-            preferred = firstHints?.headers,
-            fallback = secondHints?.headers,
+            preferred = StreamRequestHeaders.from(firstHints),
+            fallback = StreamRequestHeaders.from(secondHints),
         ).takeIf { it.isNotEmpty() }
         val hints = if (firstHints == null && secondHints == null) null else BehaviorHints(
             filename = firstHints?.filename?.takeIf { it.isNotBlank() } ?: secondHints?.filename,
             videoSize = firstHints?.videoSize ?: secondHints?.videoSize,
             bingeGroup = firstHints?.bingeGroup ?: secondHints?.bingeGroup,
             notWebReady = firstHints?.notWebReady ?: secondHints?.notWebReady,
-            proxyHeaders = proxyHeaders,
+            proxyHeaders = null,
             headers = headers,
         )
         val mergedRaw = a.copy(
