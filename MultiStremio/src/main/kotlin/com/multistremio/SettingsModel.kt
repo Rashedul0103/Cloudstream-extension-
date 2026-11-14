@@ -80,6 +80,7 @@ data class ExternalRowConfig(
     var providerClass: String = "",
     var sourcePlugin: String = "",
     var rowName: String = "",
+    /** Used only to resolve legacy duplicate rows when their opaque data has not changed. */
     var dataHash: String = "",
     /** Stable position only distinguishes duplicate same-name rows from the same provider. */
     var occurrence: Int = 0,
