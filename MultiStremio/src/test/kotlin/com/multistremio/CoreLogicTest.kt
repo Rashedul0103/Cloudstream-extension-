@@ -142,6 +142,32 @@ class CoreLogicTest {
     }
 
     @Test
+    fun externalOnlyTargetsDeduplicateWithoutLosingSignedUrlDifferences() {
+        val firstYoutube = StreamParser.parsed(0, "First addon", RawStream(ytId = "AbC123"))
+        val duplicateYoutube = StreamParser.parsed(1, "Second addon", RawStream(ytId = "AbC123"))
+        val otherYoutube = StreamParser.parsed(2, "Third addon", RawStream(ytId = "AbC124"))
+        assertEquals(
+            StreamDeduplication.externalKey(firstYoutube),
+            StreamDeduplication.externalKey(duplicateYoutube),
+        )
+        assertNotEquals(
+            StreamDeduplication.externalKey(firstYoutube),
+            StreamDeduplication.externalKey(otherYoutube),
+        )
+
+        val signedA = StreamParser.parsed(
+            0, "First addon", RawStream(externalUrl = "https://example.com/watch?token=one"),
+        )
+        val signedB = StreamParser.parsed(
+            1, "Second addon", RawStream(externalUrl = "https://example.com/watch?token=two"),
+        )
+        assertNotEquals(
+            StreamDeduplication.externalKey(signedA),
+            StreamDeduplication.externalKey(signedB),
+        )
+    }
+
+    @Test
     fun invalidRegexFiltersAreDetectedBeforeTheyCanBeSaved() {
         assertEquals(
             listOf("/[/"),
