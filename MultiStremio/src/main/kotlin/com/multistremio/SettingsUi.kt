@@ -787,7 +787,7 @@ object SettingsUi {
                     "A stream must contain at least one of these. Leave empty to disable.",
                     f.requireKeywords.joinToString(", "), false) { Config.update { f.requireKeywords = parseCsv(it) }; again() }
                 11 -> prompt(ctx, "Required languages",
-                    "Codes or names, e.g. en, hi, french. Streams with no detectable language are kept unless strict mode is on. Leave empty to disable.",
+                    "Codes, regional tags or names, e.g. en, eng, en-US, pt-BR, Bengali. Streams with no detectable language are kept unless strict mode is on. Leave empty to disable.",
                     f.requireLanguages.joinToString(", "), false) { Config.update { f.requireLanguages = parseCsv(it) }; again() }
                 12 -> { Config.update { f.strictLanguage = !f.strictLanguage }; again() }
                 13 -> number(ctx, "Max results per addon (0 = off)", f.maxPerAddon) { Config.update { f.maxPerAddon = it }; again() }
@@ -845,7 +845,7 @@ object SettingsUi {
         menu(ctx, "Subtitles", rows, { mainMenu(ctx) }, "Choose whether subtitle addons are queried and which languages are preferred.") { which ->
             when (which) {
                 0 -> { Config.update { fetchSubtitles = !fetchSubtitles }; subtitlesMenu(ctx) }
-                1 -> prompt(ctx, "Subtitle languages", "e.g. en, es, bengali. Leave empty for all languages.",
+                1 -> prompt(ctx, "Subtitle languages", "Codes, regional tags or names, e.g. en, eng, en-US, pt-BR, Bengali. Leave empty for all languages.",
                     s.subtitleLanguages.joinToString(", "), false) {
                     Config.update { subtitleLanguages = parseCsv(it) }; subtitlesMenu(ctx)
                 }
