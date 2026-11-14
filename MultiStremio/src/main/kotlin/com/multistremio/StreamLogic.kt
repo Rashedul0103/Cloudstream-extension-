@@ -536,6 +536,15 @@ object StreamDeduplication {
 // ---------------------------------------------------------------------------------------------
 
 
+/** Combines addon playback headers and preserves Referer for players that use the dedicated field. */
+object StreamRequestHeaders {
+    fun from(hints: BehaviorHints?): Map<String, String> =
+        hints?.headers.orEmpty() + hints?.proxyHeaders?.request.orEmpty()
+
+    fun referer(headers: Map<String, String>): String =
+        headers.entries.firstOrNull { it.key.equals("referer", ignoreCase = true) }?.value.orEmpty()
+}
+
 object StreamPipeline {
     private fun dedupeKey(p: ParsedStream): String? = StreamDeduplication.key(p)
 
