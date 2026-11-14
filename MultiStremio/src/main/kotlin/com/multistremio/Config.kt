@@ -10,6 +10,8 @@ import java.net.HttpURLConnection
 import java.net.URL
 import java.security.MessageDigest
 import java.util.concurrent.ConcurrentHashMap
+import java.util.concurrent.Executors
+import java.util.concurrent.atomic.AtomicBoolean
 import kotlin.concurrent.thread
 
 data class ArrayParseResult<T>(val items: List<T>, val status: String)
@@ -156,6 +158,7 @@ object Config {
         private set
 
     private val parsedCache = ConcurrentHashMap<String, Pair<String, Manifest?>>()
+    private val manifestRefreshRunning = AtomicBoolean(false)
 
     fun init(context: Context) {
         prefs = context.applicationContext.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
@@ -211,19 +214,39 @@ object Config {
         val text = SimpleHttp.get(Urls.manifest(addon.url)) ?: return false
         val m = Json.parse<Manifest>(text) ?: return false
         if (m.name == null && m.resources == null) return false
+        var updated = false
         update {
-            addon.manifest = text
-            addon.manifestFetchedAt = System.currentTimeMillis()
-            if (addon.name.isBlank()) addon.name = m.name ?: addon.url
+            // A refresh can finish after the user removes an addon or restores a different backup.
+            // Update only the matching addon that is still part of the current settings.
+            val current = addons.firstOrNull { it.id == addon.id && it.url == addon.url }
+                ?: return@update
+            current.manifest = text
+            current.manifestFetchedAt = System.currentTimeMillis()
+            if (current.name.isBlank()) current.name = m.name ?: current.url
+            updated = true
         }
-        return true
+        return updated
     }
 
     private fun refreshStaleManifestsInBackground() {
-        val stale = settings.addons.filter { System.currentTimeMillis() - it.manifestFetchedAt > REFRESH_AFTER_MS }
-        if (stale.isEmpty()) return
+        val snapshot = synchronized(this) { settings.addons.toList() }
+        val now = System.currentTimeMillis()
+        val stale = snapshot.filter { now - it.manifestFetchedAt > REFRESH_AFTER_MS }
+        if (stale.isEmpty() || !manifestRefreshRunning.compareAndSet(false, true)) return
+
         thread(start = true, isDaemon = true, name = "multistremio-refresh") {
-            stale.forEach { try { refreshManifest(it) } catch (_: Exception) { } }
+            val executor = Executors.newFixedThreadPool(minOf(3, stale.size))
+            try {
+                // A few parallel requests avoid waiting through one full timeout per addon while
+                // keeping startup network and connection usage bounded on mobile devices.
+                val tasks = stale.map { addon ->
+                    executor.submit<Boolean> { runCatching { refreshManifest(addon) }.getOrDefault(false) }
+                }
+                tasks.forEach { runCatching { it.get() } }
+            } finally {
+                executor.shutdown()
+                manifestRefreshRunning.set(false)
+            }
         }
     }
 }
