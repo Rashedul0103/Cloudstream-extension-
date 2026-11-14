@@ -69,22 +69,21 @@ internal object FiltersSettingsScreen {
                     description = "Select which resolutions to allow. Leave every box unchecked to allow any resolution.",
                     onCancel = again,
                 ) { v ->
-                    Config.update { f.allowedResolutions = RES_OPTIONS.filterIndexed { i, _ -> v[i] }.map { it.first }.toMutableList() }
-                    again()
+                    updateAndReopen({ again() }) { f.allowedResolutions = RES_OPTIONS.filterIndexed { i, _ -> v[i] }.map { it.first }.toMutableList() }
                 }
-                1 -> { Config.update { f.hideCam = !f.hideCam }; again() }
-                2 -> { Config.update { f.hideMagnets = !f.hideMagnets }; again() }
-                3 -> { Config.update { f.hideUncachedDebrid = !f.hideUncachedDebrid }; again() }
+                1 -> { updateAndReopen({ again() }) { f.hideCam = !f.hideCam } }
+                2 -> { updateAndReopen({ again() }) { f.hideMagnets = !f.hideMagnets } }
+                3 -> { updateAndReopen({ again() }) { f.hideUncachedDebrid = !f.hideUncachedDebrid } }
                 4 -> choose(ctx, "HEVC / x265", listOf("Show any", "Hide HEVC", "Only HEVC"), f.hevcMode, onCancel = again) {
-                    Config.update { f.hevcMode = it }; again()
+                    updateAndReopen({ again() }) { f.hevcMode = it }
                 }
                 5 -> choose(ctx, "HDR / Dolby Vision", listOf("Show any", "Hide HDR/DV", "Only HDR/DV"), f.hdrMode, onCancel = again) {
-                    Config.update { f.hdrMode = it }; again()
+                    updateAndReopen({ again() }) { f.hdrMode = it }
                 }
-                6 -> number(ctx, "Min size (MB, 0 = off)", f.minSizeMb, onCancel = again) { Config.update { f.minSizeMb = it }; again() }
-                7 -> number(ctx, "Max size (GB, 0 = off)", f.maxSizeGb, onCancel = again) { Config.update { f.maxSizeGb = it }; again() }
+                6 -> number(ctx, "Min size (MB, 0 = off)", f.minSizeMb, onCancel = again) { updateAndReopen({ again() }) { f.minSizeMb = it } }
+                7 -> number(ctx, "Max size (GB, 0 = off)", f.maxSizeGb, onCancel = again) { updateAndReopen({ again() }) { f.maxSizeGb = it } }
                 8 -> number(ctx, "Min seeders (0 = off). Streams without seeder info are kept.", f.minSeeders, onCancel = again) {
-                    Config.update { f.minSeeders = it }; again()
+                    updateAndReopen({ again() }) { f.minSeeders = it }
                 }
                 9 -> keywordList(
                     ctx,
@@ -92,20 +91,20 @@ internal object FiltersSettingsScreen {
                     "Comma separated, case-insensitive. Wrap in slashes for a regex, e.g. /x26[45]/. Invalid regex patterns are rejected.",
                     f.excludeKeywords.joinToString(", "),
                     onCancel = again,
-                ) { values -> Config.update { f.excludeKeywords = values }; again() }
+                ) { values -> updateAndReopen({ again() }) { f.excludeKeywords = values } }
                 10 -> keywordList(
                     ctx,
                     "Require keywords",
                     "A stream must contain at least one of these. Leave empty to disable. Wrap regex patterns in slashes, e.g. /x26[45]/.",
                     f.requireKeywords.joinToString(", "),
                     onCancel = again,
-                ) { values -> Config.update { f.requireKeywords = values }; again() }
+                ) { values -> updateAndReopen({ again() }) { f.requireKeywords = values } }
                 11 -> prompt(ctx, "Required languages",
                     "Codes, regional tags or names, e.g. en, eng, en-US, pt-BR, Bengali. Streams with no detectable language are kept unless strict mode is on. Leave empty to disable.",
-                    f.requireLanguages.joinToString(", "), false, onCancel = again) { Config.update { f.requireLanguages = parseCsv(it) }; again() }
-                12 -> { Config.update { f.strictLanguage = !f.strictLanguage }; again() }
-                13 -> number(ctx, "Max results per addon (0 = off)", f.maxPerAddon, onCancel = again) { Config.update { f.maxPerAddon = it }; again() }
-                14 -> number(ctx, "Max results total (0 = off)", f.maxTotal, onCancel = again) { Config.update { f.maxTotal = it }; again() }
+                    f.requireLanguages.joinToString(", "), false, onCancel = again) { updateAndReopen({ again() }) { f.requireLanguages = parseCsv(it) } }
+                12 -> { updateAndReopen({ again() }) { f.strictLanguage = !f.strictLanguage } }
+                13 -> number(ctx, "Max results per addon (0 = off)", f.maxPerAddon, onCancel = again) { updateAndReopen({ again() }) { f.maxPerAddon = it } }
+                14 -> number(ctx, "Max results total (0 = off)", f.maxTotal, onCancel = again) { updateAndReopen({ again() }) { f.maxTotal = it } }
             }
         }
     }
