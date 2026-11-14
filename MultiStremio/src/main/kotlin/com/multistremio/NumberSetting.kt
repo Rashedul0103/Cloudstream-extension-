@@ -32,7 +32,7 @@ import java.util.concurrent.Executors
 import kotlin.math.abs
 import kotlin.concurrent.thread
 
-    private fun number(
+    internal fun number(
         ctx: Context,
         title: String,
         current: Int,
