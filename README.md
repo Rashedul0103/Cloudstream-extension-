@@ -1,6 +1,12 @@
 # MultiStremio — CloudStream extension
 
-A CloudStream plugin that combines Stremio addons: merged catalogs, cross-addon search, metadata and episodes, subtitles, streams, stream filtering, and sorting. Catalog rows can be enabled or hidden individually and reordered independently of addon priority. Home-page row titles show the catalog name without repeating the addon name.
+A CloudStream plugin that combines Stremio addons: merged catalogs, cross-addon search, metadata and episodes, subtitles, streams, stream filtering, and sorting. Users can also add homepage rows from other installed CloudStream extensions, then hide or reorder all rows together. Stremio catalog row titles show the catalog name without repeating the addon name.
+
+## Homepage row integration
+
+Open **Settings → Catalog rows** and choose **Add rows from installed extensions**. Select any homepage row from another installed extension. Added rows appear in the same row manager as Stremio catalogs and can be shown, hidden, reordered, or removed independently. The source extension must remain installed; if it is removed or changes the row definition, MultiStremio marks the saved row as unavailable.
+
+MultiStremio delegates each selected row request to its original extension provider, including pagination. It does not copy the source extension's catalog implementation or stream logic.
 
 ## Install in CloudStream
 
