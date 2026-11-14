@@ -73,6 +73,15 @@ data class SortSettings(
     var overrideAppQuality: Boolean = false,
 )
 
+/**
+ * Computes the insertion slot among the remaining (non-dragged) row centers.
+ * The result is directly usable with LinearLayout.addView after removing the dragged row.
+ */
+object DragReorderMath {
+    fun insertionIndex(otherItemCenters: List<Float>, pointerY: Float): Int =
+        otherItemCenters.count { pointerY >= it }.coerceIn(0, otherItemCenters.size)
+}
+
 /** Stable identity for a catalog row across app launches and addon manifest refreshes. */
 fun catalogOrderKey(addonId: String, type: String, catalogId: String): String =
     "$addonId|$type|$catalogId"
