@@ -573,9 +573,9 @@ object SettingsUi {
             }
         }
 
-        val installed = ExternalHomeRows.installedRows().associateBy { it.config.key }
+        val installed = ExternalHomeRows.installedRows()
         for (external in Config.settings.externalRows) {
-            val available = installed.containsKey(external.key)
+            val available = ExternalHomeRows.resolve(external, installed) != null
             rows += CatalogRow(
                 key = external.key,
                 sourceLabel = external.providerName,
