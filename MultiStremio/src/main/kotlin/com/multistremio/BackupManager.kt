@@ -53,7 +53,8 @@ object SettingsBackupManager {
             // to be preferences-only while still containing addon URLs or private row references.
             val containsSourceData = envelope.includesAddonUrls ||
                 envelope.settings.addons.isNotEmpty() ||
-                envelope.settings.externalRows.isNotEmpty()
+                envelope.settings.externalRows.isNotEmpty() ||
+                envelope.settings.catalogOrder.isNotEmpty()
             return envelope.copy(includesAddonUrls = containsSourceData)
         }
 
