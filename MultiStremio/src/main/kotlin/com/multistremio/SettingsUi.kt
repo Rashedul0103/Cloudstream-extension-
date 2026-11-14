@@ -16,11 +16,11 @@ import android.text.InputType
 import android.text.TextWatcher
 import android.util.TypedValue
 import android.view.Gravity
-import android.view.GestureDetector
 import android.view.HapticFeedbackConstants
 import android.view.MotionEvent
 import android.view.View
 import android.view.ViewGroup
+import android.view.ViewConfiguration
 import android.widget.CheckBox
 import android.widget.EditText
 import android.widget.LinearLayout
@@ -29,6 +29,7 @@ import android.widget.TextView
 import android.widget.Toast
 import java.net.URL
 import java.util.concurrent.Executors
+import kotlin.math.abs
 import kotlin.concurrent.thread
 
 /** Theme-aware settings UI built from Android views; no XML or extra UI dependency required. */
@@ -583,9 +584,9 @@ object SettingsUi {
     /**
      * Shared drag controller for both reorder screens.
      *
-     * The ScrollView is told not to intercept the gesture from ACTION_DOWN, not after long-press.
-     * This is critical: otherwise a vertical move can be stolen by ScrollView before the long-press
-     * detector fires, which makes the grip appear unresponsive.
+     * The grip is a dedicated drag target: vertical movement starts reordering as soon as the
+     * finger passes touch slop. No long-press timer is involved, so the gesture cannot be cancelled
+     * by the ScrollView before the reorder controller starts. Swiping the row body still scrolls.
      */
     private fun installDragReordering(
         ctx: Context,
@@ -596,9 +597,13 @@ object SettingsUi {
         colors: Palette,
         onMoved: () -> Unit,
     ) {
+        val touchSlop = ViewConfiguration.get(ctx).scaledTouchSlop
+        var tracking = false
         var dragging = false
+        var downRawY = 0f
 
         fun finishDrag() {
+            tracking = false
             if (dragging) {
                 dragging = false
                 item.background = rounded(ctx, colors.background, colors.outline)
@@ -607,66 +612,63 @@ object SettingsUi {
             scroll.requestDisallowInterceptTouchEvent(false)
         }
 
-        val detector = GestureDetector(ctx, object : GestureDetector.SimpleOnGestureListener() {
-            override fun onDown(e: MotionEvent): Boolean = true
-
-            override fun onLongPress(e: MotionEvent) {
-                dragging = true
-                item.background = rounded(ctx, withAlpha(colors.accent, 28), colors.accent)
-                item.elevation = dp(ctx, 6).toFloat()
-                handle.performHapticFeedback(HapticFeedbackConstants.LONG_PRESS)
+        fun moveItem(pointerY: Float) {
+            val centers = (0 until list.childCount).mapNotNull { index ->
+                val child = list.getChildAt(index)
+                if (child === item) null else {
+                    val position = IntArray(2)
+                    child.getLocationOnScreen(position)
+                    position[1] + child.height / 2f
+                }
             }
-        })
+            // The insertion slot is measured among the other rows, after excluding the dragged row.
+            val destination = DragReorderMath.insertionIndex(centers, pointerY)
+            val current = list.indexOfChild(item)
+            if (destination != current) {
+                list.removeView(item)
+                list.addView(item, destination.coerceIn(0, list.childCount))
+                onMoved()
+            }
+
+            // Keep the row under the finger while the user drags near either edge of the list.
+            val scrollPosition = IntArray(2)
+            scroll.getLocationOnScreen(scrollPosition)
+            val edge = dp(ctx, 42)
+            when {
+                pointerY < scrollPosition[1] + edge ->
+                    scroll.scrollBy(0, -dp(ctx, 22))
+                pointerY > scrollPosition[1] + scroll.height - edge ->
+                    scroll.scrollBy(0, dp(ctx, 22))
+            }
+        }
 
         handle.setOnTouchListener { _, event ->
             when (event.actionMasked) {
                 MotionEvent.ACTION_DOWN -> {
-                    // Keep the full long-press + drag sequence; ScrollView must not steal it.
+                    tracking = true
+                    dragging = false
+                    downRawY = event.rawY
+                    // Only the grip is a drag target. Keep ScrollView from stealing its gesture.
                     scroll.requestDisallowInterceptTouchEvent(true)
-                    detector.onTouchEvent(event)
                     true
                 }
                 MotionEvent.ACTION_MOVE -> {
-                    detector.onTouchEvent(event)
-                    if (dragging) {
-                        val centers = (0 until list.childCount).mapNotNull { index ->
-                            val child = list.getChildAt(index)
-                            if (child === item) null else {
-                                val position = IntArray(2)
-                                child.getLocationOnScreen(position)
-                                position[1] + child.height / 2f
-                            }
+                    if (tracking) {
+                        if (!dragging && abs(event.rawY - downRawY) >= touchSlop) {
+                            dragging = true
+                            item.background = rounded(ctx, withAlpha(colors.accent, 28), colors.accent)
+                            item.elevation = dp(ctx, 6).toFloat()
+                            handle.performHapticFeedback(HapticFeedbackConstants.LONG_PRESS)
                         }
-                        val destination = DragReorderMath.insertionIndex(centers, event.rawY)
-                        val current = list.indexOfChild(item)
-                        if (destination != current) {
-                            list.removeView(item)
-                            list.addView(item, destination.coerceIn(0, list.childCount))
-                            onMoved()
-                        }
-
-                        // Edge scrolling remains active while the user continues dragging.
-                        val scrollPosition = IntArray(2)
-                        scroll.getLocationOnScreen(scrollPosition)
-                        val edge = dp(ctx, 42)
-                        when {
-                            event.rawY < scrollPosition[1] + edge ->
-                                scroll.scrollBy(0, -dp(ctx, 22))
-                            event.rawY > scrollPosition[1] + scroll.height - edge ->
-                                scroll.scrollBy(0, dp(ctx, 22))
-                        }
+                        if (dragging) moveItem(event.rawY)
                     }
                     true
                 }
-                MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL -> {
-                    detector.onTouchEvent(event)
+                MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL, MotionEvent.ACTION_POINTER_DOWN -> {
                     finishDrag()
                     true
                 }
-                else -> {
-                    detector.onTouchEvent(event)
-                    true
-                }
+                else -> true
             }
         }
     }
