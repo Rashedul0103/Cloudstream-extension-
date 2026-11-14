@@ -213,7 +213,7 @@ object Config {
     fun refreshManifest(addon: AddonConfig): Boolean {
         val text = SimpleHttp.get(Urls.manifest(addon.url)) ?: return false
         val m = Json.parse<Manifest>(text) ?: return false
-        if (m.name == null && m.resources == null) return false
+        if (!m.isUsableByMultiStremio()) return false
         var updated = false
         update {
             // A refresh can finish after the user removes an addon or restores a different backup.
