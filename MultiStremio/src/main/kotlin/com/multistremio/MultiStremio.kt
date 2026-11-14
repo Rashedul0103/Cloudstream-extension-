@@ -117,7 +117,7 @@ class MultiStremio : MainAPI() {
         val metas = StremioClient.catalog(addon, type, catalogId, if (skip > 0) "skip=$skip" else null)
         skipOffsets[key] = skip + metas.size
 
-        val items = metas.mapNotNull { it.toSearchResponse(addon.id) }
+        val items = metas.mapNotNull { it.toSearchResponse(addon.id, type) }
         return newHomePageResponse(request, items, supportsSkip && metas.isNotEmpty())
     }
 
@@ -136,12 +136,17 @@ class MultiStremio : MainAPI() {
         if (jobs.isEmpty()) return emptyList()
 
         val results = jobs.amap { (addon, type, id) ->
-            StremioClient.catalog(addon, type, id, "search=$q").map { addon.id to it }
+            StremioClient.catalog(addon, type, id, "search=$q").map { Triple(addon.id, type, it) }
         }
         val seen = HashSet<String>()
         return results.flatten()
-            .filter { (_, m) -> seen.add("${m.type}:${m.id}") }
-            .mapNotNull { (addonId, m) -> m.toSearchResponse(addonId) }
+            .filter { (_, fallbackType, meta) ->
+                val effectiveType = meta.type?.takeIf { it.isNotBlank() } ?: fallbackType
+                seen.add("$effectiveType:${meta.id}")
+            }
+            .mapNotNull { (addonId, fallbackType, meta) ->
+                meta.toSearchResponse(addonId, fallbackType)
+            }
     }
 
     override suspend fun load(url: String): LoadResponse? {
@@ -240,7 +245,7 @@ class MultiStremio : MainAPI() {
         val wantedSubs = settings.subtitleLanguages.map { subtitleKey(it) }.toSet()
         val sentSubs = HashSet<String>()
         for (s in subtitles) {
-            val url = s.url ?: continue
+            val url = s.url?.takeIf { it.isNotBlank() } ?: continue
             val code = s.lang ?: "und"
             if (wantedSubs.isNotEmpty() && subtitleKey(code) !in wantedSubs) continue
             if (!sentSubs.add(url)) continue
@@ -252,7 +257,7 @@ class MultiStremio : MainAPI() {
         val processed = StreamPipeline.process(playable, settings.filter, settings.sort)
         var emitted = false
         for (p in processed) {
-            emitStream(p, settings, sentSubs, subtitleCallback, callback)
+            emitStream(p, settings, sentSubs, wantedSubs, subtitleCallback, callback)
             emitted = true
         }
 
@@ -274,6 +279,7 @@ class MultiStremio : MainAPI() {
         p: ParsedStream,
         settings: Settings,
         sentSubs: MutableSet<String>,
+        wantedSubs: Set<String>,
         subtitleCallback: (SubtitleFile) -> Unit,
         callback: (ExtractorLink) -> Unit,
     ) {
@@ -301,9 +307,11 @@ class MultiStremio : MainAPI() {
             )
         }
         for (s in p.raw.subtitles.orEmpty()) {
-            val su = s.url ?: continue
+            val su = s.url?.takeIf { it.isNotBlank() } ?: continue
+            val language = s.lang ?: "und"
+            if (wantedSubs.isNotEmpty() && subtitleKey(language) !in wantedSubs) continue
             if (!sentSubs.add(su)) continue
-            subtitleCallback(newSubtitleFile(subtitleName(s.lang ?: "und"), su))
+            subtitleCallback(newSubtitleFile(subtitleName(language), su))
         }
     }
 
@@ -314,16 +322,21 @@ class MultiStremio : MainAPI() {
         val candidates = Config.settings.addons
             .filter { it.enabled && it.useMeta && Config.manifestOf(it)?.supports("meta", type, id) == true }
             .sortedBy { if (it.id == ref.a) 0 else 1 }
+        var partial: Meta? = null
         for (addon in candidates) {
-            StremioClient.meta(addon, type, id)?.let { return it }
+            val candidate = StremioClient.meta(addon, type, id) ?: continue
+            // Prefer complete metadata, but keep sparse metadata if it contains useful fields
+            // such as a series' episode list and no other addon can provide a named result.
+            if (!candidate.name.isNullOrBlank()) return candidate
+            if (partial == null) partial = candidate
         }
-        return null
+        return partial
     }
 
-    private fun Meta.toSearchResponse(addonId: String): SearchResponse? {
+    private fun Meta.toSearchResponse(addonId: String, fallbackType: String): SearchResponse? {
         val metaId = id ?: return null
         val title = name ?: return null
-        val t = type ?: "movie"
+        val t = type?.takeIf { it.isNotBlank() } ?: fallbackType
         val url = Json.toJson(ItemRef(addonId, t, metaId, title, poster))
         val tvType = tvTypeOf(t)
         return if (tvType == TvType.Live) {
