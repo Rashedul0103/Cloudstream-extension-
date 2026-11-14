@@ -44,10 +44,10 @@ internal object GeneralSettingsScreen {
         )
         menu(ctx, "Subtitles", rows, { MainMenuSettingsScreen.show(ctx) }, "Choose whether subtitle addons are queried and which languages are preferred.") { which ->
             when (which) {
-                0 -> { Config.update { fetchSubtitles = !fetchSubtitles }; subtitlesMenu(ctx) }
+                0 -> { updateAndReopen({ subtitlesMenu(ctx) }) { fetchSubtitles = !fetchSubtitles } }
                 1 -> prompt(ctx, "Subtitle languages", "Codes, regional tags or names, e.g. en, eng, en-US, pt-BR, Bengali. Leave empty for all languages.",
                     s.subtitleLanguages.joinToString(", "), false, onCancel = { subtitlesMenu(ctx) }) {
-                    Config.update { subtitleLanguages = parseCsv(it) }; subtitlesMenu(ctx)
+                    updateAndReopen({ subtitlesMenu(ctx) }) { subtitleLanguages = parseCsv(it) }
                 }
             }
         }
@@ -68,9 +68,9 @@ internal object GeneralSettingsScreen {
                     description = "Enter 5–180 seconds. This controls how long each addon request can wait before timing out.",
                     onCancel = { generalMenu(ctx) },
                 ) {
-                    Config.update { timeoutSec = it.coerceIn(5, 180) }; generalMenu(ctx)
+                    updateAndReopen({ generalMenu(ctx) }) { timeoutSec = it.coerceIn(5, 180) }
                 }
-                1 -> { Config.update { detailedLabels = !detailedLabels }; generalMenu(ctx) }
+                1 -> { updateAndReopen({ generalMenu(ctx) }) { detailedLabels = !detailedLabels } }
             }
         }
     }
