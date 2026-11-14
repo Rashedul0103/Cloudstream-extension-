@@ -447,7 +447,7 @@ object SettingsUi {
         if (snapshot.requests.isEmpty()) {
             list.addView(text(ctx, "No addon request details were recorded.", 13f, colors.secondary))
         } else {
-            snapshot.requests.sortedWith(compareBy<StreamRequestDiagnostic> { it.responseReceived }.thenByDescending { it.elapsedMs })
+            snapshot.requests.sortedWith(compareBy<StreamRequestDiagnostic> { it.status == "OK" }.thenByDescending { it.elapsedMs })
                 .forEach { item ->
                     val status = if (item.resultCount > 0) {
                         "${item.status} · ${item.resultCount} items"
