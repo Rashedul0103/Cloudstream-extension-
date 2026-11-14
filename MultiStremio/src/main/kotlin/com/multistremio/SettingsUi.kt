@@ -415,7 +415,8 @@ object SettingsUi {
     private fun streamFormatterMenu(ctx: Context) {
         val format = Config.settings.streamFormat
         val fields = StreamFormatFields.all
-        val selected = format.fields.toSet()
+        val validFieldIds = fields.map { it.id }.toSet()
+        val selected = format.fields.filter { it in validFieldIds }.toSet()
         val separatorLabels = listOf(
             "Middle dot   ·",
             "Vertical bar   |",
@@ -428,7 +429,7 @@ object SettingsUi {
         val separatorIndex = separators.indexOf(format.separator).takeIf { it >= 0 } ?: 0
         val rows = listOf(
             "Custom layout: ${onOff(format.enabled)}",
-            "Choose information to show (${format.fields.size} selected)",
+            "Choose information to show (${selected.size} selected)",
             "Reorder visible information",
             "Separator: ${separatorLabels[separatorIndex]}",
             "Show full field names: ${onOff(format.showLabels)}",
@@ -444,7 +445,7 @@ object SettingsUi {
             listOf(
                 "Turn your custom design on or off. Off uses the normal MultiStremio labels.",
                 "Pick details such as quality, codec, language and file size.",
-                "Drag the selected details into the order you want.",
+                "Drag the grip to reorder. No long-press is needed; swipe the detail text to scroll.",
                 "Choose what appears between details.",
                 "Use names such as “Quality:” and “Video codec:” before each value.",
                 "See an example using a made-up movie; no addon is contacted.",
@@ -516,7 +517,7 @@ object SettingsUi {
         val root = shell(
             ctx,
             "Arrange stream details",
-            "Press and hold the grip, then move the field up or down. Tap Save when the order is correct.",
+            "Drag the ☰ grip to move a field. No long-press is needed; swipe the field details to scroll. Tap Save when finished.",
         )
         val scroll = ScrollView(ctx).apply { clipToPadding = false }
         val list = vertical(ctx)
@@ -987,8 +988,12 @@ object SettingsUi {
                         )
                     }
                 }
-                7 -> confirm(ctx, "Remove ${a.name}?", "This only removes it from MultiStremio.") {
-                    Config.update { addons.remove(a) }
+                7 -> confirm(ctx, "Remove ${a.name}?", "This only removes it from MultiStremio. Its catalog rows and saved row-order entries will also be removed.") {
+                    Config.update {
+                        addons.remove(a)
+                        val addonPrefix = a.id + "|"
+                        catalogOrder.removeAll { it.startsWith(addonPrefix) }
+                    }
                     addonsMenu(ctx)
                 }
             }
@@ -1093,7 +1098,7 @@ object SettingsUi {
         val root = shell(
             ctx,
             "Catalog rows",
-            "Hold the ☰ grip on the right of a row and move it up or down. Tap a row's name to manage visibility. Save order when finished.",
+            "Drag the ☰ grip to reorder rows; no long-press is needed. Swipe row text to scroll, or tap it to manage visibility. Move up/down is also available in each row's menu. Save order when finished.",
         )
         val scroll = ScrollView(ctx).apply { clipToPadding = false }
         val content = vertical(ctx)
@@ -1285,24 +1290,46 @@ object SettingsUi {
         val labels = candidates.map { "${it.config.providerName} · ${it.row.name}" }
         menu(ctx, "Choose an installed extension homepage row", labels, { catalogRowsMenu(ctx) }) { which ->
             val chosen = candidates[which].config
+            // Capture the current effective order before writing a new key. Appending only the
+            // imported key to an empty order list would sort it ahead of every unsaved catalog.
+            val currentOrder = catalogRows().map { it.key }
             Config.update {
                 if (externalRows.none { it.key == chosen.key }) externalRows.add(chosen)
-                if (chosen.key !in catalogOrder) catalogOrder.add(chosen.key)
+                catalogOrder = CatalogOrderMath.append(currentOrder, chosen.key).toMutableList()
             }
-            toast(ctx, "Added ${chosen.rowName}. Reorder it from Catalog rows, then refresh the home page.")
+            toast(ctx, "Added ${chosen.rowName} at the end of your rows. Refresh the home page to apply.")
             catalogRowsMenu(ctx)
         }
+    }
+
+    private fun moveCatalogRow(ctx: Context, row: CatalogRow, delta: Int) {
+        val currentOrder = catalogRows().map { it.key }
+        if (row.key !in currentOrder) {
+            toast(ctx, "This row is no longer available. Refresh the settings.")
+            catalogRowsMenu(ctx)
+            return
+        }
+        val updatedOrder = CatalogOrderMath.move(currentOrder, row.key, delta)
+        if (updatedOrder == currentOrder) {
+            toast(ctx, if (delta < 0) "This row is already first." else "This row is already last.")
+        } else {
+            Config.update { catalogOrder = updatedOrder.toMutableList() }
+            toast(ctx, "Row order updated. Refresh the home page to apply.")
+        }
+        catalogRowsMenu(ctx)
     }
 
     private fun catalogRowMenu(ctx: Context, row: CatalogRow) {
         val external = row.external
         val labels = listOf(
             if (row.rowEnabled) "Hide this row" else "Show this row",
+            "Move one position up",
+            "Move one position down",
             if (external != null) "Remove row from MultiStremio" else "Manage addon settings",
         )
         menu(
             ctx,
-            "${row.sourceLabel} · ${row.name}",
+            row.sourceLabel + " · " + row.name,
             labels,
             { catalogRowsMenu(ctx) },
         ) { which ->
@@ -1327,7 +1354,9 @@ object SettingsUi {
                     toast(ctx, "Saved row visibility. Refresh the home page to apply.")
                     catalogRowsMenu(ctx)
                 }
-                1 -> {
+                1 -> moveCatalogRow(ctx, row, -1)
+                2 -> moveCatalogRow(ctx, row, 1)
+                3 -> {
                     if (external != null) {
                         confirm(ctx, "Remove extension row?", "This only removes the row from MultiStremio. The source extension remains installed.") {
                             Config.update {
