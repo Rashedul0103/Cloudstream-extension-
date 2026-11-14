@@ -2,8 +2,6 @@ package com.multistremio
 
 import android.app.AlertDialog
 import android.app.Dialog
-import android.content.ClipData
-import android.content.ClipboardManager
 import android.content.Context
 import android.content.res.ColorStateList
 import android.graphics.Color
@@ -17,12 +15,9 @@ import android.text.InputType
 import android.text.TextWatcher
 import android.util.TypedValue
 import android.view.Gravity
-import android.view.HapticFeedbackConstants
 import android.view.KeyEvent
-import android.view.MotionEvent
 import android.view.View
 import android.view.ViewGroup
-import android.view.ViewConfiguration
 import android.widget.CheckBox
 import android.widget.EditText
 import android.widget.FrameLayout
@@ -31,7 +26,6 @@ import android.widget.ScrollView
 import android.widget.TextView
 import android.widget.Toast
 import java.net.URL
-import kotlin.math.abs
 
 internal val settingsMainHandler = Handler(Looper.getMainLooper())
 
