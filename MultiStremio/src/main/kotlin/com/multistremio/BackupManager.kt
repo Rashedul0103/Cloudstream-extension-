@@ -57,6 +57,10 @@ object SettingsBackupManager {
             return envelope.copy(includesAddonUrls = containsSourceData)
         }
 
+        // Older releases stored the Settings object directly. Require its defining root
+        // field so arbitrary JSON objects (which Jackson would otherwise deserialize as defaults)
+        // cannot be mistaken for a valid backup and overwrite the user's configuration.
+        if (!root.isObject || !root.has("addons")) return null
         val legacy = Json.parse<Settings>(text) ?: return null
         return SettingsBackup(
             format = FORMAT,
