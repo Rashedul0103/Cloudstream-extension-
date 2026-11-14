@@ -1875,7 +1875,7 @@ object SettingsUi {
     private fun backupMenu(ctx: Context) {
         fun copyBackup(includeAddonUrls: Boolean) {
             val payload = runCatching {
-                SettingsBackupManager.export(Config.settings, includeAddonUrls)
+                SettingsBackupManager.export(Config.snapshot(), includeAddonUrls)
             }.getOrElse {
                 toast(ctx, "Could not create the backup")
                 return
