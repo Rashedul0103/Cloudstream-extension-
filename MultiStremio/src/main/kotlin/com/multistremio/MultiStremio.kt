@@ -293,6 +293,8 @@ class MultiStremio : MainAPI() {
         }
 
         // YouTube / external links are not filterable; hand them to CloudStream's extractors.
+        // They still need deduplication because they do not enter the playable stream pipeline.
+        val seenExternalTargets = HashSet<String>()
         for (p in parsed) {
             val yt = p.raw.ytId
             val ext = p.raw.externalUrl
@@ -301,6 +303,8 @@ class MultiStremio : MainAPI() {
                 p.raw.url.isNullOrBlank() && p.raw.infoHash.isNullOrBlank() && !ext.isNullOrBlank() -> ext
                 else -> null
             } ?: continue
+            val key = StreamDeduplication.externalKey(p)
+            if (key != null && !seenExternalTargets.add(key)) continue
             if (loadExtractor(target, subtitleCallback, callback)) {
                 emitted = true
                 emittedLinks++
