@@ -544,6 +544,15 @@ object StreamDeduplication {
         val url = normalizeUrl(stream.raw.url) ?: return null
         return "u:$url"
     }
+
+    /** Stable identity for extractor-only targets that do not enter the playable stream pipeline. */
+    fun externalKey(stream: ParsedStream): String? {
+        stream.raw.ytId?.trim()?.takeIf { it.isNotEmpty() }?.let {
+            return "yt:${it}"
+        }
+        val url = normalizeUrl(stream.raw.externalUrl) ?: return null
+        return "external:$url"
+    }
 }
 
 // ---------------------------------------------------------------------------------------------
