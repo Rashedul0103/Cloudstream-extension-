@@ -215,6 +215,10 @@ object Config {
         save()
     }
 
+    /** Safe read copy for provider work running alongside UI/settings updates. */
+    @Synchronized
+    fun snapshot(): Settings = settings.snapshot()
+
     /** Collision-resistant ID for newly added addons. Existing saved IDs are not rewritten. */
     fun idFor(url: String): String = Hashing.sha256(url)
 
