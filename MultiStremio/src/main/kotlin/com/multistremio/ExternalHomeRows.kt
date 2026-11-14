@@ -14,7 +14,7 @@ data class InstalledExternalHomeRow(
 object ExternalHomeRows {
     /**
      * Enumerates homepage rows registered by other installed extensions.
-     * The row's opaque data is hashed for identity and is not copied into persistent settings.
+     * Opaque request data is hashed only to identify legacy duplicate rows; it is never persisted raw.
      */
     fun installedRows(exclude: MainAPI? = null): List<InstalledExternalHomeRow> {
         val providers = APIHolder.allProviders.withLock { APIHolder.allProviders.toList() }
