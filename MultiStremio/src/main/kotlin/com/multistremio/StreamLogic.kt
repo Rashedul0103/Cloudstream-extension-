@@ -536,10 +536,31 @@ object StreamDeduplication {
 // ---------------------------------------------------------------------------------------------
 
 
-/** Combines addon playback headers and preserves Referer for players that use the dedicated field. */
+/** Combines addon playback headers using HTTP's case-insensitive header-name rules. */
 object StreamRequestHeaders {
+    /**
+     * Merge maps with [preferred] taking precedence over [fallback].
+     * Header names are case-insensitive, and the winning entry keeps its original spelling.
+     */
+    fun merge(
+        preferred: Map<String, String>?,
+        fallback: Map<String, String>?,
+    ): Map<String, String> {
+        val merged = linkedMapOf<String, Pair<String, String>>()
+        fallback.orEmpty().forEach { (name, value) ->
+            val key = name.trim().lowercase(Locale.ROOT)
+            if (key.isNotEmpty()) merged[key] = name.trim() to value
+        }
+        preferred.orEmpty().forEach { (name, value) ->
+            val key = name.trim().lowercase(Locale.ROOT)
+            if (key.isNotEmpty()) merged[key] = name.trim() to value
+        }
+        return merged.values.associate { (name, value) -> name to value }
+    }
+
+    /** Proxy request headers override addon headers, while missing addon headers are retained. */
     fun from(hints: BehaviorHints?): Map<String, String> =
-        hints?.headers.orEmpty() + hints?.proxyHeaders?.request.orEmpty()
+        merge(hints?.proxyHeaders?.request, hints?.headers)
 
     fun referer(headers: Map<String, String>): String =
         headers.entries.firstOrNull { it.key.equals("referer", ignoreCase = true) }?.value.orEmpty()
@@ -566,12 +587,15 @@ object StreamPipeline {
         val b = second.raw
         val firstHints = a.behaviorHints
         val secondHints = b.behaviorHints
-        val firstProxy = firstHints?.proxyHeaders?.request.orEmpty()
-        val secondProxy = secondHints?.proxyHeaders?.request.orEmpty()
-        val proxyHeaders = (secondProxy + firstProxy).takeIf { it.isNotEmpty() }
+        val proxyHeaders = StreamRequestHeaders.merge(
+            preferred = firstHints?.proxyHeaders?.request,
+            fallback = secondHints?.proxyHeaders?.request,
+        ).takeIf { it.isNotEmpty() }
             ?.let { ProxyHeaders(request = it) }
-        val headers = (secondHints?.headers.orEmpty() + firstHints?.headers.orEmpty())
-            .takeIf { it.isNotEmpty() }
+        val headers = StreamRequestHeaders.merge(
+            preferred = firstHints?.headers,
+            fallback = secondHints?.headers,
+        ).takeIf { it.isNotEmpty() }
         val hints = if (firstHints == null && secondHints == null) null else BehaviorHints(
             filename = firstHints?.filename?.takeIf { it.isNotBlank() } ?: secondHints?.filename,
             videoSize = firstHints?.videoSize ?: secondHints?.videoSize,
