@@ -481,10 +481,11 @@ object Urls {
 
     fun resource(base: String, resource: String, type: String, id: String, extra: String? = null): String {
         val seg = encodeId(id)
+        val encodedType = encodeId(type)
         val path = if (extra.isNullOrBlank()) {
-            "$resource/$type/$seg.json"
+            "$resource/$encodedType/$seg.json"
         } else {
-            "$resource/$type/$seg/$extra.json"
+            "$resource/$encodedType/$seg/$extra.json"
         }
         return appendPath(base, path)
     }
