@@ -48,4 +48,4 @@ Language filters accept common ISO 639 codes, three-letter codes, regional tags 
 
 ## Stream request handling
 
-Requests to Stremio addons are capped at eight concurrent network calls. If the original addon cannot provide named metadata, fallback metadata providers are queried concurrently. Stream parsing reuses compiled patterns and the filtering pipeline avoids several intermediate list allocations. These are workload protections and code-path optimizations; performance has not been benchmarked against a fixed addon set.
+Multi-addon requests run in batches of up to eight concurrent calls per fan-out operation (stream and subtitle branches use four each when both are active). If the original addon cannot provide named metadata, fallback metadata providers are queried concurrently. Stream parsing reuses compiled patterns and the filtering pipeline avoids several intermediate list allocations. These are workload protections and code-path optimizations; performance has not been benchmarked against a fixed addon set.
