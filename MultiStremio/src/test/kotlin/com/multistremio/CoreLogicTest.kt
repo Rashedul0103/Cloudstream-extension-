@@ -244,7 +244,7 @@ class CoreLogicTest {
         assertTrue(label.contains("Language: BN/EN"))
         assertTrue(label.contains("Subtitles: BN/EN"))
         assertTrue(label.contains("Release:"))
-        assertFalse(label.contains("WEB-DL"))
+        assertFalse(label.contains("Source:"))
         assertFalse(label.contains("Audio:"))
     }
 
