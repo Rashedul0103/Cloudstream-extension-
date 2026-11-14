@@ -975,27 +975,45 @@ object SettingsUi {
             onCancel = { addonsMenu(ctx) },
         ) { raw ->
             val url = Urls.normalizeAddonUrl(raw)
-            if (url.isEmpty()) return@prompt
+            if (url.isEmpty()) {
+                toast(ctx, "Enter a valid addon manifest link.")
+                addonsMenu(ctx)
+                return@prompt
+            }
             if (Config.settings.addons.any { it.url == url }) {
-                toast(ctx, "That addon is already added"); return@prompt
+                toast(ctx, "That addon is already added.")
+                addonsMenu(ctx)
+                return@prompt
             }
             toast(ctx, "Checking addon…")
-            thread(start = true) {
+            thread(start = true, name = "multistremio-add-addon") {
                 val text = SimpleHttp.get(Urls.manifest(url))
-                val m = Json.parse<Manifest>(text)
-                if (text == null || m == null || !m.isUsableByMultiStremio()) {
-                    toast(ctx, "Manifest is missing a name or supported resource list"); return@thread
+                val manifest = Json.parse<Manifest>(text)
+                if (text == null || manifest == null || !manifest.isUsableByMultiStremio()) {
+                    toast(ctx, "Could not add this addon: its manifest is invalid or unreachable.")
+                    main.post { addonsMenu(ctx) }
+                    return@thread
                 }
                 val addon = AddonConfig(
-                    id = Config.idFor(url), url = url, name = m.name ?: host(url),
-                    useCatalogs = m.catalogs.orEmpty().isNotEmpty(),
-                    useMeta = m.hasResource("meta"),
-                    useStreams = m.hasResource("stream"),
-                    useSubtitles = m.hasResource("subtitles"),
+                    id = Config.idFor(url), url = url, name = manifest.name,
+                    useCatalogs = manifest.hasResource("catalog") && manifest.catalogs.orEmpty().isNotEmpty(),
+                    useMeta = manifest.hasResource("meta"),
+                    useStreams = manifest.hasResource("stream"),
+                    useSubtitles = manifest.hasResource("subtitles"),
                     manifest = text, manifestFetchedAt = System.currentTimeMillis(),
                 )
-                Config.update { addons.add(addon) }
-                toast(ctx, "Added ${addon.name}. Refresh the home page to see its catalogs.")
+                var added = false
+                Config.update {
+                    if (addons.none { it.url == url }) {
+                        addons.add(addon)
+                        added = true
+                    }
+                }
+                toast(ctx, if (added) {
+                    "Added " + addon.name + ". Refresh the home page to see its catalogs."
+                } else {
+                    "That addon was added by another request."
+                })
                 main.post { addonsMenu(ctx) }
             }
         }
