@@ -40,72 +40,89 @@ internal object FiltersSettingsScreen {
 
     private fun filtersMenu(ctx: Context) {
         val f = Config.settings.filter
-        val rows = listOf(
-            "Resolutions: " + RES_OPTIONS.filter { it.first in f.allowedResolutions }.joinToString(" ") { it.second }
-                .ifBlank { "Any (no restriction)" },
-            "Hide CAM / telesync: ${onOff(f.hideCam)}",
-            "Hide magnet (torrent) links: ${onOff(f.hideMagnets)}",
-            "Hide uncached debrid links: ${onOff(f.hideUncachedDebrid)}",
-            "HEVC / x265: ${modeLabel(f.hevcMode)}",
-            "HDR / Dolby Vision: ${modeLabel(f.hdrMode)}",
-            "Min size: ${limit(f.minSizeMb, "MB")}",
-            "Max size: ${limit(f.maxSizeGb, "GB")}",
-            "Min seeders: ${limit(f.minSeeders, "")}",
-            "Exclude keywords: ${csv(f.excludeKeywords)}",
-            "Require keywords (any): ${csv(f.requireKeywords)}",
-            "Required languages: ${csv(f.requireLanguages)}",
-            "Strict language (drop streams with unknown language): ${onOff(f.strictLanguage)}",
-            "Max results per addon: ${limit(f.maxPerAddon, "")}",
-            "Max results total: ${limit(f.maxTotal, "")}",
-        )
         val again = { filtersMenu(ctx) }
-        menu(ctx, "Stream filters", rows, { MainMenuSettingsScreen.show(ctx) }, "Remove unwanted sources and narrow results by quality, size, language and keywords.") { which ->
-            when (which) {
-                0 -> multi(
-                    ctx,
-                    "Allowed resolutions",
-                    RES_OPTIONS.map { it.second },
-                    RES_OPTIONS.map { it.first in f.allowedResolutions },
-                    description = "Select which resolutions to allow. Leave every box unchecked to allow any resolution.",
-                    onCancel = again,
-                ) { v ->
-                    updateAndReopen({ again() }) { f.allowedResolutions = RES_OPTIONS.filterIndexed { i, _ -> v[i] }.map { it.first }.toMutableList() }
-                }
-                1 -> { updateAndReopen({ again() }) { f.hideCam = !f.hideCam } }
-                2 -> { updateAndReopen({ again() }) { f.hideMagnets = !f.hideMagnets } }
-                3 -> { updateAndReopen({ again() }) { f.hideUncachedDebrid = !f.hideUncachedDebrid } }
-                4 -> choose(ctx, "HEVC / x265", listOf("Show any", "Hide HEVC", "Only HEVC"), f.hevcMode, onCancel = again) {
+        val items = listOf(
+            SettingItem("Resolutions",
+                RES_OPTIONS.filter { it.first in f.allowedResolutions }.joinToString(" ") { it.second }.ifBlank { "Any (no restriction)" },
+                SettingItemType.Value,
+                onClick = {
+                    multi(ctx, "Allowed resolutions", RES_OPTIONS.map { it.second },
+                        RES_OPTIONS.map { it.first in f.allowedResolutions },
+                        description = "Select which resolutions to allow. Leave every box unchecked to allow any resolution.",
+                        onCancel = again) { selected ->
+                        updateAndReopen({ again() }) {
+                            f.allowedResolutions = RES_OPTIONS.filterIndexed { index, _ -> selected[index] }
+                                .map { it.first }.toMutableList()
+                        }
+                    }
+                }, searchKeywords = listOf("resolution", "4K", "1080p", "720p")),
+            SettingItem("Hide CAM / telesync", onOff(f.hideCam), SettingItemType.Switch,
+                onClick = { updateAndReopen({ again() }) { f.hideCam = !f.hideCam } },
+                searchKeywords = listOf("cam", "telesync", "recorded cinema")),
+            SettingItem("Hide magnet (torrent) links", onOff(f.hideMagnets), SettingItemType.Switch,
+                onClick = { updateAndReopen({ again() }) { f.hideMagnets = !f.hideMagnets } },
+                searchKeywords = listOf("magnet", "torrent")),
+            SettingItem("Hide uncached debrid links", onOff(f.hideUncachedDebrid), SettingItemType.Switch,
+                onClick = { updateAndReopen({ again() }) { f.hideUncachedDebrid = !f.hideUncachedDebrid } },
+                searchKeywords = listOf("uncached", "debrid", "torrent")),
+            SettingItem("HEVC / x265", modeLabel(f.hevcMode), SettingItemType.Value,
+                onClick = { choose(ctx, "HEVC / x265", listOf("Show any", "Hide HEVC", "Only HEVC"), f.hevcMode, onCancel = again) {
                     updateAndReopen({ again() }) { f.hevcMode = it }
-                }
-                5 -> choose(ctx, "HDR / Dolby Vision", listOf("Show any", "Hide HDR/DV", "Only HDR/DV"), f.hdrMode, onCancel = again) {
+                } }, searchKeywords = listOf("HEVC", "x265", "video codec")),
+            SettingItem("HDR / Dolby Vision", modeLabel(f.hdrMode), SettingItemType.Value,
+                onClick = { choose(ctx, "HDR / Dolby Vision", listOf("Show any", "Hide HDR/DV", "Only HDR/DV"), f.hdrMode, onCancel = again) {
                     updateAndReopen({ again() }) { f.hdrMode = it }
-                }
-                6 -> number(ctx, "Min size (MB, 0 = off)", f.minSizeMb, onCancel = again) { updateAndReopen({ again() }) { f.minSizeMb = it } }
-                7 -> number(ctx, "Max size (GB, 0 = off)", f.maxSizeGb, onCancel = again) { updateAndReopen({ again() }) { f.maxSizeGb = it } }
-                8 -> number(ctx, "Min seeders (0 = off). Streams without seeder info are kept.", f.minSeeders, onCancel = again) {
+                } }, searchKeywords = listOf("HDR", "Dolby Vision", "DV")),
+            SettingItem("Minimum file size", limit(f.minSizeMb, "MB"), SettingItemType.Value,
+                onClick = { number(ctx, "Min size (MB, 0 = off)", f.minSizeMb, onCancel = again) {
+                    updateAndReopen({ again() }) { f.minSizeMb = it }
+                } }, searchKeywords = listOf("minimum", "min", "size", "MB")),
+            SettingItem("Maximum file size", limit(f.maxSizeGb, "GB"), SettingItemType.Value,
+                onClick = { number(ctx, "Max size (GB, 0 = off)", f.maxSizeGb, onCancel = again) {
+                    updateAndReopen({ again() }) { f.maxSizeGb = it }
+                } }, searchKeywords = listOf("maximum", "max", "size", "GB")),
+            SettingItem("Minimum seeders", limit(f.minSeeders, ""), SettingItemType.Value,
+                onClick = { number(ctx, "Min seeders (0 = off). Streams without seeder info are kept.", f.minSeeders, onCancel = again) {
                     updateAndReopen({ again() }) { f.minSeeders = it }
-                }
-                9 -> keywordList(
-                    ctx,
-                    "Exclude keywords",
-                    "Comma separated, case-insensitive. Wrap in slashes for a regex, e.g. /x26[45]/. Invalid regex patterns are rejected.",
-                    f.excludeKeywords.joinToString(", "),
-                    onCancel = again,
-                ) { values -> updateAndReopen({ again() }) { f.excludeKeywords = values } }
-                10 -> keywordList(
-                    ctx,
-                    "Require keywords",
-                    "A stream must contain at least one of these. Leave empty to disable. Wrap regex patterns in slashes, e.g. /x26[45]/.",
-                    f.requireKeywords.joinToString(", "),
-                    onCancel = again,
-                ) { values -> updateAndReopen({ again() }) { f.requireKeywords = values } }
-                11 -> prompt(ctx, "Required languages",
-                    "Codes, regional tags or names, e.g. en, eng, en-US, pt-BR, Bengali. Streams with no detectable language are kept unless strict mode is on. Leave empty to disable.",
-                    f.requireLanguages.joinToString(", "), false, onCancel = again) { updateAndReopen({ again() }) { f.requireLanguages = parseCsv(it) } }
-                12 -> { updateAndReopen({ again() }) { f.strictLanguage = !f.strictLanguage } }
-                13 -> number(ctx, "Max results per addon (0 = off)", f.maxPerAddon, onCancel = again) { updateAndReopen({ again() }) { f.maxPerAddon = it } }
-                14 -> number(ctx, "Max results total (0 = off)", f.maxTotal, onCancel = again) { updateAndReopen({ again() }) { f.maxTotal = it } }
-            }
-        }
+                } }, searchKeywords = listOf("seeders", "torrent")),
+            SettingItem("Exclude keywords", csv(f.excludeKeywords), SettingItemType.Value,
+                onClick = {
+                    keywordList(ctx, "Exclude keywords",
+                        "Comma separated, case-insensitive. Wrap in slashes for a regex, e.g. /x26[45]/. Invalid regex patterns are rejected.",
+                        f.excludeKeywords.joinToString(", "), onCancel = again) { values ->
+                        updateAndReopen({ again() }) { f.excludeKeywords = values }
+                    }
+                }, searchKeywords = listOf("exclude", "block", "keywords", "regex")),
+            SettingItem("Require keywords (any)", csv(f.requireKeywords), SettingItemType.Value,
+                onClick = {
+                    keywordList(ctx, "Require keywords",
+                        "A stream must contain at least one of these. Leave empty to disable. Wrap regex patterns in slashes, e.g. /x26[45]/.",
+                        f.requireKeywords.joinToString(", "), onCancel = again) { values ->
+                        updateAndReopen({ again() }) { f.requireKeywords = values }
+                    }
+                }, searchKeywords = listOf("require", "include", "keywords", "regex")),
+            SettingItem("Required languages", csv(f.requireLanguages), SettingItemType.Value,
+                onClick = {
+                    prompt(ctx, "Required languages",
+                        "Codes, regional tags or names, e.g. en, eng, en-US, pt-BR, Bengali. Streams with no detectable language are kept unless strict mode is on. Leave empty to disable.",
+                        f.requireLanguages.joinToString(", "), false, onCancel = again) {
+                        updateAndReopen({ again() }) { f.requireLanguages = parseCsv(it) }
+                    }
+                }, searchKeywords = listOf("language", "audio language", "Bengali", "English")),
+            SettingItem("Strict language", "Drop streams with unknown language: ${onOff(f.strictLanguage)}", SettingItemType.Switch,
+                onClick = { updateAndReopen({ again() }) { f.strictLanguage = !f.strictLanguage } },
+                searchKeywords = listOf("strict", "unknown language")),
+            SettingItem("Maximum results per addon", limit(f.maxPerAddon, ""), SettingItemType.Value,
+                onClick = { number(ctx, "Max results per addon (0 = off)", f.maxPerAddon, onCancel = again) {
+                    updateAndReopen({ again() }) { f.maxPerAddon = it }
+                } }, searchKeywords = listOf("limit", "per addon", "maximum")),
+            SettingItem("Maximum results total", limit(f.maxTotal, ""), SettingItemType.Value,
+                onClick = { number(ctx, "Max results total (0 = off)", f.maxTotal, onCancel = again) {
+                    updateAndReopen({ again() }) { f.maxTotal = it }
+                } }, searchKeywords = listOf("limit", "total", "maximum")),
+        )
+        settingMenu(ctx, "Stream filters", items, { MainMenuSettingsScreen.show(ctx) },
+            "Remove unwanted sources and narrow results by quality, size, language and keywords.")
     }
+
 }
