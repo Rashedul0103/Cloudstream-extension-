@@ -978,6 +978,17 @@ object SettingsUi {
                 "Remove",
             ),
             { addonsMenu(ctx) },
+            "Addon priority affects source tie-breaking and metadata fallback. It does not change homepage row order; arrange homepage rows separately in Catalog rows.",
+            listOf(
+                "Enable or disable this addon without deleting its saved settings.",
+                "Choose whether it supplies catalogs, metadata, streams or subtitles.",
+                "Show or hide individual homepage catalog rows.",
+                "Give this addon higher priority when multiple sources return matching links or metadata.",
+                "Give this addon lower source priority.",
+                "Change the display name shown inside MultiStremio.",
+                "Download the manifest again and update its cached capabilities.",
+                "Remove this addon and its saved homepage catalog rows from MultiStremio.",
+            ),
         ) { which ->
             when (which) {
                 0 -> { Config.update { a.enabled = !a.enabled }; addonMenu(ctx, a) }
@@ -1527,7 +1538,7 @@ object SettingsUi {
         val s = Config.settings
         val rows = listOf(
             "Fetch from subtitle addons: ${onOff(s.fetchSubtitles)}",
-            "Only these languages: ${csv(s.subtitleLanguages)}",
+            "Language filter: ${s.subtitleLanguages.takeIf { it.isNotEmpty() }?.let { csv(it) } ?: "All languages"}",
         )
         menu(ctx, "Subtitles", rows, { mainMenu(ctx) }, "Choose whether subtitle addons are queried and which languages are preferred.") { which ->
             when (which) {
