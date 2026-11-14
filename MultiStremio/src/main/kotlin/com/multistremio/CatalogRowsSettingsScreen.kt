@@ -351,20 +351,12 @@ internal object CatalogRowsSettingsScreen {
 
     private fun catalogRowMenu(ctx: Context, row: CatalogRow) {
         val external = row.external
-        val labels = listOf(
-            if (row.rowEnabled) "Hide this row" else "Show this row",
-            "Move one position up",
-            "Move one position down",
-            if (external != null) "Remove row from MultiStremio" else "Manage addon settings",
-        )
-        menu(
-            ctx,
-            row.sourceLabel + " · " + row.name,
-            labels,
-            { catalogRowsMenu(ctx) },
-        ) { which ->
-            when (which) {
-                0 -> {
+        val items = listOf(
+            SettingItem(
+                if (row.rowEnabled) "Hide this row" else "Show this row",
+                "Current visibility: ${if (row.rowEnabled) "ON" else "OFF"}",
+                SettingItemType.Switch,
+                onClick = {
                     if (external != null) {
                         Config.update {
                             externalRows.firstOrNull { it.key == external.key }?.enabled = !row.rowEnabled
@@ -383,12 +375,36 @@ internal object CatalogRowsSettingsScreen {
                     }
                     toast(ctx, "Saved row visibility. Refresh the home page to apply.")
                     catalogRowsMenu(ctx)
-                }
-                1 -> moveCatalogRow(ctx, row, -1)
-                2 -> moveCatalogRow(ctx, row, 1)
-                3 -> {
+                },
+                searchKeywords = listOf("hide", "show", "visibility", "enable", "disable"),
+            ),
+            SettingItem(
+                "Move one position up",
+                "Place this row before the previous row",
+                SettingItemType.Value,
+                onClick = { moveCatalogRow(ctx, row, -1) },
+                searchKeywords = listOf("move", "up", "order", "reorder"),
+            ),
+            SettingItem(
+                "Move one position down",
+                "Place this row after the next row",
+                SettingItemType.Value,
+                onClick = { moveCatalogRow(ctx, row, 1) },
+                searchKeywords = listOf("move", "down", "order", "reorder"),
+            ),
+            SettingItem(
+                if (external != null) "Remove row from MultiStremio" else "Manage addon settings",
+                if (external != null) "Remove only the imported row; keep its source extension installed"
+                else "Open this row's source addon settings",
+                SettingItemType.Value,
+                onClick = {
                     if (external != null) {
-                        confirm(ctx, "Remove extension row?", "This only removes the row from MultiStremio. The source extension remains installed.", onCancel = { catalogRowsMenu(ctx) }) {
+                        confirm(
+                            ctx,
+                            "Remove extension row?",
+                            "This only removes the row from MultiStremio. The source extension remains installed.",
+                            onCancel = { catalogRowsMenu(ctx) },
+                        ) {
                             Config.update {
                                 externalRows.removeAll { it.key == external.key }
                                 catalogOrder.removeAll { it == external.key }
@@ -399,8 +415,18 @@ internal object CatalogRowsSettingsScreen {
                     } else {
                         row.addon?.let { AddonsSettingsScreen.showAddon(ctx, it) } ?: catalogRowsMenu(ctx)
                     }
-                }
-            }
-        }
+                },
+                searchKeywords = listOf("remove", "addon", "extension", "source", "settings"),
+            ),
+        )
+        settingMenu(
+            ctx,
+            row.sourceLabel + " · " + row.name,
+            items,
+            { catalogRowsMenu(ctx) },
+            "Control the visibility and position of this homepage row.",
+            screenKey = "catalog-row:${row.key}",
+        )
     }
+
 }
