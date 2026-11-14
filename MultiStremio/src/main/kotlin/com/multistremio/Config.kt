@@ -182,6 +182,7 @@ object Config {
         settings = runCatching {
             Json.parse<Settings>(prefs?.getString(KEY, null))?.sanitized()
         }.getOrNull() ?: Settings()
+        pruneManifestCache()
         if (!settings.seeded) {
             settings.seeded = true
             if (settings.addons.isEmpty()) {
@@ -206,18 +207,28 @@ object Config {
     @Synchronized
     fun update(block: Settings.() -> Unit) {
         settings.block()
+        pruneManifestCache()
         save()
     }
 
     @Synchronized
     fun replace(newSettings: Settings) {
         settings = newSettings.sanitized()
+        pruneManifestCache()
         save()
     }
 
     /** Safe read copy for provider work running alongside UI/settings updates. */
     @Synchronized
     fun snapshot(): Settings = settings.snapshot()
+
+    /** Drop parsed manifests for removed addons so repeated add/remove cycles do not leak cache entries. */
+    private fun pruneManifestCache() {
+        val currentIds = settings.addons.mapTo(HashSet()) { it.id }
+        parsedCache.keys.toList().forEach { id ->
+            if (id !in currentIds) parsedCache.remove(id)
+        }
+    }
 
     /** Collision-resistant ID for newly added addons. Existing saved IDs are not rewritten. */
     fun idFor(url: String): String = Hashing.sha256(url)
