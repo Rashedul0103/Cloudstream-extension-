@@ -46,6 +46,46 @@ class CoreLogicTest {
     }
 
     @Test
+    fun streamUrlNormalizationPreservesSignedQueriesAndPlaybackFragments() {
+        assertEquals(
+            "https://example.com/video.mkv?token=first#t=12",
+            StreamDeduplication.normalizeUrl("HTTPS://EXAMPLE.COM:443/a/../video.mkv?token=first#t=12"),
+        )
+        assertNotEquals(
+            StreamDeduplication.normalizeUrl("https://example.com/video.mkv?token=first"),
+            StreamDeduplication.normalizeUrl("https://example.com/video.mkv?token=second"),
+        )
+        assertNotEquals(
+            StreamDeduplication.normalizeUrl("https://example.com/video.mkv#t=12"),
+            StreamDeduplication.normalizeUrl("https://example.com/video.mkv#t=24"),
+        )
+    }
+
+    @Test
+    fun streamPipelineDeduplicatesEquivalentUrlsButKeepsDifferentSignedLinks() {
+        val first = StreamParser.parsed(
+            0, "First addon",
+            RawStream(url = "HTTPS://EXAMPLE.COM:443/a/../video.mkv?token=first#t=12"),
+        )
+        val duplicate = StreamParser.parsed(
+            1, "Second addon",
+            RawStream(url = "https://example.com/video.mkv?token=first#t=12"),
+        )
+        val separateCredential = StreamParser.parsed(
+            2, "Third addon",
+            RawStream(url = "https://example.com/video.mkv?token=second#t=12"),
+        )
+
+        val result = StreamPipeline.process(
+            listOf(first, duplicate, separateCredential),
+            FilterSettings(),
+            SortSettings(),
+        )
+        assertEquals(2, result.size)
+        assertEquals("First addon", result.first().addonName)
+    }
+
+    @Test
     fun strictLanguageModeRejectsUndetectedLanguageWithoutTargetList() {
         val raw = RawStream(name = "Example.Movie.1080p.WEB-DL")
         val (info, text) = StreamParser.parse(raw)
