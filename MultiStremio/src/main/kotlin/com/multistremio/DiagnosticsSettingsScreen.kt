@@ -38,13 +38,17 @@ internal object DiagnosticsSettingsScreen {
     private fun streamDiagnosticsMenu(ctx: Context) {
         val snapshot = StreamDiagnostics.latest()
         if (snapshot == null) {
-            menu(
+            settingMenu(
                 ctx,
                 "Streaming diagnostics",
-                listOf("No completed stream lookup recorded yet."),
+                listOf(SettingItem(
+                    title = "No completed stream lookup recorded yet",
+                    summary = "Open a movie or episode and load its links first",
+                    type = SettingItemType.Value,
+                )),
                 { MainMenuSettingsScreen.show(ctx) },
-                "Open a movie or episode and load its links first. The report is kept in memory and is cleared when CloudStream restarts.",
-            ) { }
+                "The report is kept in memory and is cleared when CloudStream restarts.",
+            )
             return
         }
 
