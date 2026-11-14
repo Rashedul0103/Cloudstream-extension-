@@ -167,6 +167,26 @@ object SettingsUi {
         }
     }
 
+    /**
+     * A background settings task can outlive its dialog. Hide lets the user leave that flow;
+     * completion callbacks must then report via a toast instead of reopening a screen.
+     */
+    private fun progress(
+        ctx: Context,
+        title: String,
+        message: String,
+        onHide: () -> Unit,
+    ): AlertDialog {
+        val dialog = AlertDialog.Builder(ctx)
+            .setTitle(title)
+            .setMessage(message)
+            .setNegativeButton("Hide") { _, _ -> onHide() }
+            .create()
+        dialog.setOnCancelListener { onHide() }
+        window(dialog, ctx)
+        return dialog
+    }
+
     private fun splitItem(item: String): Pair<String, String?> {
         val separator = item.indexOf(": ")
         if (separator in 2..54) return item.substring(0, separator) to item.substring(separator + 2)
@@ -950,13 +970,19 @@ object SettingsUi {
 
     /** Checks addon manifests off the UI thread, with bounded concurrency and no URL/token exposure. */
     private fun checkAddonConnections(ctx: Context) {
-        val installed = Config.settings.addons.toList()
+        val installed = Config.snapshot().addons
         if (installed.isEmpty()) {
             toast(ctx, "Add an addon before running a connection check.")
             addonsMenu(ctx)
             return
         }
-        toast(ctx, "Checking ${installed.size} addon connection(s)…")
+        var hidden = false
+        val progressDialog = progress(
+            ctx,
+            "Checking addon connections",
+            "Checking ${installed.size} addon(s). Hide this dialog to leave settings; the checks will continue.",
+        ) { hidden = true }
+
         thread(start = true, name = "multistremio-health-check") {
             val executor = Executors.newFixedThreadPool(minOf(4, installed.size))
             val results = try {
@@ -998,7 +1024,16 @@ object SettingsUi {
             } finally {
                 executor.shutdownNow()
             }
-            main.post { showAddonHealthReport(ctx, results) }
+
+            main.post {
+                progressDialog.dismiss()
+                if (hidden) {
+                    val usable = results.count { it.success }
+                    toast(ctx, "Addon check complete: $usable of ${results.size} returned usable manifests.")
+                } else {
+                    showAddonHealthReport(ctx, results)
+                }
+            }
         }
     }
 
@@ -1008,7 +1043,7 @@ object SettingsUi {
         val root = shell(
             ctx,
             "Addon health",
-            "$working of ${results.size} addons responded. Checks use an 8-second timeout and never display addon URLs or access tokens.",
+            "$working of ${results.size} addons returned usable manifests. Checks use an 8-second timeout and never display addon URLs or access tokens.",
         )
         val list = vertical(ctx)
         results.forEach { result ->
@@ -1040,7 +1075,7 @@ object SettingsUi {
         val dialog = AlertDialog.Builder(ctx).setView(root).create()
         dialog.setOnCancelListener { addonsMenu(ctx) }
         val report = buildString {
-            appendLine("MultiStremio addon health: $working/${results.size} responded")
+            appendLine("MultiStremio addon health: $working/${results.size} usable manifests")
             results.forEach {
                 append(if (it.success) "OK" else "FAILED")
                 append(" · ").append(it.name)
@@ -1073,41 +1108,57 @@ object SettingsUi {
                 addonsMenu(ctx)
                 return@prompt
             }
-            if (Config.settings.addons.any { it.url == url }) {
+            if (Config.snapshot().addons.any { it.url == url }) {
                 toast(ctx, "That addon is already added.")
                 addonsMenu(ctx)
                 return@prompt
             }
-            toast(ctx, "Checking addon…")
+
+            var hidden = false
+            val progressDialog = progress(
+                ctx,
+                "Checking addon",
+                "Fetching and validating its manifest. Hide this dialog to leave settings; the add operation will continue.",
+            ) { hidden = true }
+
             thread(start = true, name = "multistremio-add-addon") {
-                val text = SimpleHttp.get(Urls.manifest(url))
-                val manifest = Json.parse<Manifest>(text)
-                if (text == null || manifest == null || !manifest.isUsableByMultiStremio()) {
-                    toast(ctx, "Could not add this addon: its manifest is invalid or unreachable.")
-                    main.post { addonsMenu(ctx) }
-                    return@thread
-                }
-                val addon = AddonConfig(
-                    id = Config.idFor(url), url = url, name = manifest.name?.takeIf { it.isNotBlank() } ?: host(url),
-                    useCatalogs = manifest.hasResource("catalog") && manifest.catalogs.orEmpty().isNotEmpty(),
-                    useMeta = manifest.hasResource("meta"),
-                    useStreams = manifest.hasResource("stream"),
-                    useSubtitles = manifest.hasResource("subtitles"),
-                    manifest = text, manifestFetchedAt = System.currentTimeMillis(),
-                )
-                var added = false
-                Config.update {
-                    if (addons.none { it.url == url }) {
-                        addons.add(addon)
-                        added = true
+                val manifestText = SimpleHttp.get(Urls.manifest(url))
+                val manifest = Json.parse<Manifest>(manifestText)
+                main.post {
+                    progressDialog.dismiss()
+                    if (manifestText == null || manifest == null || !manifest.isUsableByMultiStremio()) {
+                        toast(ctx, "Could not add this addon: its manifest is invalid or unreachable.")
+                        if (!hidden) addonsMenu(ctx)
+                        return@post
                     }
+
+                    val addon = AddonConfig(
+                        id = Config.idFor(url),
+                        url = url,
+                        name = manifest.name?.takeIf { it.isNotBlank() } ?: host(url),
+                        useCatalogs = manifest.hasResource("catalog") && manifest.catalogs.orEmpty().isNotEmpty(),
+                        useMeta = manifest.hasResource("meta"),
+                        useStreams = manifest.hasResource("stream"),
+                        useSubtitles = manifest.hasResource("subtitles"),
+                        manifest = manifestText,
+                        manifestFetchedAt = System.currentTimeMillis(),
+                    )
+                    var added = false
+                    // Structural mutations happen on the UI thread, where the settings menus read
+                    // this list. This avoids racing a menu iteration against a background append.
+                    Config.update {
+                        if (addons.none { it.url == url }) {
+                            addons.add(addon)
+                            added = true
+                        }
+                    }
+                    toast(ctx, if (added) {
+                        "Added ${addon.name}. Refresh the home page to see its catalogs."
+                    } else {
+                        "That addon was added by another request."
+                    })
+                    if (!hidden) addonsMenu(ctx)
                 }
-                toast(ctx, if (added) {
-                    "Added " + addon.name + ". Refresh the home page to see its catalogs."
-                } else {
-                    "That addon was added by another request."
-                })
-                main.post { addonsMenu(ctx) }
             }
         }
     }
@@ -1166,23 +1217,31 @@ object SettingsUi {
                     addonMenu(ctx, a)
                 }
                 6 -> {
-                    toast(ctx, "Refreshing…")
-                    thread(start = true) {
+                    var hidden = false
+                    val progressDialog = progress(
+                        ctx,
+                        "Refreshing addon",
+                        "Downloading and validating the manifest. Hide this dialog to leave settings; the refresh will continue.",
+                    ) { hidden = true }
+                    thread(start = true, name = "multistremio-refresh-addon") {
                         val ok = Config.refreshManifest(a)
                         val m = Config.manifestOf(a)
                         val resources = m?.resources.orEmpty().mapNotNull {
                             if (it is String) it else (it as? Map<*, *>)?.get("name") as? String
-
                         }.distinct()
-                        toast(
-                            ctx,
-                            if (ok) "OK: ${m?.name ?: a.name} v${m?.version ?: "?"}, ${m?.catalogs.orEmpty().size} catalogs, " +
-                                "provides ${resources.joinToString(", ").ifEmpty { "nothing" }}"
-                            else "Could not download the manifest",
-                        )
+
                         main.post {
-                            val current = Config.settings.addons.firstOrNull { it.id == a.id && it.url == a.url }
-                            if (current != null) addonMenu(ctx, current) else addonsMenu(ctx)
+                            progressDialog.dismiss()
+                            toast(
+                                ctx,
+                                if (ok) "OK: ${m?.name ?: a.name} v${m?.version ?: "?"}, ${m?.catalogs.orEmpty().size} catalogs, " +
+                                    "provides ${resources.joinToString(", ").ifEmpty { "nothing" }}"
+                                else "Could not download the manifest",
+                            )
+                            if (!hidden) {
+                                val current = Config.snapshot().addons.firstOrNull { it.id == a.id && it.url == a.url }
+                                if (current != null) addonMenu(ctx, current) else addonsMenu(ctx)
+                            }
                         }
                     }
                 }
