@@ -854,7 +854,9 @@ object SettingsUi {
 
                         if (success && response.body != null && manifest != null) {
                             Config.update {
-                                val saved = this.addons.firstOrNull { it.id == addon.id }
+                                val saved = this.addons.firstOrNull {
+                                    it.id == addon.id && it.url == addon.url
+                                }
                                 if (saved != null) {
                                     saved.manifest = response.body
                                     saved.manifestFetchedAt = System.currentTimeMillis()
