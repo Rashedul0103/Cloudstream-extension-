@@ -45,48 +45,38 @@ class MultiStremio : MainAPI() {
     private val noAddonsMessage =
         "No addons configured. Open Settings > Extensions > MultiStremio (gear icon) and add an addon."
 
-    // Built from the cached manifests every time the home page loads, so settings changes show up on refresh.
+    // Row visibility and ordering are shared with Settings > Catalog rows.
+    // External extension providers are scanned on a worker thread and served from a short-lived cache.
     override val mainPage: List<MainPageData>
         get() {
             val settings = Config.snapshot()
-            val rows = mutableListOf<Pair<String, MainPageData>>()
-            for (addon in settings.addons) {
-                if (!addon.enabled || !addon.useCatalogs) continue
-                val manifest = Config.manifestOf(addon) ?: continue
-                for (c in manifest.catalogs.orEmpty()) {
-                    val type = c.type ?: continue
-                    val id = c.id ?: continue
-                    if (!manifest.supports("catalog", type, null)) continue
-                    if (!c.isHomeCatalog() || "$type/$id" in addon.hiddenCatalogs) continue
-                    val title = "${c.name ?: id} · ${typeLabel(type)}"
-                    val key = catalogOrderKey(addon.id, type, id)
-                    rows += key to MainPageData(title, Json.toJson(CatalogRef(addon.id, type, id)), false)
+            val installedExternalRows = ExternalHomeRowsCache.cachedOrRefresh()
+            val rows = HomeRows.resolve(settings, installedExternalRows) { Config.manifestOf(it) }
+                .asSequence()
+                .filter { it.visibleOnHome }
+                .mapNotNull { homeRow ->
+                    val external = homeRow.external
+                    if (external != null) {
+                        val installed = homeRow.installedExternal ?: return@mapNotNull null
+                        homeRow.key to MainPageData(
+                            installed.row.name,
+                            Json.toJson(ExternalPageRef(homeRow.key)),
+                            installed.row.horizontalImages,
+                        )
+                    } else {
+                        val addon = homeRow.addon ?: return@mapNotNull null
+                        val type = homeRow.type ?: return@mapNotNull null
+                        val id = homeRow.catalogId ?: return@mapNotNull null
+                        homeRow.key to MainPageData(
+                            "${homeRow.name} · ${typeLabel(type)}",
+                            Json.toJson(CatalogRef(addon.id, type, id)),
+                            false,
+                        )
+                    }
                 }
-            }
+                .toList()
 
-            // Rows selected from other installed CloudStream extensions share this same order list.
-            val installedExternalRows = ExternalHomeRows.installedRows(this)
-            for (selected in settings.externalRows) {
-                if (!selected.enabled) continue
-                val installed = ExternalHomeRows.resolve(selected, installedExternalRows) ?: continue
-                val original = installed.row
-                rows += selected.key to MainPageData(
-                    original.name,
-                    Json.toJson(ExternalPageRef(selected.key)),
-                    original.horizontalImages,
-                )
-            }
-
-            val positions = settings.catalogOrder.withIndex().associate { it.value to it.index }
-            val orderedRows = rows.withIndex()
-                .sortedWith(
-                    compareBy<IndexedValue<Pair<String, MainPageData>>> {
-                        positions[it.value.first] ?: Int.MAX_VALUE
-                    }.thenBy { it.index },
-                )
-                .map { it.value.second }
-
-            return if (orderedRows.isEmpty()) listOf(MainPageData("MultiStremio", "{}", false)) else orderedRows
+            return if (rows.isEmpty()) listOf(MainPageData("MultiStremio", "{}", false)) else rows.map { it.second }
         }
 
     override suspend fun getMainPage(page: Int, request: MainPageRequest): HomePageResponse? {
@@ -97,7 +87,7 @@ class MultiStremio : MainAPI() {
             val selected = settings.externalRows.firstOrNull {
                 it.key == externalKey && it.enabled
             } ?: return newHomePageResponse(request, emptyList(), false)
-            val installed = ExternalHomeRows.resolve(selected, this)
+            val installed = ExternalHomeRows.resolve(selected, ExternalHomeRowsCache.cachedOrRefresh())
                 ?: return newHomePageResponse(request, emptyList(), false)
 
             return try {
