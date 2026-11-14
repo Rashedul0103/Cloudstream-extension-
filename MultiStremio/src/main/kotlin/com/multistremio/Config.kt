@@ -12,6 +12,8 @@ import java.security.MessageDigest
 import java.util.concurrent.ConcurrentHashMap
 import kotlin.concurrent.thread
 
+data class ArrayParseResult<T>(val items: List<T>, val status: String)
+
 object Json {
     val mapper = jacksonObjectMapper()
         .configure(DeserializationFeature.FAIL_ON_UNKNOWN_PROPERTIES, false)
@@ -28,17 +30,33 @@ object Json {
 
     fun toJson(value: Any?): String = mapper.writeValueAsString(value)
 
-    /** Parses `{ "<field>": [ ... ] }` element by element so one malformed entry doesn't drop the rest. */
-    inline fun <reified T> parseArray(text: String?, field: String): List<T> {
-        if (text.isNullOrBlank()) return emptyList()
-        val arr = try { mapper.readTree(text)?.get(field) } catch (e: Exception) { null }
-        if (arr == null || !arr.isArray) return emptyList()
-        val out = ArrayList<T>(arr.size())
-        for (node in arr) {
-            try { out.add(mapper.treeToValue(node, T::class.java)) } catch (e: Exception) { /* skip bad entry */ }
+    /** Parses element by element and reports malformed responses without discarding valid entries. */
+    inline fun <reified T> parseArrayDetailed(text: String?, field: String): ArrayParseResult<T> {
+        if (text.isNullOrBlank()) return ArrayParseResult(emptyList(), "EMPTY_BODY")
+        val root = try {
+            mapper.readTree(text)
+        } catch (e: Exception) {
+            return ArrayParseResult(emptyList(), "INVALID_JSON")
         }
-        return out
+        val arr = root?.get(field) ?: return ArrayParseResult(emptyList(), "MISSING_ARRAY")
+        if (!arr.isArray) return ArrayParseResult(emptyList(), "MISSING_ARRAY")
+        if (arr.size() == 0) return ArrayParseResult(emptyList(), "EMPTY")
+        val out = ArrayList<T>(arr.size())
+        var rejected = 0
+        for (node in arr) {
+            try { out.add(mapper.treeToValue(node, T::class.java)) }
+            catch (e: Exception) { rejected++ }
+        }
+        val status = when {
+            out.isEmpty() -> "INVALID_ITEMS"
+            rejected > 0 -> "PARTIAL"
+            else -> "OK"
+        }
+        return ArrayParseResult(out, status)
     }
+
+    inline fun <reified T> parseArray(text: String?, field: String): List<T> =
+        parseArrayDetailed<T>(text, field).items
 }
 
 /** Blocking HTTP used only by settings/background threads (the provider uses CloudStream's `app`). */
