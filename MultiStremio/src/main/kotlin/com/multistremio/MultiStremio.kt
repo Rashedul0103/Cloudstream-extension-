@@ -333,7 +333,8 @@ class MultiStremio : MainAPI() {
         val quality = StreamLabels.linkQuality(p.info.resolution, settings.sort.overrideAppQuality)
             ?: Qualities.Unknown.value
         val hints = p.raw.behaviorHints
-        val headers = (hints?.proxyHeaders?.request ?: hints?.headers).orEmpty()
+        val headers = StreamRequestHeaders.from(hints)
+        val referer = StreamRequestHeaders.referer(headers)
 
         val url = p.raw.url
         if (!url.isNullOrBlank()) {
@@ -341,7 +342,7 @@ class MultiStremio : MainAPI() {
                 newExtractorLink(p.addonName, label, url) {
                     this.quality = quality
                     this.headers = headers
-                    this.referer = ""
+                    this.referer = referer
                 },
             )
         } else if (!p.raw.infoHash.isNullOrBlank()) {
