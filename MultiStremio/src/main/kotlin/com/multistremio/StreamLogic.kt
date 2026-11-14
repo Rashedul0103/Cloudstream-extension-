@@ -462,18 +462,49 @@ object StreamSorter {
 }
 
 // ---------------------------------------------------------------------------------------------
+// URL normalization for safe duplicate detection.
+// Query parameters and fragments are preserved because they may contain signed credentials
+// or player-specific playback instructions.
+// ---------------------------------------------------------------------------------------------
+
+object StreamDeduplication {
+    fun normalizeUrl(value: String?): String? {
+        val raw = value?.trim()?.takeIf { it.isNotEmpty() } ?: return null
+        val uri = runCatching { URI(raw) }.getOrNull() ?: return raw
+        val scheme = uri.scheme?.lowercase(Locale.ROOT) ?: return raw
+        val rawHost = uri.host ?: return raw
+        val host = rawHost.removePrefix("[").removeSuffix("]").lowercase(Locale.ROOT)
+        val renderedHost = if (host.contains(':')) "[$host]" else host
+        val port = when {
+            uri.port < 0 -> ""
+            scheme == "http" && uri.port == 80 -> ""
+            scheme == "https" && uri.port == 443 -> ""
+            else -> ":${uri.port}"
+        }
+        val userInfo = uri.rawUserInfo?.let { "$it@" }.orEmpty()
+        val path = uri.normalize().rawPath.orEmpty().ifEmpty { "/" }
+        val query = uri.rawQuery?.let { "?$it" }.orEmpty()
+        val fragment = uri.rawFragment?.let { "#$it" }.orEmpty()
+        return "$scheme://$userInfo$renderedHost$port$path$query$fragment"
+    }
+
+    fun key(stream: ParsedStream): String? {
+        val hash = stream.raw.infoHash
+        if (!hash.isNullOrBlank()) {
+            return "h:${hash.lowercase(Locale.ROOT)}:${stream.raw.fileIdx ?: -1}"
+        }
+        val url = normalizeUrl(stream.raw.url) ?: return null
+        return "u:$url"
+    }
+}
+
+// ---------------------------------------------------------------------------------------------
 // Pipeline: filter -> dedupe -> sort -> limit
 // ---------------------------------------------------------------------------------------------
 
 
 object StreamPipeline {
-    private fun dedupeKey(p: ParsedStream): String? {
-        val hash = p.raw.infoHash
-        if (!hash.isNullOrBlank()) return "h:" + hash.lowercase(Locale.ROOT) + ":" + (p.raw.fileIdx ?: -1)
-        val url = p.raw.url
-        if (!url.isNullOrBlank()) return "u:$url"
-        return null
-    }
+    private fun dedupeKey(p: ParsedStream): String? = StreamDeduplication.key(p)
 
     fun process(items: List<ParsedStream>, filter: FilterSettings, sort: SortSettings): List<ParsedStream> {
         // Earlier addons win when two addons return the same torrent/url.
