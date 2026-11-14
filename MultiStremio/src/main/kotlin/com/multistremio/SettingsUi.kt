@@ -941,15 +941,15 @@ object SettingsUi {
 
                         val cached = Config.manifestOf(addon) != null
                         val detail = if (success) buildString {
-                            append(manifest?.name?.takeIf { it.isNotBlank() } ?: addon.name)
+                            append(StreamDiagnostics.safeAddonName(manifest?.name?.takeIf { it.isNotBlank() } ?: addon.name))
                             manifest?.version?.takeIf { it.isNotBlank() }?.let { append(" · v").append(it) }
                             append(" · ${manifest?.catalogs.orEmpty().size} catalogs")
                         } else assessment.detail + if (cached) " · saved manifest retained" else ""
-                        AddonHealthResult(addon.name, success, elapsed, detail)
+                        AddonHealthResult(StreamDiagnostics.safeAddonName(addon.name), success, elapsed, detail)
                     }
                 }.map { (addon, future) ->
                     runCatching { future.get() }.getOrElse {
-                        AddonHealthResult(addon.name, false, 0L, "The connection check could not be completed")
+                        AddonHealthResult(StreamDiagnostics.safeAddonName(addon.name), false, 0L, "The connection check could not be completed")
                     }
                 }
             } finally {
