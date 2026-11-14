@@ -82,6 +82,25 @@ object DragReorderMath {
         otherItemCenters.count { pointerY >= it }.coerceIn(0, otherItemCenters.size)
 }
 
+/** Stable list operations shared by the catalog-row UI and its JVM regression tests. */
+object CatalogOrderMath {
+    fun move(keys: List<String>, key: String, delta: Int): List<String> {
+        if (delta == 0) return keys.toList()
+        val from = keys.indexOf(key)
+        if (from < 0) return keys.toList()
+        val to = (from + delta).coerceIn(0, keys.lastIndex)
+        if (from == to) return keys.toList()
+        return keys.toMutableList().apply {
+            val moved = removeAt(from)
+            add(to, moved)
+        }
+    }
+
+    /** Seed every currently visible row before appending a newly imported row. */
+    fun append(keys: List<String>, newKey: String): List<String> =
+        (keys + newKey).distinct()
+}
+
 /** Stable identity for a catalog row across app launches and addon manifest refreshes. */
 fun catalogOrderKey(addonId: String, type: String, catalogId: String): String =
     "$addonId|$type|$catalogId"
