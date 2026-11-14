@@ -274,6 +274,7 @@ object SettingsUi {
 
     private fun prompt(
         ctx: Context, title: String, message: String?, initial: String, numeric: Boolean,
+        onCancel: (() -> Unit)? = null,
         onOk: (String) -> Unit,
     ) {
         val colors = palette(ctx)
@@ -294,27 +295,44 @@ object SettingsUi {
         addFooter(ctx, root, "Save", {
             dialog.dismiss()
             onOk(input.text.toString().trim())
-        }, "Cancel", { dialog.dismiss() })
+        }, "Cancel", {
+            dialog.dismiss()
+            onCancel?.invoke()
+        })
         window(dialog, ctx)
     }
 
-    private fun confirm(ctx: Context, title: String, message: String, onYes: () -> Unit) {
+    private fun confirm(
+        ctx: Context,
+        title: String,
+        message: String,
+        onCancel: (() -> Unit)? = null,
+        onYes: () -> Unit,
+    ) {
         val root = shell(ctx, title, message)
         val dialog = AlertDialog.Builder(ctx).setView(root).create()
         addFooter(ctx, root, "Continue", {
             dialog.dismiss()
             onYes()
-        }, "Cancel", { dialog.dismiss() })
+        }, "Cancel", {
+            dialog.dismiss()
+            onCancel?.invoke()
+        })
         window(dialog, ctx)
     }
 
     private fun choose(
-        ctx: Context, title: String, labels: List<String>, checked: Int, onPick: (Int) -> Unit,
+        ctx: Context,
+        title: String,
+        labels: List<String>,
+        checked: Int,
+        onCancel: (() -> Unit)? = null,
+        onPick: (Int) -> Unit,
     ) {
         val rows = labels.mapIndexed { index, label ->
             if (index == checked) "✓  $label  ·  SELECTED" else label
         }
-        menu(ctx, title, rows, null, "Select one option. Your choice is saved immediately.") { onPick(it) }
+        menu(ctx, title, rows, onCancel, "Select one option. Your choice is saved immediately.") { onPick(it) }
     }
 
     private fun multi(
@@ -323,6 +341,7 @@ object SettingsUi {
         labels: List<String>,
         initial: List<Boolean>,
         description: String = "Select all options that should remain enabled.",
+        onCancel: (() -> Unit)? = null,
         onSave: (List<Boolean>) -> Unit,
     ) {
         val colors = palette(ctx)
@@ -353,7 +372,10 @@ object SettingsUi {
         addFooter(ctx, root, "Save", {
             dialog.dismiss()
             onSave(state.toList())
-        }, "Cancel", { dialog.dismiss() })
+        }, "Cancel", {
+            dialog.dismiss()
+            onCancel?.invoke()
+        })
         window(dialog, ctx)
     }
 
@@ -366,14 +388,15 @@ object SettingsUi {
         title: String,
         description: String,
         initial: String,
+        onCancel: (() -> Unit)? = null,
         onSave: (MutableList<String>) -> Unit,
     ) {
-        prompt(ctx, title, description, initial, false) { value ->
+        prompt(ctx, title, description, initial, false, onCancel) { value ->
             val keywords = parseCsv(value)
             val invalid = StreamFilter.invalidRegexPatterns(keywords)
             if (invalid.isNotEmpty()) {
                 toast(ctx, "Invalid regular expression: ${invalid.first()}. Nothing was saved.")
-                keywordList(ctx, title, description, value, onSave)
+                keywordList(ctx, title, description, value, onCancel, onSave)
             } else {
                 onSave(keywords)
             }
