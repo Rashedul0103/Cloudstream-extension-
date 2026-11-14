@@ -321,16 +321,17 @@ class MultiStremio : MainAPI() {
     private suspend fun findMeta(ref: ItemRef, type: String, id: String): Meta? {
         val candidates = Config.settings.addons
             .filter { it.enabled && it.useMeta && Config.manifestOf(it)?.supports("meta", type, id) == true }
-            .sortedBy { if (it.id == ref.a) 0 else 1 }
-        var partial: Meta? = null
-        for (addon in candidates) {
-            val candidate = StremioClient.meta(addon, type, id) ?: continue
-            // Prefer complete metadata, but keep sparse metadata if it contains useful fields
-            // such as a series' episode list and no other addon can provide a named result.
-            if (!candidate.name.isNullOrBlank()) return candidate
-            if (partial == null) partial = candidate
-        }
-        return partial
+        val origin = candidates.firstOrNull { it.id == ref.a }
+        val originMeta = origin?.let { StremioClient.meta(it, type, id) }
+        if (!originMeta?.name.isNullOrBlank()) return originMeta
+
+        // Metadata addons are queried in parallel after the source addon fails to give a named item.
+        val alternatives = candidates.filter { it.id != origin?.id }
+            .amap { addon -> StremioClient.meta(addon, type, id) }
+        alternatives.firstOrNull { !it?.name.isNullOrBlank() }?.let { return it }
+
+        // Preserve useful sparse metadata (e.g. videos) instead of throwing it away.
+        return originMeta ?: alternatives.firstOrNull { it != null }
     }
 
     private fun Meta.toSearchResponse(addonId: String, fallbackType: String): SearchResponse? {
