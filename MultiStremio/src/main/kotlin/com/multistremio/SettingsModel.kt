@@ -113,6 +113,34 @@ object ExternalRowIdentity {
             saved.horizontalImages == current.horizontalImages
 }
 
+data class StreamFormatField(val id: String, val title: String, val description: String)
+
+object StreamFormatFields {
+    val all = listOf(
+        StreamFormatField("addon", "Addon name", "Which extension supplied this link"),
+        StreamFormatField("quality", "Video quality", "4K, 1080p, 720p and similar"),
+        StreamFormatField("source", "Video source", "WEB-DL, BluRay, REMUX and similar"),
+        StreamFormatField("hdr", "HDR format", "HDR10, Dolby Vision and similar"),
+        StreamFormatField("codec", "Video codec", "HEVC, AV1 or AVC"),
+        StreamFormatField("audio", "Audio format", "Atmos, TrueHD, DTS, AAC and similar"),
+        StreamFormatField("language", "Audio language", "Languages detected from the release name"),
+        StreamFormatField("subtitles", "Subtitle languages", "Languages available as subtitle tracks"),
+        StreamFormatField("size", "File size", "Approximate size reported by the addon"),
+        StreamFormatField("seeders", "Seeders", "Seeder count for torrent streams"),
+        StreamFormatField("cache", "Cache status", "Cached or uncached"),
+        StreamFormatField("link_type", "Link type", "Direct link or magnet link"),
+        StreamFormatField("release", "Release name", "The original filename or release title"),
+    )
+    val defaultOrder = all.map { it.id }
+}
+
+data class StreamFormatSettings(
+    var enabled: Boolean = false,
+    var fields: MutableList<String> = StreamFormatFields.defaultOrder.toMutableList(),
+    var separator: String = " · ",
+    var showLabels: Boolean = false,
+)
+
 data class Settings(
     var addons: MutableList<AddonConfig> = mutableListOf(),
     /** Stable keys defining the user's global order for all homepage rows. */
@@ -125,5 +153,6 @@ data class Settings(
     var fetchSubtitles: Boolean = true,
     var subtitleLanguages: MutableList<String> = mutableListOf(),
     var detailedLabels: Boolean = true,
+    var streamFormat: StreamFormatSettings = StreamFormatSettings(),
     var seeded: Boolean = false,
 )
