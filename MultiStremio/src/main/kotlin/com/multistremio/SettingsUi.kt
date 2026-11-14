@@ -16,11 +16,11 @@ import android.text.InputType
 import android.text.TextWatcher
 import android.util.TypedValue
 import android.view.Gravity
-import android.view.GestureDetector
 import android.view.HapticFeedbackConstants
 import android.view.MotionEvent
 import android.view.View
 import android.view.ViewGroup
+import android.view.ViewConfiguration
 import android.widget.CheckBox
 import android.widget.EditText
 import android.widget.LinearLayout
@@ -29,6 +29,7 @@ import android.widget.TextView
 import android.widget.Toast
 import java.net.URL
 import java.util.concurrent.Executors
+import kotlin.math.abs
 import kotlin.concurrent.thread
 
 /** Theme-aware settings UI built from Android views; no XML or extra UI dependency required. */
@@ -157,10 +158,33 @@ object SettingsUi {
 
     private fun window(dialog: AlertDialog, ctx: Context) {
         dialog.show()
+        // These settings screens have explicit Back/Cancel controls. Avoid accidental outside taps
+        // dismissing an in-progress edit or silently navigating to its parent screen.
+        dialog.setCanceledOnTouchOutside(false)
         dialog.window?.let { window ->
             window.setBackgroundDrawableResource(android.R.color.transparent)
             window.setLayout(minOf(dp(ctx, 520), ctx.resources.displayMetrics.widthPixels - dp(ctx, 36)), ViewGroup.LayoutParams.WRAP_CONTENT)
         }
+    }
+
+    /**
+     * A background settings task can outlive its dialog. Hide lets the user leave that flow;
+     * completion callbacks must then report via a toast instead of reopening a screen.
+     */
+    private fun progress(
+        ctx: Context,
+        title: String,
+        message: String,
+        onHide: () -> Unit,
+    ): AlertDialog {
+        val dialog = AlertDialog.Builder(ctx)
+            .setTitle(title)
+            .setMessage(message)
+            .setNegativeButton("Hide") { _, _ -> onHide() }
+            .create()
+        dialog.setOnCancelListener { onHide() }
+        window(dialog, ctx)
+        return dialog
     }
 
     private fun splitItem(item: String): Pair<String, String?> {
@@ -210,7 +234,7 @@ object SettingsUi {
                     pick(index)
                 }
             }
-            rowViews += row to value
+            rowViews += row to listOfNotNull(value, detail).joinToString(" ")
         }
 
         fun render(filter: String = "") {
@@ -264,6 +288,7 @@ object SettingsUi {
         ))
         val dialog = AlertDialog.Builder(ctx).setView(root).create()
         root.setTag(dialog)
+        dialog.setOnCancelListener { back?.invoke() }
         addFooter(ctx, root, if (back != null) "Back" else "Close", {
             dialog.dismiss()
             back?.invoke()
@@ -273,6 +298,7 @@ object SettingsUi {
 
     private fun prompt(
         ctx: Context, title: String, message: String?, initial: String, numeric: Boolean,
+        onCancel: (() -> Unit)? = null,
         onOk: (String) -> Unit,
     ) {
         val colors = palette(ctx)
@@ -290,40 +316,65 @@ object SettingsUi {
             topMargin = dp(ctx, 6)
         })
         val dialog = AlertDialog.Builder(ctx).setView(root).create()
+        dialog.setOnCancelListener { onCancel?.invoke() }
         addFooter(ctx, root, "Save", {
             dialog.dismiss()
             onOk(input.text.toString().trim())
-        }, "Cancel", { dialog.dismiss() })
+        }, "Cancel", {
+            dialog.dismiss()
+            onCancel?.invoke()
+        })
         window(dialog, ctx)
     }
 
-    private fun confirm(ctx: Context, title: String, message: String, onYes: () -> Unit) {
+    private fun confirm(
+        ctx: Context,
+        title: String,
+        message: String,
+        onCancel: (() -> Unit)? = null,
+        onYes: () -> Unit,
+    ) {
         val root = shell(ctx, title, message)
         val dialog = AlertDialog.Builder(ctx).setView(root).create()
+        dialog.setOnCancelListener { onCancel?.invoke() }
         addFooter(ctx, root, "Continue", {
             dialog.dismiss()
             onYes()
-        }, "Cancel", { dialog.dismiss() })
+        }, "Cancel", {
+            dialog.dismiss()
+            onCancel?.invoke()
+        })
         window(dialog, ctx)
     }
 
     private fun choose(
-        ctx: Context, title: String, labels: List<String>, checked: Int, onPick: (Int) -> Unit,
+        ctx: Context,
+        title: String,
+        labels: List<String>,
+        checked: Int,
+        onCancel: (() -> Unit)? = null,
+        onPick: (Int) -> Unit,
     ) {
         val rows = labels.mapIndexed { index, label ->
             if (index == checked) "✓  $label  ·  SELECTED" else label
         }
-        menu(ctx, title, rows, null, "Select one option. Your choice is saved immediately.") { onPick(it) }
+        menu(ctx, title, rows, onCancel, "Select one option. Your choice is saved immediately.") { onPick(it) }
     }
 
     private fun multi(
-        ctx: Context, title: String, labels: List<String>, initial: List<Boolean>, onSave: (List<Boolean>) -> Unit,
+        ctx: Context,
+        title: String,
+        labels: List<String>,
+        initial: List<Boolean>,
+        description: String = "Select all options that should remain enabled.",
+        onCancel: (() -> Unit)? = null,
+        onSave: (List<Boolean>) -> Unit,
     ) {
         val colors = palette(ctx)
         val state = initial.toBooleanArray()
-        val root = shell(ctx, title, "Select all options that should remain enabled.")
+        val root = shell(ctx, title, description)
         val list = vertical(ctx)
-        labels.forEachIndexed { index, label ->
+        val checks = labels.mapIndexed { index, label ->
             val check = CheckBox(ctx).apply {
                 text = label
                 textSize = 14f
@@ -332,27 +383,95 @@ object SettingsUi {
                 buttonTintList = ColorStateList.valueOf(colors.accent)
                 setPadding(dp(ctx, 8), dp(ctx, 8), dp(ctx, 8), dp(ctx, 8))
                 minHeight = dp(ctx, 48)
-                setOnCheckedChangeListener { _, checked -> state[index] = checked }
+                setOnCheckedChangeListener { _, checked ->
+                    if (index in state.indices) state[index] = checked
+                }
             }
-            list.addView(check)
+            check to label
         }
+
+        fun render(query: String = "") {
+            list.removeAllViews()
+            val matching = checks.filter { (_, label) -> label.contains(query, ignoreCase = true) }
+            if (matching.isEmpty()) {
+                list.addView(text(ctx, "No matching options.", 13f, colors.secondary).apply {
+                    setPadding(dp(ctx, 12), dp(ctx, 16), dp(ctx, 12), dp(ctx, 16))
+                })
+            } else {
+                matching.forEach { (check, _) -> list.addView(check) }
+            }
+        }
+
+        if (labels.size >= 8) {
+            val search = EditText(ctx).apply {
+                hint = "Search options"
+                textSize = 14f
+                setTextColor(colors.primary)
+                setHintTextColor(colors.secondary)
+                setSingleLine(true)
+                inputType = InputType.TYPE_CLASS_TEXT
+                setPadding(dp(ctx, 14), dp(ctx, 8), dp(ctx, 14), dp(ctx, 8))
+                background = rounded(ctx, withAlpha(colors.accent, 12), colors.outline)
+            }
+            root.addView(search, LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT,
+                dp(ctx, 46),
+            ).apply { bottomMargin = dp(ctx, 8) })
+            search.addTextChangedListener(object : TextWatcher {
+                override fun beforeTextChanged(s: CharSequence?, start: Int, count: Int, after: Int) = Unit
+                override fun onTextChanged(s: CharSequence?, start: Int, before: Int, count: Int) {
+                    render(s?.toString().orEmpty())
+                }
+                override fun afterTextChanged(s: Editable?) = Unit
+            })
+        }
+        render()
+
         val scroll = ScrollView(ctx).apply {
-            addView(list, ViewGroup.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT))
+            addView(list, ViewGroup.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT,
+                ViewGroup.LayoutParams.WRAP_CONTENT,
+            ))
         }
         root.addView(scroll, LinearLayout.LayoutParams(
             ViewGroup.LayoutParams.MATCH_PARENT,
             minOf(dp(ctx, 430), dp(ctx, maxOf(72, labels.size * 54))),
         ))
         val dialog = AlertDialog.Builder(ctx).setView(root).create()
+        dialog.setOnCancelListener { onCancel?.invoke() }
         addFooter(ctx, root, "Save", {
             dialog.dismiss()
             onSave(state.toList())
-        }, "Cancel", { dialog.dismiss() })
+        }, "Cancel", {
+            dialog.dismiss()
+            onCancel?.invoke()
+        })
         window(dialog, ctx)
     }
 
     private fun csv(list: List<String>) = if (list.isEmpty()) "none" else list.joinToString(", ")
     private fun parseCsv(s: String) = s.split(',', '\n').map { it.trim() }.filter { it.isNotEmpty() }.toMutableList()
+
+    /** Reject invalid slash-delimited regex filters instead of silently saving rules that match nothing. */
+    private fun keywordList(
+        ctx: Context,
+        title: String,
+        description: String,
+        initial: String,
+        onCancel: (() -> Unit)? = null,
+        onSave: (MutableList<String>) -> Unit,
+    ) {
+        prompt(ctx, title, description, initial, false, onCancel) { value ->
+            val keywords = parseCsv(value)
+            val invalid = StreamFilter.invalidRegexPatterns(keywords)
+            if (invalid.isNotEmpty()) {
+                toast(ctx, "Invalid regular expression: ${invalid.first()}. Nothing was saved.")
+                keywordList(ctx, title, description, value, onCancel, onSave)
+            } else {
+                onSave(keywords)
+            }
+        }
+    }
     private fun onOff(b: Boolean) = if (b) "ON" else "OFF"
     private fun limit(n: Int, unit: String) = if (n <= 0) "off" else if (unit.isEmpty()) n.toString() else "$n $unit"
     private fun modeLabel(m: Int) = when (m) { MODE_HIDE -> "hide"; MODE_ONLY -> "only"; else -> "any" }
@@ -364,8 +483,15 @@ object SettingsUi {
     private fun mainMenu(ctx: Context) {
         val s = Config.settings
         val activeRows = s.addons.sumOf { addon ->
-            Config.manifestOf(addon)?.catalogs.orEmpty().count {
-                it.isHomeCatalog() && "${it.type}/${it.id}" !in addon.hiddenCatalogs && addon.enabled && addon.useCatalogs
+            if (!addon.enabled || !addon.useCatalogs) 0 else {
+                val manifest = Config.manifestOf(addon)
+                if (manifest == null) 0 else manifest.catalogs.orEmpty().count { catalog ->
+                    val type = catalog.type
+                    val id = catalog.id
+                    type != null && id != null &&
+                        manifest.supports("catalog", type, null) &&
+                        catalog.isHomeCatalog() && "$type/$id" !in addon.hiddenCatalogs
+                }
             }
         } + s.externalRows.count { it.enabled }
         menu(
@@ -385,7 +511,7 @@ object SettingsUi {
             "Manage sources, homepage layout and playback. Search is available inside longer settings lists.",
             listOf(
                 "${s.addons.size} sources configured · ${s.addons.count { it.enabled }} active",
-                "$activeRows homepage rows currently enabled",
+                "$activeRows homepage rows configured as enabled; check Catalog rows for missing sources",
                 "Choose which streams are allowed",
                 "Control quality, language, codec and audio ranking",
                 "Build your own link layout without writing code",
@@ -414,7 +540,8 @@ object SettingsUi {
     private fun streamFormatterMenu(ctx: Context) {
         val format = Config.settings.streamFormat
         val fields = StreamFormatFields.all
-        val selected = format.fields.toSet()
+        val validFieldIds = fields.map { it.id }.toSet()
+        val selected = format.fields.filter { it in validFieldIds }.toSet()
         val separatorLabels = listOf(
             "Middle dot   ·",
             "Vertical bar   |",
@@ -427,7 +554,7 @@ object SettingsUi {
         val separatorIndex = separators.indexOf(format.separator).takeIf { it >= 0 } ?: 0
         val rows = listOf(
             "Custom layout: ${onOff(format.enabled)}",
-            "Choose information to show (${format.fields.size} selected)",
+            "Choose information to show (${selected.size} selected)",
             "Reorder visible information",
             "Separator: ${separatorLabels[separatorIndex]}",
             "Show full field names: ${onOff(format.showLabels)}",
@@ -443,7 +570,7 @@ object SettingsUi {
             listOf(
                 "Turn your custom design on or off. Off uses the normal MultiStremio labels.",
                 "Pick details such as quality, codec, language and file size.",
-                "Drag the selected details into the order you want.",
+                "Drag the grip to reorder. No long-press is needed; swipe the detail text to scroll.",
                 "Choose what appears between details.",
                 "Use names such as “Quality:” and “Video codec:” before each value.",
                 "See an example using a made-up movie; no addon is contacted.",
@@ -460,6 +587,7 @@ object SettingsUi {
                     "Information to display",
                     fields.map { "${it.title} — ${it.description}" },
                     fields.map { it.id in selected },
+                    onCancel = { streamFormatterMenu(ctx) },
                 ) { chosen ->
                     val wanted = fields.filterIndexed { index, _ -> chosen.getOrElse(index) { false } }.map { it.id }.toSet()
                     val existingOrder = format.fields.filter { it in wanted }
@@ -468,7 +596,7 @@ object SettingsUi {
                     streamFormatterMenu(ctx)
                 }
                 2 -> streamFormatReorderDialog(ctx)
-                3 -> choose(ctx, "Separate each detail with", separatorLabels, separatorIndex) {
+                3 -> choose(ctx, "Separate each detail with", separatorLabels, separatorIndex, onCancel = { streamFormatterMenu(ctx) }) {
                     Config.update { streamFormat.separator = separators[it] }
                     streamFormatterMenu(ctx)
                 }
@@ -490,6 +618,7 @@ object SettingsUi {
                     ctx,
                     "Reset stream formatter?",
                     "This restores the recommended field order, middle-dot separator and compact labels. Your custom layout will be turned off.",
+                    onCancel = { streamFormatterMenu(ctx) },
                 ) {
                     Config.update { streamFormat = StreamFormatSettings() }
                     streamFormatterMenu(ctx)
@@ -515,7 +644,7 @@ object SettingsUi {
         val root = shell(
             ctx,
             "Arrange stream details",
-            "Press and hold the grip, then move the field up or down. Tap Save when the order is correct.",
+            "Drag the ☰ grip to move a field. No long-press is needed; swipe the field details to scroll. Tap Save when finished.",
         )
         val scroll = ScrollView(ctx).apply { clipToPadding = false }
         val list = vertical(ctx)
@@ -549,12 +678,53 @@ object SettingsUi {
             val item = LinearLayout(ctx).apply {
                 orientation = LinearLayout.HORIZONTAL
                 gravity = Gravity.CENTER_VERTICAL
-                setPadding(dp(ctx, 12), dp(ctx, 12), dp(ctx, 12), dp(ctx, 12))
+                setPadding(dp(ctx, 12), dp(ctx, 12), dp(ctx, 7), dp(ctx, 12))
                 background = rounded(ctx, colors.background, colors.outline)
                 tag = id
                 addView(handle, LinearLayout.LayoutParams(dp(ctx, 42), dp(ctx, 48)))
                 addView(description, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
             }
+            // Drag remains the fastest option; buttons make ordering possible without a gesture.
+            val moveControls = vertical(ctx).apply {
+                gravity = Gravity.CENTER
+                val up = text(ctx, "↑", 19f, colors.secondary, true).apply {
+                    gravity = Gravity.CENTER
+                    contentDescription = "Move ${titles[id].orEmpty()} up"
+                    minimumWidth = dp(ctx, 32)
+                    minimumHeight = dp(ctx, 30)
+                    background = ripple(ctx, colors.background, colors)
+                    setOnClickListener {
+                        val current = list.indexOfChild(item)
+                        if (current > 0) {
+                            list.removeView(item)
+                            list.addView(item, current - 1)
+                            refreshNumbers()
+                        } else {
+                            toast(ctx, "This field is already first.")
+                        }
+                    }
+                }
+                val down = text(ctx, "↓", 19f, colors.secondary, true).apply {
+                    gravity = Gravity.CENTER
+                    contentDescription = "Move ${titles[id].orEmpty()} down"
+                    minimumWidth = dp(ctx, 32)
+                    minimumHeight = dp(ctx, 30)
+                    background = ripple(ctx, colors.background, colors)
+                    setOnClickListener {
+                        val current = list.indexOfChild(item)
+                        if (current in 0 until list.childCount - 1) {
+                            list.removeView(item)
+                            list.addView(item, current + 1)
+                            refreshNumbers()
+                        } else {
+                            toast(ctx, "This field is already last.")
+                        }
+                    }
+                }
+                addView(up)
+                addView(down)
+            }
+            item.addView(moveControls, LinearLayout.LayoutParams(dp(ctx, 36), ViewGroup.LayoutParams.WRAP_CONTENT))
             list.addView(item, LinearLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT,
                 ViewGroup.LayoutParams.WRAP_CONTENT,
@@ -567,7 +737,8 @@ object SettingsUi {
             minOf(dp(ctx, 460), dp(ctx, maxOf(100, orderedIds.size * 70))),
         ))
         val dialog = AlertDialog.Builder(ctx).setView(root).create()
-        addFooter(ctx, root, "Save order", {
+        dialog.setOnCancelListener { streamFormatterMenu(ctx) }
+        addFooter(ctx, root, "Save row order", {
             val order = (0 until list.childCount).mapNotNull { list.getChildAt(it).tag as? String }
             if (order.size == orderedIds.size && order.toSet() == orderedIds.toSet()) {
                 Config.update { streamFormat.fields = order.toMutableList() }
@@ -576,16 +747,19 @@ object SettingsUi {
             } else {
                 toast(ctx, "Could not save the format order. Please try again.")
             }
-        }, "Cancel", { dialog.dismiss() })
+        }, "Cancel", {
+            dialog.dismiss()
+            streamFormatterMenu(ctx)
+        })
         window(dialog, ctx)
     }
 
     /**
      * Shared drag controller for both reorder screens.
      *
-     * The ScrollView is told not to intercept the gesture from ACTION_DOWN, not after long-press.
-     * This is critical: otherwise a vertical move can be stolen by ScrollView before the long-press
-     * detector fires, which makes the grip appear unresponsive.
+     * The grip is a dedicated drag target: vertical movement starts reordering as soon as the
+     * finger passes touch slop. No long-press timer is involved, so the gesture cannot be cancelled
+     * by the ScrollView before the reorder controller starts. Swiping the row body still scrolls.
      */
     private fun installDragReordering(
         ctx: Context,
@@ -596,9 +770,62 @@ object SettingsUi {
         colors: Palette,
         onMoved: () -> Unit,
     ) {
+        val touchSlop = ViewConfiguration.get(ctx).scaledTouchSlop
+        var tracking = false
         var dragging = false
+        var downRawY = 0f
+        var lastPointerY = 0f
+        var edgeDirection = 0
+
+        fun moveItem(pointerY: Float, updateEdgeScroll: Boolean = true) {
+            val centers = (0 until list.childCount).mapNotNull { index ->
+                val child = list.getChildAt(index)
+                if (child === item) null else {
+                    val position = IntArray(2)
+                    child.getLocationOnScreen(position)
+                    position[1] + child.height / 2f
+                }
+            }
+            // The insertion slot is measured among the other rows, after excluding the dragged row.
+            val destination = DragReorderMath.insertionIndex(centers, pointerY)
+            val current = list.indexOfChild(item)
+            if (destination != current) {
+                list.removeView(item)
+                list.addView(item, destination.coerceIn(0, list.childCount))
+                onMoved()
+            }
+
+            if (updateEdgeScroll) {
+                val scrollPosition = IntArray(2)
+                scroll.getLocationOnScreen(scrollPosition)
+                val edge = dp(ctx, 48)
+                edgeDirection = when {
+                    pointerY < scrollPosition[1] + edge -> -1
+                    pointerY > scrollPosition[1] + scroll.height - edge -> 1
+                    else -> 0
+                }
+            }
+        }
+
+        val edgeScroller = object : Runnable {
+            override fun run() {
+                if (!tracking || !dragging || edgeDirection == 0) return
+                val before = scroll.scrollY
+                scroll.scrollBy(0, edgeDirection * dp(ctx, 8))
+                if (scroll.scrollY != before) {
+                    // Re-evaluate the insertion point while the list moves under a stationary finger.
+                    moveItem(lastPointerY, updateEdgeScroll = false)
+                    handle.postDelayed(this, 16L)
+                } else {
+                    edgeDirection = 0
+                }
+            }
+        }
 
         fun finishDrag() {
+            tracking = false
+            edgeDirection = 0
+            handle.removeCallbacks(edgeScroller)
             if (dragging) {
                 dragging = false
                 item.background = rounded(ctx, colors.background, colors.outline)
@@ -607,69 +834,50 @@ object SettingsUi {
             scroll.requestDisallowInterceptTouchEvent(false)
         }
 
-        val detector = GestureDetector(ctx, object : GestureDetector.SimpleOnGestureListener() {
-            override fun onDown(e: MotionEvent): Boolean = true
-
-            override fun onLongPress(e: MotionEvent) {
-                dragging = true
-                item.background = rounded(ctx, withAlpha(colors.accent, 28), colors.accent)
-                item.elevation = dp(ctx, 6).toFloat()
-                handle.performHapticFeedback(HapticFeedbackConstants.LONG_PRESS)
+        fun updateAutoScroll() {
+            handle.removeCallbacks(edgeScroller)
+            if (tracking && dragging && edgeDirection != 0) {
+                handle.postDelayed(edgeScroller, 16L)
             }
-        })
+        }
 
         handle.setOnTouchListener { _, event ->
             when (event.actionMasked) {
                 MotionEvent.ACTION_DOWN -> {
-                    // Keep the full long-press + drag sequence; ScrollView must not steal it.
+                    tracking = true
+                    dragging = false
+                    downRawY = event.rawY
+                    lastPointerY = event.rawY
+                    edgeDirection = 0
+                    // Only the grip is a drag target. Keep ScrollView from stealing its gesture.
                     scroll.requestDisallowInterceptTouchEvent(true)
-                    detector.onTouchEvent(event)
                     true
                 }
                 MotionEvent.ACTION_MOVE -> {
-                    detector.onTouchEvent(event)
-                    if (dragging) {
-                        val centers = (0 until list.childCount).mapNotNull { index ->
-                            val child = list.getChildAt(index)
-                            if (child === item) null else {
-                                val position = IntArray(2)
-                                child.getLocationOnScreen(position)
-                                position[1] + child.height / 2f
-                            }
+                    if (tracking) {
+                        lastPointerY = event.rawY
+                        if (!dragging && abs(event.rawY - downRawY) >= touchSlop) {
+                            dragging = true
+                            item.background = rounded(ctx, withAlpha(colors.accent, 28), colors.accent)
+                            item.elevation = dp(ctx, 6).toFloat()
+                            handle.performHapticFeedback(HapticFeedbackConstants.LONG_PRESS)
                         }
-                        val destination = DragReorderMath.insertionIndex(centers, event.rawY)
-                        val current = list.indexOfChild(item)
-                        if (destination != current) {
-                            list.removeView(item)
-                            list.addView(item, destination.coerceIn(0, list.childCount))
-                            onMoved()
-                        }
-
-                        // Edge scrolling remains active while the user continues dragging.
-                        val scrollPosition = IntArray(2)
-                        scroll.getLocationOnScreen(scrollPosition)
-                        val edge = dp(ctx, 42)
-                        when {
-                            event.rawY < scrollPosition[1] + edge ->
-                                scroll.scrollBy(0, -dp(ctx, 22))
-                            event.rawY > scrollPosition[1] + scroll.height - edge ->
-                                scroll.scrollBy(0, dp(ctx, 22))
+                        if (dragging) {
+                            moveItem(lastPointerY)
+                            updateAutoScroll()
                         }
                     }
                     true
                 }
-                MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL -> {
-                    detector.onTouchEvent(event)
+                MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL, MotionEvent.ACTION_POINTER_DOWN -> {
                     finishDrag()
                     true
                 }
-                else -> {
-                    detector.onTouchEvent(event)
-                    true
-                }
+                else -> true
             }
         }
     }
+
 
     private fun streamDiagnosticsMenu(ctx: Context) {
         val snapshot = StreamDiagnostics.latest()
@@ -745,6 +953,7 @@ object SettingsUi {
             minOf(dp(ctx, 300), dp(ctx, maxOf(72, snapshot.requests.size * 62))),
         ).apply { topMargin = dp(ctx, 10) })
         val dialog = AlertDialog.Builder(ctx).setView(root).create()
+        dialog.setOnCancelListener { mainMenu(ctx) }
         val report = buildString {
             appendLine("MultiStremio streaming diagnostics")
             appendLine("Time: $time")
@@ -762,7 +971,10 @@ object SettingsUi {
                 appendLine("${item.addonName} | ${item.resource} | $outcome | ${item.elapsedMs} ms")
             }
         }
-        addFooter(ctx, root, "Close", { dialog.dismiss() }, "Copy report", {
+        addFooter(ctx, root, "Back", {
+            dialog.dismiss()
+            mainMenu(ctx)
+        }, "Copy report", {
             val clipboard = ctx.getSystemService(Context.CLIPBOARD_SERVICE) as? ClipboardManager
             clipboard?.setPrimaryClip(ClipData.newPlainText("MultiStremio streaming diagnostics", report))
             toast(ctx, "Diagnostics copied. The report contains no addon URLs.")
@@ -799,17 +1011,24 @@ object SettingsUi {
 
     /** Checks addon manifests off the UI thread, with bounded concurrency and no URL/token exposure. */
     private fun checkAddonConnections(ctx: Context) {
-        val installed = Config.settings.addons.toList()
+        val installed = Config.snapshot().addons
         if (installed.isEmpty()) {
             toast(ctx, "Add an addon before running a connection check.")
+            addonsMenu(ctx)
             return
         }
-        toast(ctx, "Checking ${installed.size} addon connection(s)…")
+        var hidden = false
+        val progressDialog = progress(
+            ctx,
+            "Checking addon connections",
+            "Checking ${installed.size} addon(s). Hide this dialog to leave settings; the checks will continue.",
+        ) { hidden = true }
+
         thread(start = true, name = "multistremio-health-check") {
             val executor = Executors.newFixedThreadPool(minOf(4, installed.size))
             val results = try {
                 installed.map { addon ->
-                    executor.submit<AddonHealthResult> {
+                    addon to executor.submit<AddonHealthResult> {
                         val started = System.nanoTime()
                         val response = SimpleHttp.getDetailed(Urls.manifest(addon.url), timeoutMs = 8000)
                         val manifest = Json.parse<Manifest>(response.body)
@@ -819,7 +1038,9 @@ object SettingsUi {
 
                         if (success && response.body != null && manifest != null) {
                             Config.update {
-                                val saved = this.addons.firstOrNull { it.id == addon.id }
+                                val saved = this.addons.firstOrNull {
+                                    it.id == addon.id && it.url == addon.url
+                                }
                                 if (saved != null) {
                                     saved.manifest = response.body
                                     saved.manifestFetchedAt = System.currentTimeMillis()
@@ -830,21 +1051,30 @@ object SettingsUi {
 
                         val cached = Config.manifestOf(addon) != null
                         val detail = if (success) buildString {
-                            append(manifest?.name?.takeIf { it.isNotBlank() } ?: addon.name)
+                            append(StreamDiagnostics.safeAddonName(manifest?.name?.takeIf { it.isNotBlank() } ?: addon.name))
                             manifest?.version?.takeIf { it.isNotBlank() }?.let { append(" · v").append(it) }
                             append(" · ${manifest?.catalogs.orEmpty().size} catalogs")
                         } else assessment.detail + if (cached) " · saved manifest retained" else ""
-                        AddonHealthResult(addon.name, success, elapsed, detail)
+                        AddonHealthResult(StreamDiagnostics.safeAddonName(addon.name), success, elapsed, detail)
                     }
-                }.map { future ->
+                }.map { (addon, future) ->
                     runCatching { future.get() }.getOrElse {
-                        AddonHealthResult("Unknown addon", false, 0L, "The connection check could not be completed")
+                        AddonHealthResult(StreamDiagnostics.safeAddonName(addon.name), false, 0L, "The connection check could not be completed")
                     }
                 }
             } finally {
                 executor.shutdownNow()
             }
-            main.post { showAddonHealthReport(ctx, results) }
+
+            main.post {
+                progressDialog.dismiss()
+                if (hidden) {
+                    val usable = results.count { it.success }
+                    toast(ctx, "Addon check complete: $usable of ${results.size} returned usable manifests.")
+                } else {
+                    showAddonHealthReport(ctx, results)
+                }
+            }
         }
     }
 
@@ -854,7 +1084,7 @@ object SettingsUi {
         val root = shell(
             ctx,
             "Addon health",
-            "$working of ${results.size} addons responded. Checks use an 8-second timeout and never display addon URLs or access tokens.",
+            "$working of ${results.size} addons returned usable manifests. Checks use an 8-second timeout and never display addon URLs or access tokens.",
         )
         val list = vertical(ctx)
         results.forEach { result ->
@@ -884,8 +1114,9 @@ object SettingsUi {
             minOf(dp(ctx, 360), dp(ctx, maxOf(96, results.size * 76))),
         ))
         val dialog = AlertDialog.Builder(ctx).setView(root).create()
+        dialog.setOnCancelListener { addonsMenu(ctx) }
         val report = buildString {
-            appendLine("MultiStremio addon health: $working/${results.size} responded")
+            appendLine("MultiStremio addon health: $working/${results.size} usable manifests")
             results.forEach {
                 append(if (it.success) "OK" else "FAILED")
                 append(" · ").append(it.name)
@@ -893,7 +1124,10 @@ object SettingsUi {
                 append(" · ").append(it.detail).append('\n')
             }
         }
-        addFooter(ctx, root, "Close", { dialog.dismiss() }, "Copy report", {
+        addFooter(ctx, root, "Back", {
+            dialog.dismiss()
+            addonsMenu(ctx)
+        }, "Copy report", {
             val clipboard = ctx.getSystemService(Context.CLIPBOARD_SERVICE) as? ClipboardManager
             clipboard?.setPrimaryClip(ClipData.newPlainText("MultiStremio addon health", report))
             toast(ctx, "Connection report copied")
@@ -907,30 +1141,65 @@ object SettingsUi {
             "Paste the addon's manifest link (https://…/manifest.json or stremio://…). " +
                 "Links often contain your personal keys, so keep them private.",
             "", false,
+            onCancel = { addonsMenu(ctx) },
         ) { raw ->
             val url = Urls.normalizeAddonUrl(raw)
-            if (url.isEmpty()) return@prompt
-            if (Config.settings.addons.any { it.url == url }) {
-                toast(ctx, "That addon is already added"); return@prompt
+            if (url.isEmpty()) {
+                toast(ctx, "Enter a valid addon manifest link.")
+                addonsMenu(ctx)
+                return@prompt
             }
-            toast(ctx, "Checking addon…")
-            thread(start = true) {
-                val text = SimpleHttp.get(Urls.manifest(url))
-                val m = Json.parse<Manifest>(text)
-                if (text == null || m == null || (m.name == null && m.resources == null)) {
-                    toast(ctx, "Could not read a manifest from that link"); return@thread
+            if (Config.snapshot().addons.any { it.url == url }) {
+                toast(ctx, "That addon is already added.")
+                addonsMenu(ctx)
+                return@prompt
+            }
+
+            var hidden = false
+            val progressDialog = progress(
+                ctx,
+                "Checking addon",
+                "Fetching and validating its manifest. Hide this dialog to leave settings; the add operation will continue.",
+            ) { hidden = true }
+
+            thread(start = true, name = "multistremio-add-addon") {
+                val manifestText = SimpleHttp.get(Urls.manifest(url))
+                val manifest = Json.parse<Manifest>(manifestText)
+                main.post {
+                    progressDialog.dismiss()
+                    if (manifestText == null || manifest == null || !manifest.isUsableByMultiStremio()) {
+                        toast(ctx, "Could not add this addon: its manifest is invalid or unreachable.")
+                        if (!hidden) addonsMenu(ctx)
+                        return@post
+                    }
+
+                    val addon = AddonConfig(
+                        id = Config.idFor(url),
+                        url = url,
+                        name = manifest.name?.takeIf { it.isNotBlank() } ?: host(url),
+                        useCatalogs = manifest.hasResource("catalog") && manifest.catalogs.orEmpty().isNotEmpty(),
+                        useMeta = manifest.hasResource("meta"),
+                        useStreams = manifest.hasResource("stream"),
+                        useSubtitles = manifest.hasResource("subtitles"),
+                        manifest = manifestText,
+                        manifestFetchedAt = System.currentTimeMillis(),
+                    )
+                    var added = false
+                    // Structural mutations happen on the UI thread, where the settings menus read
+                    // this list. This avoids racing a menu iteration against a background append.
+                    Config.update {
+                        if (addons.none { it.url == url }) {
+                            addons.add(addon)
+                            added = true
+                        }
+                    }
+                    toast(ctx, if (added) {
+                        "Added ${addon.name}. Refresh the home page to see its catalogs."
+                    } else {
+                        "That addon was added by another request."
+                    })
+                    if (!hidden) addonsMenu(ctx)
                 }
-                val addon = AddonConfig(
-                    id = Config.idFor(url), url = url, name = m.name ?: host(url),
-                    useCatalogs = m.catalogs.orEmpty().isNotEmpty(),
-                    useMeta = m.hasResource("meta"),
-                    useStreams = m.hasResource("stream"),
-                    useSubtitles = m.hasResource("subtitles"),
-                    manifest = text, manifestFetchedAt = System.currentTimeMillis(),
-                )
-                Config.update { addons.add(addon) }
-                toast(ctx, "Added ${addon.name}. Refresh the home page to see its catalogs.")
-                main.post { addonsMenu(ctx) }
             }
         }
     }
@@ -950,6 +1219,17 @@ object SettingsUi {
                 "Remove",
             ),
             { addonsMenu(ctx) },
+            "Addon priority affects source tie-breaking and metadata fallback. It does not change homepage row order; arrange homepage rows separately in Catalog rows.",
+            listOf(
+                "Enable or disable this addon without deleting its saved settings.",
+                "Choose whether it supplies catalogs, metadata, streams or subtitles.",
+                "Show or hide individual homepage catalog rows.",
+                "Give this addon higher priority when multiple sources return matching links or metadata.",
+                "Give this addon lower source priority.",
+                "Change the display name shown inside MultiStremio.",
+                "Download the manifest again and update its cached capabilities.",
+                "Remove this addon and its saved homepage catalog rows from MultiStremio.",
+            ),
         ) { which ->
             when (which) {
                 0 -> { Config.update { a.enabled = !a.enabled }; addonMenu(ctx, a) }
@@ -957,59 +1237,92 @@ object SettingsUi {
                     ctx, "${a.name} is used for",
                     listOf("Catalogs & search", "Metadata (details/episodes)", "Streams", "Subtitles"),
                     listOf(a.useCatalogs, a.useMeta, a.useStreams, a.useSubtitles),
+                    onCancel = { addonMenu(ctx, a) },
                 ) { v ->
                     Config.update { a.useCatalogs = v[0]; a.useMeta = v[1]; a.useStreams = v[2]; a.useSubtitles = v[3] }
                     addonMenu(ctx, a)
                 }
                 2 -> catalogPicker(ctx, a)
-                3 -> { move(a, -1); addonsMenu(ctx) }
-                4 -> { move(a, +1); addonsMenu(ctx) }
-                5 -> prompt(ctx, "Rename addon", null, a.name, false) { n ->
+                3 -> {
+                    if (move(a, -1)) toast(ctx, "Addon priority increased.")
+                    else toast(ctx, "This addon is already at the top of the priority list.")
+                    addonsMenu(ctx)
+                }
+                4 -> {
+                    if (move(a, +1)) toast(ctx, "Addon priority decreased.")
+                    else toast(ctx, "This addon is already at the bottom of the priority list.")
+                    addonsMenu(ctx)
+                }
+                5 -> prompt(ctx, "Rename addon", null, a.name, false, onCancel = { addonMenu(ctx, a) }) { n ->
                     if (n.isNotEmpty()) Config.update { a.name = n }
                     addonMenu(ctx, a)
                 }
                 6 -> {
-                    toast(ctx, "Refreshing…")
-                    thread(start = true) {
+                    var hidden = false
+                    val progressDialog = progress(
+                        ctx,
+                        "Refreshing addon",
+                        "Downloading and validating the manifest. Hide this dialog to leave settings; the refresh will continue.",
+                    ) { hidden = true }
+                    thread(start = true, name = "multistremio-refresh-addon") {
                         val ok = Config.refreshManifest(a)
                         val m = Config.manifestOf(a)
                         val resources = m?.resources.orEmpty().mapNotNull {
                             if (it is String) it else (it as? Map<*, *>)?.get("name") as? String
-
                         }.distinct()
-                        toast(
-                            ctx,
-                            if (ok) "OK: ${m?.name ?: a.name} v${m?.version ?: "?"}, ${m?.catalogs.orEmpty().size} catalogs, " +
-                                "provides ${resources.joinToString(", ").ifEmpty { "nothing" }}"
-                            else "Could not download the manifest",
-                        )
+
+                        main.post {
+                            progressDialog.dismiss()
+                            toast(
+                                ctx,
+                                if (ok) "OK: ${m?.name ?: a.name} v${m?.version ?: "?"}, ${m?.catalogs.orEmpty().size} catalogs, " +
+                                    "provides ${resources.joinToString(", ").ifEmpty { "nothing" }}"
+                                else "Could not download the manifest",
+                            )
+                            if (!hidden) {
+                                val current = Config.snapshot().addons.firstOrNull { it.id == a.id && it.url == a.url }
+                                if (current != null) addonMenu(ctx, current) else addonsMenu(ctx)
+                            }
+                        }
                     }
                 }
-                7 -> confirm(ctx, "Remove ${a.name}?", "This only removes it from MultiStremio.") {
-                    Config.update { addons.remove(a) }
+                7 -> confirm(ctx, "Remove ${a.name}?", "This only removes it from MultiStremio. Its catalog rows and saved row-order entries will also be removed.", onCancel = { addonMenu(ctx, a) }) {
+                    Config.update {
+                        addons.remove(a)
+                        val addonPrefix = a.id + "|"
+                        catalogOrder.removeAll { it.startsWith(addonPrefix) }
+                    }
                     addonsMenu(ctx)
                 }
             }
         }
     }
 
-    private fun move(a: AddonConfig, delta: Int) {
+    private fun move(a: AddonConfig, delta: Int): Boolean {
         val list = Config.settings.addons
         val i = list.indexOf(a)
         val j = i + delta
-        if (i < 0 || j !in list.indices) return
+        if (i < 0 || j !in list.indices) return false
         Config.update { list[i] = list[j].also { list[j] = list[i] } }
+        return true
     }
 
     private fun catalogPicker(ctx: Context, a: AddonConfig) {
-        val cats = Config.manifestOf(a)?.catalogs.orEmpty()
-            .filter { it.type != null && it.id != null && it.isHomeCatalog() }
+        val manifest = Config.manifestOf(a)
+        val cats = manifest?.let { current ->
+            current.catalogs.orEmpty().filter {
+                val type = it.type
+                type != null && it.id != null && it.isHomeCatalog() &&
+                    current.supports("catalog", type, null)
+            }
+        }.orEmpty()
         if (cats.isEmpty()) { toast(ctx, "This addon has no browsable catalogs"); addonMenu(ctx, a); return }
         val keys = cats.map { "${it.type}/${it.id}" }
         multi(
             ctx, "Catalogs on the home page",
             cats.map { "${it.name ?: it.id} (${it.type})" },
             keys.map { it !in a.hiddenCatalogs },
+            onCancel = { addonMenu(ctx, a) },
         ) { v ->
             Config.update {
                 a.hiddenCatalogs = keys.filterIndexed { i, _ -> !v[i] }.toMutableList()
@@ -1045,10 +1358,12 @@ object SettingsUi {
                 val type = catalog.type ?: continue
                 val id = catalog.id ?: continue
                 if (!catalog.isHomeCatalog()) continue
+                val providesCatalog = manifest.supports("catalog", type, null)
                 val enabled = "$type/$id" !in addon.hiddenCatalogs
                 val status = when {
                     !addon.enabled -> "ADDON OFF"
                     !addon.useCatalogs -> "CATALOGS OFF"
+                    !providesCatalog -> "RESOURCE MISSING"
                     enabled -> "ON"
                     else -> "HIDDEN"
                 }
@@ -1091,13 +1406,14 @@ object SettingsUi {
         val root = shell(
             ctx,
             "Catalog rows",
-            "Hold the ☰ grip on the right of a row and move it up or down. Tap a row's name to manage visibility. Save order when finished.",
+            "Drag the ☰ grip to reorder rows; no long-press is needed. Swipe row text to scroll, or tap it to manage visibility. Move up/down is also available in each row's menu. Save order when finished.",
         )
         val scroll = ScrollView(ctx).apply { clipToPadding = false }
         val content = vertical(ctx)
         val list = vertical(ctx)
         val rowNames = rows.associate { it.key to it.name }
         val dialog = AlertDialog.Builder(ctx).setView(root).create()
+        dialog.setOnCancelListener { mainMenu(ctx) }
 
         fun refreshRowNumbers() {
             for (position in 0 until list.childCount) {
@@ -1132,7 +1448,7 @@ object SettingsUi {
             val handle = text(ctx, "☰", 23f, colors.accent, true).apply {
                 gravity = Gravity.CENTER
                 setPadding(dp(ctx, 10), 0, dp(ctx, 10), 0)
-                contentDescription = "Hold and drag to reorder " + row.name
+                contentDescription = "Drag to reorder " + row.name
             }
             val item = LinearLayout(ctx).apply {
                 orientation = LinearLayout.HORIZONTAL
@@ -1219,6 +1535,7 @@ object SettingsUi {
                 ctx,
                 "Reset catalog row order?",
                 "Rows will return to Stremio addon order, followed by newly added extension rows.",
+                onCancel = { catalogRowsMenu(ctx) },
             ) {
                 Config.update { catalogOrder.clear() }
                 toast(ctx, "Catalog row order reset. Refresh the home page to apply.")
@@ -1233,6 +1550,7 @@ object SettingsUi {
                 ctx,
                 "Unhide every Stremio catalog row?",
                 "This clears row-level hiding. Disabled addons and disabled catalog use remain inactive. Extension rows are unchanged.",
+                onCancel = { catalogRowsMenu(ctx) },
             ) {
                 Config.update { addons.forEach { it.hiddenCatalogs.clear() } }
                 toast(ctx, "Stremio catalog rows unhidden. Refresh the home page to apply.")
@@ -1283,24 +1601,46 @@ object SettingsUi {
         val labels = candidates.map { "${it.config.providerName} · ${it.row.name}" }
         menu(ctx, "Choose an installed extension homepage row", labels, { catalogRowsMenu(ctx) }) { which ->
             val chosen = candidates[which].config
+            // Capture the current effective order before writing a new key. Appending only the
+            // imported key to an empty order list would sort it ahead of every unsaved catalog.
+            val currentOrder = catalogRows().map { it.key }
             Config.update {
                 if (externalRows.none { it.key == chosen.key }) externalRows.add(chosen)
-                if (chosen.key !in catalogOrder) catalogOrder.add(chosen.key)
+                catalogOrder = CatalogOrderMath.append(currentOrder, chosen.key).toMutableList()
             }
-            toast(ctx, "Added ${chosen.rowName}. Reorder it from Catalog rows, then refresh the home page.")
+            toast(ctx, "Added ${chosen.rowName} at the end of your rows. Refresh the home page to apply.")
             catalogRowsMenu(ctx)
         }
+    }
+
+    private fun moveCatalogRow(ctx: Context, row: CatalogRow, delta: Int) {
+        val currentOrder = catalogRows().map { it.key }
+        if (row.key !in currentOrder) {
+            toast(ctx, "This row is no longer available. Refresh the settings.")
+            catalogRowsMenu(ctx)
+            return
+        }
+        val updatedOrder = CatalogOrderMath.move(currentOrder, row.key, delta)
+        if (updatedOrder == currentOrder) {
+            toast(ctx, if (delta < 0) "This row is already first." else "This row is already last.")
+        } else {
+            Config.update { catalogOrder = updatedOrder.toMutableList() }
+            toast(ctx, "Row order updated. Refresh the home page to apply.")
+        }
+        catalogRowsMenu(ctx)
     }
 
     private fun catalogRowMenu(ctx: Context, row: CatalogRow) {
         val external = row.external
         val labels = listOf(
             if (row.rowEnabled) "Hide this row" else "Show this row",
+            "Move one position up",
+            "Move one position down",
             if (external != null) "Remove row from MultiStremio" else "Manage addon settings",
         )
         menu(
             ctx,
-            "${row.sourceLabel} · ${row.name}",
+            row.sourceLabel + " · " + row.name,
             labels,
             { catalogRowsMenu(ctx) },
         ) { which ->
@@ -1325,9 +1665,11 @@ object SettingsUi {
                     toast(ctx, "Saved row visibility. Refresh the home page to apply.")
                     catalogRowsMenu(ctx)
                 }
-                1 -> {
+                1 -> moveCatalogRow(ctx, row, -1)
+                2 -> moveCatalogRow(ctx, row, 1)
+                3 -> {
                     if (external != null) {
-                        confirm(ctx, "Remove extension row?", "This only removes the row from MultiStremio. The source extension remains installed.") {
+                        confirm(ctx, "Remove extension row?", "This only removes the row from MultiStremio. The source extension remains installed.", onCancel = { catalogRowsMenu(ctx) }) {
                             Config.update {
                                 externalRows.removeAll { it.key == external.key }
                                 catalogOrder.removeAll { it == external.key }
@@ -1351,7 +1693,8 @@ object SettingsUi {
     private fun filtersMenu(ctx: Context) {
         val f = Config.settings.filter
         val rows = listOf(
-            "Resolutions: " + RES_OPTIONS.filter { it.first in f.allowedResolutions }.joinToString(" ") { it.second },
+            "Resolutions: " + RES_OPTIONS.filter { it.first in f.allowedResolutions }.joinToString(" ") { it.second }
+                .ifBlank { "Any (no restriction)" },
             "Hide CAM / telesync: ${onOff(f.hideCam)}",
             "Hide magnet (torrent) links: ${onOff(f.hideMagnets)}",
             "Hide uncached debrid links: ${onOff(f.hideUncachedDebrid)}",
@@ -1370,44 +1713,77 @@ object SettingsUi {
         val again = { filtersMenu(ctx) }
         menu(ctx, "Stream filters", rows, { mainMenu(ctx) }, "Remove unwanted sources and narrow results by quality, size, language and keywords.") { which ->
             when (which) {
-                0 -> multi(ctx, "Allowed resolutions", RES_OPTIONS.map { it.second },
-                    RES_OPTIONS.map { it.first in f.allowedResolutions }) { v ->
+                0 -> multi(
+                    ctx,
+                    "Allowed resolutions",
+                    RES_OPTIONS.map { it.second },
+                    RES_OPTIONS.map { it.first in f.allowedResolutions },
+                    description = "Select which resolutions to allow. Leave every box unchecked to allow any resolution.",
+                    onCancel = again,
+                ) { v ->
                     Config.update { f.allowedResolutions = RES_OPTIONS.filterIndexed { i, _ -> v[i] }.map { it.first }.toMutableList() }
                     again()
                 }
                 1 -> { Config.update { f.hideCam = !f.hideCam }; again() }
                 2 -> { Config.update { f.hideMagnets = !f.hideMagnets }; again() }
                 3 -> { Config.update { f.hideUncachedDebrid = !f.hideUncachedDebrid }; again() }
-                4 -> choose(ctx, "HEVC / x265", listOf("Show any", "Hide HEVC", "Only HEVC"), f.hevcMode) {
+                4 -> choose(ctx, "HEVC / x265", listOf("Show any", "Hide HEVC", "Only HEVC"), f.hevcMode, onCancel = again) {
                     Config.update { f.hevcMode = it }; again()
                 }
-                5 -> choose(ctx, "HDR / Dolby Vision", listOf("Show any", "Hide HDR/DV", "Only HDR/DV"), f.hdrMode) {
+                5 -> choose(ctx, "HDR / Dolby Vision", listOf("Show any", "Hide HDR/DV", "Only HDR/DV"), f.hdrMode, onCancel = again) {
                     Config.update { f.hdrMode = it }; again()
                 }
-                6 -> number(ctx, "Min size (MB, 0 = off)", f.minSizeMb) { Config.update { f.minSizeMb = it }; again() }
-                7 -> number(ctx, "Max size (GB, 0 = off)", f.maxSizeGb) { Config.update { f.maxSizeGb = it }; again() }
-                8 -> number(ctx, "Min seeders (0 = off). Streams without seeder info are kept.", f.minSeeders) {
+                6 -> number(ctx, "Min size (MB, 0 = off)", f.minSizeMb, onCancel = again) { Config.update { f.minSizeMb = it }; again() }
+                7 -> number(ctx, "Max size (GB, 0 = off)", f.maxSizeGb, onCancel = again) { Config.update { f.maxSizeGb = it }; again() }
+                8 -> number(ctx, "Min seeders (0 = off). Streams without seeder info are kept.", f.minSeeders, onCancel = again) {
                     Config.update { f.minSeeders = it }; again()
                 }
-                9 -> prompt(ctx, "Exclude keywords",
-                    "Comma separated, case-insensitive. Wrap in slashes for a regex, e.g. /x26[45]/",
-                    f.excludeKeywords.joinToString(", "), false) { Config.update { f.excludeKeywords = parseCsv(it) }; again() }
-                10 -> prompt(ctx, "Require keywords",
-                    "A stream must contain at least one of these. Leave empty to disable.",
-                    f.requireKeywords.joinToString(", "), false) { Config.update { f.requireKeywords = parseCsv(it) }; again() }
+                9 -> keywordList(
+                    ctx,
+                    "Exclude keywords",
+                    "Comma separated, case-insensitive. Wrap in slashes for a regex, e.g. /x26[45]/. Invalid regex patterns are rejected.",
+                    f.excludeKeywords.joinToString(", "),
+                    onCancel = again,
+                ) { values -> Config.update { f.excludeKeywords = values }; again() }
+                10 -> keywordList(
+                    ctx,
+                    "Require keywords",
+                    "A stream must contain at least one of these. Leave empty to disable. Wrap regex patterns in slashes, e.g. /x26[45]/.",
+                    f.requireKeywords.joinToString(", "),
+                    onCancel = again,
+                ) { values -> Config.update { f.requireKeywords = values }; again() }
                 11 -> prompt(ctx, "Required languages",
                     "Codes, regional tags or names, e.g. en, eng, en-US, pt-BR, Bengali. Streams with no detectable language are kept unless strict mode is on. Leave empty to disable.",
-                    f.requireLanguages.joinToString(", "), false) { Config.update { f.requireLanguages = parseCsv(it) }; again() }
+                    f.requireLanguages.joinToString(", "), false, onCancel = again) { Config.update { f.requireLanguages = parseCsv(it) }; again() }
                 12 -> { Config.update { f.strictLanguage = !f.strictLanguage }; again() }
-                13 -> number(ctx, "Max results per addon (0 = off)", f.maxPerAddon) { Config.update { f.maxPerAddon = it }; again() }
-                14 -> number(ctx, "Max results total (0 = off)", f.maxTotal) { Config.update { f.maxTotal = it }; again() }
+                13 -> number(ctx, "Max results per addon (0 = off)", f.maxPerAddon, onCancel = again) { Config.update { f.maxPerAddon = it }; again() }
+                14 -> number(ctx, "Max results total (0 = off)", f.maxTotal, onCancel = again) { Config.update { f.maxTotal = it }; again() }
             }
         }
     }
 
 
-    private fun number(ctx: Context, title: String, current: Int, onOk: (Int) -> Unit) =
-        prompt(ctx, title, null, current.toString(), true) { onOk(it.toIntOrNull()?.coerceAtLeast(0) ?: 0) }
+    private fun number(
+        ctx: Context,
+        title: String,
+        current: Int,
+        description: String = "Enter a whole number. Use 0 to turn this limit off.",
+        onCancel: (() -> Unit)? = null,
+        onOk: (Int) -> Unit,
+    ) {
+        fun ask(initial: String) {
+            prompt(ctx, title, description, initial, true, onCancel) { value ->
+                val parsed = value.toIntOrNull()
+                if (parsed == null && value.isNotBlank()) {
+                    toast(ctx, "That number is too large or invalid. Nothing was saved.")
+                    ask(value)
+                } else {
+                    onOk((parsed ?: 0).coerceAtLeast(0))
+                }
+            }
+        }
+        ask(current.toString())
+    }
 
     // ---- sorting ---------------------------------------------------------------------------
 
@@ -1426,24 +1802,30 @@ object SettingsUi {
         val again = { sortMenu(ctx) }
         menu(ctx, "Stream sorting", rows, { mainMenu(ctx) }, "Choose how available streams are ranked. The first item in each preference list has the highest priority; leave a list empty to disable that preference.") { which ->
             when (which) {
-                0 -> choose(ctx, "Sort order", SortPreset.values().map { it.label }, preset.ordinal) {
+                0 -> choose(ctx, "Sort order", SortPreset.values().map { it.label }, preset.ordinal, onCancel = again) {
                     Config.update { s.preset = SortPreset.values()[it].name }; again()
                 }
                 1 -> { Config.update { s.cachedFirst = !s.cachedFirst }; again() }
-                2 -> prompt(ctx, "Prefer keywords", "Streams containing any of these go first. Comma separated.",
-                    s.preferKeywords.joinToString(", "), false) { Config.update { s.preferKeywords = parseCsv(it) }; again() }
+                2 -> keywordList(
+                    ctx,
+                    "Prefer keywords",
+                    "Streams containing any of these go first. Comma separated. Wrap regular expressions in slashes, e.g. /x26[45]/.",
+                    s.preferKeywords.joinToString(", "),
+                    onCancel = again,
+                ) { values -> Config.update { s.preferKeywords = values }; again() }
                 3 -> prompt(ctx, "Prefer languages", "e.g. bn, en, hi. Streams matching an earlier language go first.",
-                    s.preferLanguages.joinToString(", "), false) { Config.update { s.preferLanguages = parseCsv(it) }; again() }
+                    s.preferLanguages.joinToString(", "), false, onCancel = again) { Config.update { s.preferLanguages = parseCsv(it) }; again() }
                 4 -> prompt(ctx, "Prefer video codecs", "Enter a priority order, comma separated. Example: HEVC, AV1, AVC. Unlisted and unknown codecs go after listed codecs. This does not filter streams.",
-                    s.preferCodecs.joinToString(", "), false) { Config.update { s.preferCodecs = parseCsv(it) }; again() }
+                    s.preferCodecs.joinToString(", "), false, onCancel = again) { Config.update { s.preferCodecs = parseCsv(it) }; again() }
                 5 -> prompt(ctx, "Prefer audio formats", "Enter a priority order, comma separated. Example: Atmos, TrueHD, DTS-HD, DD+, AAC. Unlisted and unknown formats go after listed formats.",
-                    s.preferAudio.joinToString(", "), false) { Config.update { s.preferAudio = parseCsv(it) }; again() }
+                    s.preferAudio.joinToString(", "), false, onCancel = again) { Config.update { s.preferAudio = parseCsv(it) }; again() }
                 6 -> confirm(
                     ctx, "Use my order across resolutions?",
                     "CloudStream normally ranks links by its own quality profile first and only keeps this plugin's " +
                         "order between links of equal quality. Turning this ON makes every link report " +
                         "'unknown quality' so the order chosen here is shown exactly. Resolution still appears " +
                         "in each link's name. Currently ${onOff(s.overrideAppQuality)}; switch it?",
+                    onCancel = again,
                 ) { Config.update { s.overrideAppQuality = !s.overrideAppQuality }; again() }
             }
         }
@@ -1455,13 +1837,13 @@ object SettingsUi {
         val s = Config.settings
         val rows = listOf(
             "Fetch from subtitle addons: ${onOff(s.fetchSubtitles)}",
-            "Only these languages: ${csv(s.subtitleLanguages)}",
+            "Language filter: ${s.subtitleLanguages.takeIf { it.isNotEmpty() }?.let { csv(it) } ?: "All languages"}",
         )
         menu(ctx, "Subtitles", rows, { mainMenu(ctx) }, "Choose whether subtitle addons are queried and which languages are preferred.") { which ->
             when (which) {
                 0 -> { Config.update { fetchSubtitles = !fetchSubtitles }; subtitlesMenu(ctx) }
                 1 -> prompt(ctx, "Subtitle languages", "Codes, regional tags or names, e.g. en, eng, en-US, pt-BR, Bengali. Leave empty for all languages.",
-                    s.subtitleLanguages.joinToString(", "), false) {
+                    s.subtitleLanguages.joinToString(", "), false, onCancel = { subtitlesMenu(ctx) }) {
                     Config.update { subtitleLanguages = parseCsv(it) }; subtitlesMenu(ctx)
                 }
             }
@@ -1476,7 +1858,13 @@ object SettingsUi {
         )
         menu(ctx, "General", rows, { mainMenu(ctx) }, "Tune request limits and the amount of technical detail shown on stream links.") { which ->
             when (which) {
-                0 -> number(ctx, "Timeout per addon request (seconds)", s.timeoutSec) {
+                0 -> number(
+                    ctx,
+                    "Timeout per addon request (seconds)",
+                    s.timeoutSec,
+                    description = "Enter 5–180 seconds. This controls how long each addon request can wait before timing out.",
+                    onCancel = { generalMenu(ctx) },
+                ) {
                     Config.update { timeoutSec = it.coerceIn(5, 180) }; generalMenu(ctx)
                 }
                 1 -> { Config.update { detailedLabels = !detailedLabels }; generalMenu(ctx) }
@@ -1487,7 +1875,7 @@ object SettingsUi {
     private fun backupMenu(ctx: Context) {
         fun copyBackup(includeAddonUrls: Boolean) {
             val payload = runCatching {
-                SettingsBackupManager.export(Config.settings, includeAddonUrls)
+                SettingsBackupManager.export(Config.snapshot(), includeAddonUrls)
             }.getOrElse {
                 toast(ctx, "Could not create the backup")
                 return
@@ -1504,6 +1892,7 @@ object SettingsUi {
                         "Preferences-only backup copied. Addon sources and imported extension rows were excluded."
                     },
                 )
+                main.post { backupMenu(ctx) }
             }.onFailure {
                 toast(ctx, "Could not copy the backup to the clipboard")
             }
@@ -1527,12 +1916,14 @@ object SettingsUi {
                     "Copy preferences-only backup?",
                     "This export excludes all Stremio addon URLs, manifests and imported homepage-row references. " +
                         "Restoring it will not restore your sources; you will need to add them again.",
+                    onCancel = { backupMenu(ctx) },
                 ) { copyBackup(includeAddonUrls = false) }
                 1 -> confirm(
                     ctx,
                     "Copy full backup?",
                     "This includes addon endpoints and cached manifests. Addon URLs may contain debrid keys or other " +
                         "credentials. The clipboard is not encrypted. Do not share this backup publicly.",
+                    onCancel = { backupMenu(ctx) },
                 ) { copyBackup(includeAddonUrls = true) }
                 2 -> prompt(
                     ctx,
@@ -1540,31 +1931,36 @@ object SettingsUi {
                     "Paste a MultiStremio backup or settings JSON copied from an older version. This replaces the current configuration.",
                     "",
                     false,
+                    onCancel = { backupMenu(ctx) },
                 ) { pasted ->
                     val backup = SettingsBackupManager.parse(pasted)
                     val restored = backup?.settings
                     if (backup == null || restored == null) {
                         toast(ctx, "That is not a supported MultiStremio backup")
+                        backupMenu(ctx)
                     } else {
                         val warning = if (backup.includesAddonUrls) {
-                            "This backup includes addon URLs and may restore private access keys. It will replace all current settings."
+                            "This backup contains addon source URLs and/or imported-extension references. They may expose access keys or private repository addresses. It will replace all current settings."
                         } else {
-                            "This preferences-only backup contains no addon sources. Restoring it will remove your current addons and imported homepage rows."
+                            "This preferences-only backup contains no addon sources or imported-extension references. Restoring it will remove your current addons and imported homepage rows."
                         }
-                        confirm(ctx, "Restore this backup?", warning) {
+                        confirm(ctx, "Restore this backup?", warning, onCancel = { backupMenu(ctx) }) {
                             restored.seeded = true
                             Config.replace(restored)
                             toast(ctx, "Backup restored. Refresh the home page.")
+                            mainMenu(ctx)
                         }
                     }
                 }
-                3 -> confirm(ctx, "Reset filters & sorting?", "Addons are kept.") {
+                3 -> confirm(ctx, "Reset filters & sorting?", "Addons are kept.", onCancel = { backupMenu(ctx) }) {
                     Config.update { filter = FilterSettings(); sort = SortSettings() }
-                    toast(ctx, "Reset")
+                    toast(ctx, "Filters and sorting reset.")
+                    backupMenu(ctx)
                 }
-                4 -> confirm(ctx, "Remove everything?", "All addons and settings are deleted (Cinemeta is not re-added).") {
+                4 -> confirm(ctx, "Remove everything?", "All addons and settings are deleted (Cinemeta is not re-added).", onCancel = { backupMenu(ctx) }) {
                     Config.replace(Settings(seeded = true))
-                    toast(ctx, "Cleared")
+                    toast(ctx, "All MultiStremio settings cleared.")
+                    mainMenu(ctx)
                 }
             }
         }

@@ -249,6 +249,7 @@ object StreamParser {
     )
     private val CACHED_TAG = Regex("""\[[a-z]{2,4}\+\]""")
     private val UNCACHED_TAG = Regex("""\[[a-z]{2,4}\s?download\]""")
+    private val CACHED_WORD = Regex("""\bcached\b""")
 
     fun parse(raw: RawStream): Pair<StreamInfo, String> {
         val rawText = listOfNotNull(
@@ -304,7 +305,7 @@ object StreamParser {
         }
         val cached = when {
             UNCACHED_TAG.containsMatchIn(t) || t.contains("uncached") -> false
-            CACHED_TAG.containsMatchIn(t) || t.contains(EMOJI_BOLT) || Regex("""\bcached\b""").containsMatchIn(t) -> true
+            CACHED_TAG.containsMatchIn(t) || t.contains(EMOJI_BOLT) || CACHED_WORD.containsMatchIn(t) -> true
             else -> null
         }
         val info = StreamInfo(
@@ -344,25 +345,50 @@ object StreamFilter {
         val k = keyword.trim()
         if (k.isEmpty()) return false
         if (k.length > 2 && k.startsWith("/") && k.endsWith("/")) {
-            val re = regexCache.getOrPut(k) {
-                try {
-                    Regex(k.substring(1, k.length - 1), RegexOption.IGNORE_CASE)
-                } catch (e: Exception) {
-                    NEVER
-                }
-            }
-            return re.containsMatchIn(lowerText)
+            return compiledRegex(k).containsMatchIn(lowerText)
         }
         return lowerText.contains(k.lowercase(Locale.ROOT))
+    }
+
+    private fun compiledRegex(pattern: String): Regex = regexCache.getOrPut(pattern) {
+        try {
+            Regex(pattern.substring(1, pattern.length - 1), RegexOption.IGNORE_CASE)
+        } catch (_: Exception) {
+            NEVER
+        }
     }
 
     fun anyMatch(lowerText: String, keywords: List<String>): Boolean =
         keywords.any { matchesKeyword(lowerText, it) }
 
-    fun passes(p: ParsedStream, f: FilterSettings): Boolean =
-        passes(p, f, f.requireLanguages.map { Langs.normalize(it) }.toSet())
+    /** Finds slash-delimited regular expressions that cannot be compiled before settings are saved. */
+    fun invalidRegexPatterns(keywords: List<String>): List<String> =
+        keywords.map { it.trim() }
+            .filter { it.length > 2 && it.startsWith("/") && it.endsWith("/") }
+            .filter { pattern -> compiledRegex(pattern) === NEVER }
+            .distinct()
 
-    fun passes(p: ParsedStream, f: FilterSettings, wantedLanguages: Set<String>): Boolean {
+    /** Remove malformed legacy required-regex entries once per pipeline, not once per stream. */
+    fun validRequiredKeywords(keywords: List<String>): List<String> =
+        keywords.filterNot { invalidRegexPatterns(listOf(it)).isNotEmpty() }
+
+    fun passes(p: ParsedStream, f: FilterSettings): Boolean =
+        passes(
+            p,
+            f,
+            f.requireLanguages.map { Langs.normalize(it) }.toSet(),
+            validRequiredKeywords(f.requireKeywords),
+        )
+
+    fun passes(p: ParsedStream, f: FilterSettings, wantedLanguages: Set<String>): Boolean =
+        passes(p, f, wantedLanguages, validRequiredKeywords(f.requireKeywords))
+
+    fun passes(
+        p: ParsedStream,
+        f: FilterSettings,
+        wantedLanguages: Set<String>,
+        validRequiredKeywords: List<String>,
+    ): Boolean {
         val i = p.info
         if (p.isMagnet && f.hideMagnets) return false
         if (f.hideCam && i.isCam) return false
@@ -384,7 +410,9 @@ object StreamFilter {
         if (f.minSeeders > 0 && seeders != null && seeders < f.minSeeders) return false
 
         if (f.excludeKeywords.isNotEmpty() && anyMatch(p.text, f.excludeKeywords)) return false
-        if (f.requireKeywords.isNotEmpty() && !anyMatch(p.text, f.requireKeywords)) return false
+        // Invalid regexes may exist in older backups. Ignore them at runtime rather than allowing
+        // one malformed "require" pattern to hide every stream after an upgrade.
+        if (validRequiredKeywords.isNotEmpty() && !anyMatch(p.text, validRequiredKeywords)) return false
 
         val have = i.languages
         if (f.strictLanguage && have.isEmpty()) return false
@@ -437,15 +465,6 @@ object StreamSorter {
         else -> null
     }
 
-    private fun <T> preferenceRank(value: T?, preferences: List<String>, canonical: (String?) -> String?): Int {
-        if (preferences.isEmpty()) return 0
-        val wanted = preferences.mapNotNull { canonical(it) }
-        val actual = canonical(value?.toString())
-        if (actual == null) return wanted.size + 2
-        val position = wanted.indexOf(actual)
-        return if (position >= 0) position else wanted.size + 1
-    }
-
     fun comparator(s: SortSettings): Comparator<ParsedStream> {
         val chain = mutableListOf<Comparator<ParsedStream>>()
 
@@ -455,21 +474,44 @@ object StreamSorter {
             }
         }
         if (s.preferLanguages.isNotEmpty()) {
-            val want = s.preferLanguages.map { Langs.normalize(it) }.toSet()
-            chain += compareByDescending<ParsedStream> {
-                val have = it.info.languages
-                when {
-                    "multi" in have || have.any { l -> l in want } -> 2
-                    have.isEmpty() -> 1
-                    else -> 0
+            // Preserve the user's language order instead of treating every preferred language
+            // as an equal-priority member of a Set. When a release has multiple tracks, its best
+            // (earliest) matching preference determines its rank.
+            val wanted = s.preferLanguages.map { Langs.normalize(it) }
+                .filter { it.isNotBlank() && it != "und" }
+                .distinct()
+            if (wanted.isNotEmpty()) {
+                val positions = wanted.withIndex().associate { it.value to it.index }
+                chain += compareBy<ParsedStream> {
+                    val have = it.info.languages
+                    when {
+                        "multi" in have -> -1
+                        have.isEmpty() -> wanted.size
+                        else -> have.mapNotNull { language -> positions[language] }.minOrNull()
+                            ?: wanted.size + 1
+                    }
                 }
             }
         }
         if (s.preferCodecs.isNotEmpty()) {
-            chain += compareBy<ParsedStream> { preferenceRank(it.info.codec, s.preferCodecs, ::canonicalCodec) }
+            val ranks = s.preferCodecs.mapNotNull(::canonicalCodec).distinct()
+                .withIndex().associate { it.value to it.index }
+            if (ranks.isNotEmpty()) {
+                chain += compareBy<ParsedStream> {
+                    canonicalCodec(it.info.codec)?.let { codec -> ranks[codec] ?: ranks.size + 1 }
+                        ?: ranks.size + 2
+                }
+            }
         }
         if (s.preferAudio.isNotEmpty()) {
-            chain += compareBy<ParsedStream> { preferenceRank(it.info.audio, s.preferAudio, ::canonicalAudio) }
+            val ranks = s.preferAudio.mapNotNull(::canonicalAudio).distinct()
+                .withIndex().associate { it.value to it.index }
+            if (ranks.isNotEmpty()) {
+                chain += compareBy<ParsedStream> {
+                    canonicalAudio(it.info.audio)?.let { audio -> ranks[audio] ?: ranks.size + 1 }
+                        ?: ranks.size + 2
+                }
+            }
         }
         if (s.cachedFirst) {
             chain += compareByDescending<ParsedStream> {
@@ -522,12 +564,24 @@ object StreamDeduplication {
     }
 
     fun key(stream: ParsedStream): String? {
+        // Match emission precedence: a direct URL wins when an addon mistakenly supplies both
+        // a URL and an infoHash. Otherwise separate direct links can be collapsed by a shared hash.
+        val url = normalizeUrl(stream.raw.url)
+        if (url != null) return "u:$url"
         val hash = stream.raw.infoHash
         if (!hash.isNullOrBlank()) {
             return "h:${hash.lowercase(Locale.ROOT)}:${stream.raw.fileIdx ?: -1}"
         }
-        val url = normalizeUrl(stream.raw.url) ?: return null
-        return "u:$url"
+        return null
+    }
+
+    /** Stable identity for extractor-only targets that do not enter the playable stream pipeline. */
+    fun externalKey(stream: ParsedStream): String? {
+        stream.raw.ytId?.trim()?.takeIf { it.isNotEmpty() }?.let {
+            return "yt:${it}"
+        }
+        val url = normalizeUrl(stream.raw.externalUrl) ?: return null
+        return "external:$url"
     }
 }
 
@@ -641,7 +695,10 @@ object StreamPipeline {
         }
 
         val wantedLanguages = filter.requireLanguages.map { Langs.normalize(it) }.toSet()
-        val filtered = unique.filter { StreamFilter.passes(it, filter, wantedLanguages) }
+        val validRequiredKeywords = StreamFilter.validRequiredKeywords(filter.requireKeywords)
+        val filtered = unique.filter {
+            StreamFilter.passes(it, filter, wantedLanguages, validRequiredKeywords)
+        }
         val sorted = filtered.sortedWith(StreamSorter.comparator(sort))
         if (filter.maxPerAddon <= 0 && filter.maxTotal <= 0) return sorted
 
@@ -899,7 +956,12 @@ object Urls {
         "udp://open.stealth.si:80/announce",
     )
 
-    fun magnet(infoHash: String, displayName: String?, sources: List<String>?): String {
+    fun magnet(
+        infoHash: String,
+        displayName: String?,
+        sources: List<String>?,
+        fileIdx: Int? = null,
+    ): String {
         val addonTrackers = sources.orEmpty()
             .filter { it.startsWith("tracker:") }
             .map { it.removePrefix("tracker:") }
@@ -907,7 +969,10 @@ object Urls {
         val trackers = (addonTrackers + DEFAULT_TRACKERS).distinct()
         val sb = StringBuilder("magnet:?xt=urn:btih:").append(infoHash)
         if (!displayName.isNullOrBlank()) sb.append("&dn=").append(encodeComponent(displayName))
-        for (t in trackers) sb.append("&tr=").append(encodeComponent(t))
+        for (tracker in trackers) sb.append("&tr=").append(encodeComponent(tracker))
+        // CloudStream's built-in TorrentStatus.streamUrl reads the "index" parameter from the
+        // magnet URI and passes it to TorrServer's stream endpoint. This preserves Stremio fileIdx.
+        if (fileIdx != null && fileIdx >= 0) sb.append("&index=").append(fileIdx)
         return sb.toString()
     }
 }

@@ -10,6 +10,8 @@ import java.net.HttpURLConnection
 import java.net.URL
 import java.security.MessageDigest
 import java.util.concurrent.ConcurrentHashMap
+import java.util.concurrent.Executors
+import java.util.concurrent.atomic.AtomicBoolean
 import kotlin.concurrent.thread
 
 data class ArrayParseResult<T>(val items: List<T>, val status: String)
@@ -59,7 +61,6 @@ object Json {
         parseArrayDetailed<T>(text, field).items
 }
 
-/** Blocking HTTP used only by settings/background threads (the provider uses CloudStream's `app`). */
 enum class SimpleHttpStatus {
     OK,
     EMPTY_BODY,
@@ -67,6 +68,7 @@ enum class SimpleHttpStatus {
     TIMEOUT,
     DNS_ERROR,
     INVALID_URL,
+    BODY_TOO_LARGE,
     NETWORK_ERROR,
 }
 
@@ -78,6 +80,8 @@ data class SimpleHttpResult(
 
 /** Blocking HTTP used only by settings/background threads (the provider uses CloudStream's `app`). */
 object SimpleHttp {
+    private const val MAX_RESPONSE_BYTES = 2 * 1024 * 1024
+
     /** Backwards-compatible body-only helper for addon creation and manifest refresh. */
     fun get(url: String, timeoutMs: Int = 20000): String? =
         getDetailed(url, timeoutMs).body
@@ -104,8 +108,22 @@ object SimpleHttp {
             val code = conn.responseCode
             if (code !in 200..299) {
                 SimpleHttpResult(null, SimpleHttpStatus.HTTP_ERROR, code)
+            } else if (conn.contentLength >= 0 && conn.contentLength > MAX_RESPONSE_BYTES) {
+                SimpleHttpResult(null, SimpleHttpStatus.BODY_TOO_LARGE, code)
             } else {
-                val body = conn.inputStream.bufferedReader().use { it.readText() }
+                val output = java.io.ByteArrayOutputStream()
+                val buffer = ByteArray(8192)
+                conn.inputStream.use { input ->
+                    while (true) {
+                        val count = input.read(buffer)
+                        if (count < 0) break
+                        if (output.size() + count > MAX_RESPONSE_BYTES) {
+                            return SimpleHttpResult(null, SimpleHttpStatus.BODY_TOO_LARGE, code)
+                        }
+                        output.write(buffer, 0, count)
+                    }
+                }
+                val body = output.toString(Charsets.UTF_8.name())
                 if (body.isBlank()) SimpleHttpResult(body, SimpleHttpStatus.EMPTY_BODY, code)
                 else SimpleHttpResult(body, SimpleHttpStatus.OK, code)
             }
@@ -122,6 +140,7 @@ object SimpleHttp {
         }
     }
 }
+
 object Hashing {
     fun sha256(value: String): String {
         val bytes = MessageDigest.getInstance("SHA-256").digest(value.toByteArray(Charsets.UTF_8))
@@ -156,10 +175,14 @@ object Config {
         private set
 
     private val parsedCache = ConcurrentHashMap<String, Pair<String, Manifest?>>()
+    private val manifestRefreshRunning = AtomicBoolean(false)
 
     fun init(context: Context) {
         prefs = context.applicationContext.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
-        settings = Json.parse<Settings>(prefs?.getString(KEY, null)) ?: Settings()
+        settings = runCatching {
+            Json.parse<Settings>(prefs?.getString(KEY, null))?.sanitized()
+        }.getOrNull() ?: Settings()
+        pruneManifestCache()
         if (!settings.seeded) {
             settings.seeded = true
             if (settings.addons.isEmpty()) {
@@ -184,13 +207,27 @@ object Config {
     @Synchronized
     fun update(block: Settings.() -> Unit) {
         settings.block()
+        pruneManifestCache()
         save()
     }
 
     @Synchronized
     fun replace(newSettings: Settings) {
-        settings = newSettings
+        settings = newSettings.sanitized()
+        pruneManifestCache()
         save()
+    }
+
+    /** Safe read copy for provider work running alongside UI/settings updates. */
+    @Synchronized
+    fun snapshot(): Settings = settings.snapshot()
+
+    /** Drop parsed manifests for removed addons so repeated add/remove cycles do not leak cache entries. */
+    private fun pruneManifestCache() {
+        val currentIds = settings.addons.mapTo(HashSet()) { it.id }
+        parsedCache.keys.toList().forEach { id ->
+            if (id !in currentIds) parsedCache.remove(id)
+        }
     }
 
     /** Collision-resistant ID for newly added addons. Existing saved IDs are not rewritten. */
@@ -210,20 +247,40 @@ object Config {
     fun refreshManifest(addon: AddonConfig): Boolean {
         val text = SimpleHttp.get(Urls.manifest(addon.url)) ?: return false
         val m = Json.parse<Manifest>(text) ?: return false
-        if (m.name == null && m.resources == null) return false
+        if (!m.isUsableByMultiStremio()) return false
+        var updated = false
         update {
-            addon.manifest = text
-            addon.manifestFetchedAt = System.currentTimeMillis()
-            if (addon.name.isBlank()) addon.name = m.name ?: addon.url
+            // A refresh can finish after the user removes an addon or restores a different backup.
+            // Update only the matching addon that is still part of the current settings.
+            val current = addons.firstOrNull { it.id == addon.id && it.url == addon.url }
+                ?: return@update
+            current.manifest = text
+            current.manifestFetchedAt = System.currentTimeMillis()
+            if (current.name.isBlank()) current.name = m.name ?: current.url
+            updated = true
         }
-        return true
+        return updated
     }
 
     private fun refreshStaleManifestsInBackground() {
-        val stale = settings.addons.filter { System.currentTimeMillis() - it.manifestFetchedAt > REFRESH_AFTER_MS }
-        if (stale.isEmpty()) return
+        val snapshot = synchronized(this) { settings.addons.toList() }
+        val now = System.currentTimeMillis()
+        val stale = snapshot.filter { now - it.manifestFetchedAt > REFRESH_AFTER_MS }
+        if (stale.isEmpty() || !manifestRefreshRunning.compareAndSet(false, true)) return
+
         thread(start = true, isDaemon = true, name = "multistremio-refresh") {
-            stale.forEach { try { refreshManifest(it) } catch (_: Exception) { } }
+            val executor = Executors.newFixedThreadPool(minOf(3, stale.size))
+            try {
+                // A few parallel requests avoid waiting through one full timeout per addon while
+                // keeping startup network and connection usage bounded on mobile devices.
+                val tasks = stale.map { addon ->
+                    executor.submit<Boolean> { runCatching { refreshManifest(addon) }.getOrDefault(false) }
+                }
+                tasks.forEach { runCatching { it.get() } }
+            } finally {
+                executor.shutdown()
+                manifestRefreshRunning.set(false)
+            }
         }
     }
 }

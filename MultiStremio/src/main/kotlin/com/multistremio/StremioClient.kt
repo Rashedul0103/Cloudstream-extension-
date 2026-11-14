@@ -1,7 +1,6 @@
 package com.multistremio
 
 import com.lagradost.cloudstream3.app
-import com.lagradost.cloudstream3.mvvm.logError
 import java.net.SocketTimeoutException
 import kotlin.coroutines.cancellation.CancellationException
 
@@ -22,8 +21,9 @@ object StremioClient {
             throw e
         } catch (e: SocketTimeoutException) {
             FetchResult(null, "TIMEOUT")
-        } catch (e: Throwable) {
-            logError(e)
+        } catch (_: Exception) {
+            // Avoid logging the exception message: HTTP failures can include private addon URLs
+            // and access tokens in their request details.
             FetchResult(null, "NETWORK_ERROR")
         }
 

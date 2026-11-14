@@ -4,7 +4,7 @@ A CloudStream plugin that combines Stremio addons: merged catalogs, cross-addon 
 
 ## Homepage row integration
 
-Open **Settings → Catalog rows** and choose **Add rows from installed extensions**. Select any homepage row from another installed extension. Added rows appear in the same row manager as Stremio catalogs and can be shown, hidden, reordered, or removed independently. The source extension must remain installed; if it is removed or changes the row definition, MultiStremio marks the saved row as unavailable.
+Open **CloudStream Settings → Extensions → MultiStremio → Catalog rows** and choose **Add rows from installed extensions**. Select a homepage row from another installed extension. Added rows appear alongside Stremio catalogs and can be shown, hidden, reordered, or removed independently. The source extension must remain installed; if it is removed or changes the row definition, MultiStremio marks the saved row as unavailable.
 
 MultiStremio delegates each selected row request to its original extension provider, including pagination. It does not copy the source extension's catalog implementation or stream logic.
 
@@ -18,15 +18,15 @@ The manifest points to the generated `plugins.json` index in the `builds` branch
 
 ## Build and publishing
 
-The GitHub Actions workflow in `.github/workflows/build.yml` runs on pushes to `main` (and can also be started manually). It builds the `.cs3` plugin and publishes it together with `plugins.json` to the `builds` branch. The first GitHub Actions run must be checked before treating the extension as installable.
+The GitHub Actions workflow in `.github/workflows/build.yml` builds and tests pull requests without publishing. A separate, write-enabled job publishes the `.cs3` plugin and `plugins.json` to the `builds` branch only from `main`; the build job uses read-only repository permissions.
 
 ## Settings interface
 
-The settings use a theme-aware mobile layout with clearer section descriptions, searchable option lists, and consistent save, cancel, and navigation controls. It follows the active CloudStream theme, including light and dark appearances.
+The settings use a theme-aware mobile layout with clearer section descriptions, searchable option lists and multi-select screens, and consistent save, cancel, and navigation controls. Long checkbox lists can be searched without losing checked options. It follows the active CloudStream theme, including light and dark appearances.
 
 ## Catalog layout
 
-Open the plugin settings and choose **Catalog rows (visibility & order)**. Select a row to show or hide it, move it up or down, send it to the top or bottom, or open its parent addon's settings. Addon-wide enable/disable and the separate “Catalogs & search” usage switch remain under **Addons**. Row order and visibility are saved locally on the device.
+Open the plugin settings and choose **Catalog rows (visibility & order)**. Drag the ☰ grip beside a row to reorder it; no long-press is required. You can also tap a row's text to show or hide it, move it one position up or down, or open its parent addon's settings. Imported extension rows can be removed without uninstalling their source extension. Addon-wide enable/disable and the separate “Catalogs & search” usage switch remain under **Addons**. Row order and visibility are saved locally on the device.
 
 ## Status
 
@@ -36,9 +36,13 @@ Beta.
 
 Imported homepage rows are matched using the source plugin, provider class, row title, image orientation and duplicate-row position. Their opaque request data is not part of the identity, so an extension can refresh paging or query data without automatically making the saved row unavailable. If a provider exposes multiple rows with the same title and no stable row identifier, identity can still be ambiguous when those rows change order.
 
+## Stream filter edge cases
+
+Leaving every box unchecked under **Allowed resolutions** means no resolution restriction is applied; it does not hide every stream. The settings summary displays this as **Any (no restriction)**. Keyword filters accept plain comma-separated text or slash-delimited regular expressions. Invalid regular expressions are rejected before saving so a typo cannot silently produce an always-false rule.
+
 ## Language matching
 
-Language filters accept common ISO 639 codes, three-letter codes, regional tags such as `pt-BR`, and language names. Release-name detection recognizes common audio-language labels, country flags and selected native-language names. Detection is heuristic: an addon that does not describe the audio language cannot be identified reliably from its stream label alone.
+Language filters accept common ISO 639 codes, three-letter codes, regional tags such as `pt-BR`, and language names. Release-name detection recognizes common audio-language labels, country flags and selected native-language names. In stream sorting, the first language in **Prefer languages** has the highest priority; a stream containing multiple detected languages is ranked as a multi-audio option. Detection is heuristic: an addon that does not describe the audio language cannot be identified reliably from its stream label alone.
 
 ## Backup privacy
 
@@ -48,4 +52,4 @@ Language filters accept common ISO 639 codes, three-letter codes, regional tags 
 
 ## Stream request handling
 
-Multi-addon requests run in batches of up to eight concurrent calls per fan-out operation (stream and subtitle branches use four each when both are active). If the original addon cannot provide named metadata, fallback metadata providers are queried concurrently. Stream parsing reuses compiled patterns and the filtering pipeline avoids several intermediate list allocations. These are workload protections and code-path optimizations; performance has not been benchmarked against a fixed addon set.
+Multi-addon requests run in batches of up to eight concurrent calls per fan-out operation (stream and subtitle branches use four each when both are active). If the original addon cannot provide named metadata, fallback metadata providers are queried concurrently. Stream parsing reuses compiled patterns and the filtering pipeline avoids several intermediate list allocations. A synthetic JVM benchmark records parse and pipeline median/p95 timings for a fixed 750-record workload. It is a repeatable regression baseline, not a comparison against real addon traffic or a measurement of playback startup time on a phone.

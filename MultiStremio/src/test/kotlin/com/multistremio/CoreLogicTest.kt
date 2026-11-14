@@ -142,11 +142,102 @@ class CoreLogicTest {
     }
 
     @Test
+    fun magnetPreservesAnExplicitTorrentFileIndex() {
+        val selected = Urls.magnet("abcdef123456", "Episode 2.mkv", emptyList(), 3)
+        assertTrue(selected.contains("&index=3"))
+        assertTrue(selected.startsWith("magnet:?xt=urn:btih:abcdef123456"))
+        val defaultSelection = Urls.magnet("abcdef123456", null, emptyList())
+        assertFalse(defaultSelection.contains("&index="))
+        assertFalse(Urls.magnet("abcdef123456", null, emptyList(), -1).contains("&index="))
+    }
+
+    @Test
+    fun externalOnlyTargetsDeduplicateWithoutLosingSignedUrlDifferences() {
+        val firstYoutube = StreamParser.parsed(0, "First addon", RawStream(ytId = "AbC123"))
+        val duplicateYoutube = StreamParser.parsed(1, "Second addon", RawStream(ytId = "AbC123"))
+        val otherYoutube = StreamParser.parsed(2, "Third addon", RawStream(ytId = "AbC124"))
+        assertEquals(
+            StreamDeduplication.externalKey(firstYoutube),
+            StreamDeduplication.externalKey(duplicateYoutube),
+        )
+        assertNotEquals(
+            StreamDeduplication.externalKey(firstYoutube),
+            StreamDeduplication.externalKey(otherYoutube),
+        )
+
+        val signedA = StreamParser.parsed(
+            0, "First addon", RawStream(externalUrl = "https://example.com/watch?token=one"),
+        )
+        val signedB = StreamParser.parsed(
+            1, "Second addon", RawStream(externalUrl = "https://example.com/watch?token=two"),
+        )
+        assertNotEquals(
+            StreamDeduplication.externalKey(signedA),
+            StreamDeduplication.externalKey(signedB),
+        )
+    }
+
+    @Test
+    fun invalidRegexFiltersAreDetectedBeforeTheyCanBeSaved() {
+        assertEquals(
+            listOf("/[/"),
+            StreamFilter.invalidRegexPatterns(listOf("WEB-DL", "/[/", "/x26[45]/", "/[/")),
+        )
+        assertTrue(StreamFilter.invalidRegexPatterns(listOf("WEB-DL", "/x26[45]/")).isEmpty())
+        assertTrue(StreamFilter.matchesKeyword("example release x265", "/x26[45]/"))
+    }
+
+    @Test
+    fun invalidLegacyRequireRegexDoesNotHideEveryStream() {
+        val raw = RawStream(name = "Example.Movie.1080p.WEB-DL")
+        val (info, text) = StreamParser.parse(raw)
+        val parsed = ParsedStream(0, "Test addon", raw, text, info)
+        assertTrue(
+            StreamFilter.passes(
+                parsed,
+                FilterSettings(
+                    allowedResolutions = mutableListOf(1080),
+                    requireKeywords = mutableListOf("/[/"),
+                ),
+            ),
+        )
+    }
+
+    @Test
+    fun emptyResolutionSelectionMeansAnyResolution() {
+        val raw = RawStream(name = "Example.Movie.1080p.WEB-DL")
+        val (info, text) = StreamParser.parse(raw)
+        val parsed = ParsedStream(0, "Test addon", raw, text, info)
+        assertTrue(StreamFilter.passes(parsed, FilterSettings(allowedResolutions = mutableListOf())))
+    }
+
+    @Test
+    fun catalogOrderMoveActionsPreserveRowsAndRespectListBoundaries() {
+        val original = listOf("first", "middle", "last")
+        assertEquals(listOf("middle", "first", "last"), CatalogOrderMath.move(original, "first", 1))
+        assertEquals(listOf("first", "last", "middle"), CatalogOrderMath.move(original, "middle", 1))
+        assertEquals(original, CatalogOrderMath.move(original, "first", -1))
+        assertEquals(original, CatalogOrderMath.move(original, "missing", 1))
+        assertEquals(original.size, CatalogOrderMath.move(original, "middle", 1).distinct().size)
+    }
+
+    @Test
+    fun importedRowsAppendAfterExistingEffectiveOrder() {
+        val currentOrder = listOf("stremio-a", "stremio-b", "external-existing")
+        assertEquals(
+            listOf("stremio-a", "stremio-b", "external-existing", "external-new"),
+            CatalogOrderMath.append(currentOrder, "external-new"),
+        )
+        assertEquals(currentOrder, CatalogOrderMath.append(currentOrder, "stremio-b"))
+    }
+
+    @Test
     fun addonHealthClassificationDistinguishesTransportAndManifestFailures() {
         val cases = listOf(
             SimpleHttpStatus.TIMEOUT to "Connection timed out after 8 seconds",
             SimpleHttpStatus.DNS_ERROR to "Could not resolve the addon host",
             SimpleHttpStatus.INVALID_URL to "Addon URL is invalid",
+            SimpleHttpStatus.BODY_TOO_LARGE to "Manifest response exceeds the 2 MB safety limit",
             SimpleHttpStatus.NETWORK_ERROR to "Network connection failed",
             SimpleHttpStatus.EMPTY_BODY to "Server responded but returned an empty manifest",
         )
@@ -172,16 +263,37 @@ class CoreLogicTest {
 
         val invalidManifest = AddonHealthClassifier.assess(
             SimpleHttpResult("{}", SimpleHttpStatus.OK, 200),
-            Manifest(),
+            Manifest(name = "Incomplete addon", resources = emptyList()),
         )
         assertFalse(invalidManifest.success)
-        assertEquals("JSON response is not a valid Stremio addon manifest", invalidManifest.detail)
+        assertEquals("Manifest must include a name and at least one resource", invalidManifest.detail)
 
         val validManifest = AddonHealthClassifier.assess(
-            SimpleHttpResult("{\"name\":\"Working addon\"}", SimpleHttpStatus.OK, 200),
-            Manifest(name = "Working addon"),
+            SimpleHttpResult("{\"name\":\"Working addon\",\"resources\":[\"stream\"]}", SimpleHttpStatus.OK, 200),
+            Manifest(name = "Working addon", resources = listOf("stream")),
         )
         assertTrue(validManifest.success)
+    }
+
+    @Test
+    fun catalogResourceDeclarationsGateHomepageAndSearchTypes() {
+        val stringResource = Manifest(
+            resources = listOf("catalog"),
+            types = listOf("movie"),
+            idPrefixes = listOf("tt"),
+        )
+        assertTrue(stringResource.supports("catalog", "movie", null))
+        assertFalse(stringResource.supports("catalog", "series", null))
+
+        val scopedResource = Manifest(
+            resources = listOf(mapOf("name" to "catalog", "types" to listOf("series"))),
+            types = listOf("movie"),
+        )
+        assertTrue(scopedResource.supports("catalog", "series", null))
+        assertFalse(scopedResource.supports("catalog", "movie", null))
+
+        val streamOnly = Manifest(resources = listOf("stream"), types = listOf("movie"))
+        assertFalse(streamOnly.supports("catalog", "movie", null))
     }
 
     @Test
@@ -208,6 +320,34 @@ class CoreLogicTest {
             StreamDeduplication.normalizeUrl("https://example.com/video.mkv#t=12"),
             StreamDeduplication.normalizeUrl("https://example.com/video.mkv#t=24"),
         )
+    }
+
+    @Test
+    fun directUrlIdentityTakesPriorityOverAnAccompanyingTorrentHash() {
+        val first = StreamParser.parsed(
+            0, "First addon",
+            RawStream(url = "https://example.com/one.mkv", infoHash = "samehash", fileIdx = 0),
+        )
+        val second = StreamParser.parsed(
+            1, "Second addon",
+            RawStream(url = "https://example.com/two.mkv", infoHash = "samehash", fileIdx = 0),
+        )
+        val duplicate = StreamParser.parsed(
+            2, "Third addon",
+            RawStream(url = "https://example.com/one.mkv", infoHash = "differenthash", fileIdx = 4),
+        )
+        assertNotEquals(StreamDeduplication.key(first), StreamDeduplication.key(second))
+        assertEquals(StreamDeduplication.key(first), StreamDeduplication.key(duplicate))
+
+        val torrentFileOne = StreamParser.parsed(
+            3, "Torrent one",
+            RawStream(infoHash = "samehash", fileIdx = 0),
+        )
+        val torrentFileTwo = StreamParser.parsed(
+            4, "Torrent two",
+            RawStream(infoHash = "samehash", fileIdx = 1),
+        )
+        assertNotEquals(StreamDeduplication.key(torrentFileOne), StreamDeduplication.key(torrentFileTwo))
     }
 
     @Test
@@ -291,6 +431,61 @@ class CoreLogicTest {
     }
 
     @Test
+    fun unusableSearchMetadataDoesNotHideAValidDuplicateFromAnotherAddon() {
+        val unusable = Triple(
+            "addon-a",
+            "movie",
+            Meta(id = "tt12345", name = null, type = "movie"),
+        )
+        val valid = Triple(
+            "addon-b",
+            "movie",
+            Meta(id = "tt12345", name = "A Valid Title", type = "movie"),
+        )
+        val duplicate = Triple(
+            "addon-c",
+            "movie",
+            Meta(id = "tt12345", name = "Duplicate Title", type = "movie"),
+        )
+        val otherType = Triple(
+            "addon-d",
+            "series",
+            Meta(id = "tt12345", name = "Same ID, Different Type", type = "series"),
+        )
+
+        val unique = SearchMetaDeduplication.unique(listOf(unusable, valid, duplicate, otherType))
+        assertEquals(listOf("addon-b", "addon-d"), unique.map { it.first })
+    }
+
+    @Test
+    fun preferredLanguageListOrderControlsStreamRanking() {
+        // The English stream has the earlier addon index, so only the explicit preference order
+        // should decide which language appears first.
+        val english = StreamParser.parsed(
+            0, "English addon",
+            RawStream(name = "Example.Movie.1080p.WEB-DL.ENG"),
+        )
+        val bangla = StreamParser.parsed(
+            1, "Bangla addon",
+            RawStream(name = "Example.Movie.1080p.WEB-DL.BENG"),
+        )
+
+        val banglaFirst = StreamPipeline.process(
+            listOf(english, bangla),
+            FilterSettings(),
+            SortSettings(preferLanguages = mutableListOf("bn", "en")),
+        )
+        assertEquals(listOf("bn", "en"), banglaFirst.map { it.info.languages.single() })
+
+        val englishFirst = StreamPipeline.process(
+            listOf(english, bangla),
+            FilterSettings(),
+            SortSettings(preferLanguages = mutableListOf("English", "Bengali")),
+        )
+        assertEquals(listOf("en", "bn"), englishFirst.map { it.info.languages.single() })
+    }
+
+    @Test
     fun detailedStreamLabelsShowDetectedLanguagesAndSubtitleTracks() {
         val parsed = StreamParser.parsed(
             0,
@@ -337,6 +532,33 @@ class CoreLogicTest {
         assertEquals(7L, snapshot.parseWorkMs)
         assertEquals(3L, snapshot.pipelineMs)
         assertEquals(2L, snapshot.emissionMs)
+    }
+
+    @Test
+    fun olderSlowLookupCannotReplaceNewerDiagnosticsSnapshot() {
+        val older = StreamDiagnostics.begin()
+        val newer = StreamDiagnostics.begin()
+
+        StreamDiagnostics.finish(newer, 20, 0, 18, 16, 16)
+        StreamDiagnostics.finish(older, 10, 0, 8, 6, 6)
+
+        assertEquals(20, StreamDiagnostics.latest()!!.rawStreams)
+        assertEquals(16, StreamDiagnostics.latest()!!.emittedLinks)
+    }
+
+    @Test
+    fun diagnosticAddonNamesRedactUrlsCredentialsAndNewlines() {
+        assertEquals(
+            "Private addon [URL redacted]",
+            StreamDiagnostics.safeAddonName("Private addon https://example.com/manifest?token=secret"),
+        )
+        assertEquals(
+            "Addon?token=[redacted]&region=bd",
+            StreamDiagnostics.safeAddonName("Addon?token=secret&region=bd"),
+        )
+        assertEquals("Addon [URL redacted]", StreamDiagnostics.safeAddonName("Addon stremio://example.com/config?access_token=private"))
+        assertEquals("api_key=[redacted]", StreamDiagnostics.safeAddonName("api_key=private"))
+        assertEquals("First Second", StreamDiagnostics.safeAddonName("First\nSecond"))
     }
 
     @Test
@@ -473,6 +695,150 @@ class CoreLogicTest {
         assertNotNull(legacy)
         assertTrue("Legacy raw settings contain addon URLs", legacy!!.includesAddonUrls)
         assertEquals(settings.addons.single().url, legacy.settings!!.addons.single().url)
+    }
+
+    @Test
+    fun arbitraryJsonCannotBeImportedAsAnEmptyLegacyBackup() {
+        assertEquals(null, SettingsBackupManager.parse("{}"))
+        assertEquals(null, SettingsBackupManager.parse("""{"unrelated":"value"}"""))
+    }
+
+    @Test
+    fun catalogOrderOnlyBackupIsStillClassifiedAsSourceSensitive() {
+        val forgedEnvelope = SettingsBackup(
+            includesAddonUrls = false,
+            settings = Settings(catalogOrder = mutableListOf("hashed-addon|movie|top")),
+        )
+        val parsed = SettingsBackupManager.parse(Json.toJson(forgedEnvelope))
+        assertNotNull(parsed)
+        assertTrue(parsed!!.includesAddonUrls)
+    }
+
+    @Test
+    fun backupPrivacyFlagCannotHideEmbeddedAddonOrExtensionSources() {
+        val forgedEnvelope = SettingsBackup(
+            includesAddonUrls = false,
+            settings = sampleSettings(),
+        )
+        val parsed = SettingsBackupManager.parse(Json.toJson(forgedEnvelope))
+        assertNotNull(parsed)
+        assertTrue(parsed!!.includesAddonUrls)
+
+        val importedExtensionOnly = SettingsBackup(
+            includesAddonUrls = false,
+            settings = Settings(
+                externalRows = mutableListOf(
+                    ExternalRowConfig(
+                        key = "external:private",
+                        sourcePlugin = "https://private-plugin.example/repo.json",
+                    ),
+                ),
+            ),
+        )
+        val parsedExtensionOnly = SettingsBackupManager.parse(Json.toJson(importedExtensionOnly))
+        assertNotNull(parsedExtensionOnly)
+        assertTrue(parsedExtensionOnly!!.includesAddonUrls)
+    }
+
+    @Test
+    fun settingsSnapshotsDoNotShareMutableNestedCollections() {
+        val original = Settings(
+            addons = mutableListOf(AddonConfig(
+                id = "addon",
+                url = "https://example.com",
+                hiddenCatalogs = mutableListOf("movie/top"),
+            )),
+            catalogOrder = mutableListOf("addon|movie|top"),
+            externalRows = mutableListOf(ExternalRowConfig(key = "external:one", rowName = "Original")),
+            filter = FilterSettings(
+                allowedResolutions = mutableListOf(1080),
+                excludeKeywords = mutableListOf("CAM"),
+            ),
+            sort = SortSettings(preferLanguages = mutableListOf("bn", "en")),
+            subtitleLanguages = mutableListOf("bn"),
+            streamFormat = StreamFormatSettings(fields = mutableListOf("quality")),
+        )
+        val snapshot = original.snapshot()
+
+        snapshot.addons.first().hiddenCatalogs += "series/top"
+        snapshot.catalogOrder += "addon|series/top"
+        snapshot.externalRows.first().rowName = "Changed"
+        snapshot.filter.allowedResolutions += 720
+        snapshot.filter.excludeKeywords += "TS"
+        snapshot.sort.preferLanguages.reverse()
+        snapshot.subtitleLanguages += "en"
+        snapshot.streamFormat.fields += "codec"
+
+        assertEquals(listOf("movie/top"), original.addons.first().hiddenCatalogs)
+        assertEquals(listOf("addon|movie|top"), original.catalogOrder)
+        assertEquals("Original", original.externalRows.first().rowName)
+        assertEquals(listOf(1080), original.filter.allowedResolutions)
+        assertEquals(listOf("CAM"), original.filter.excludeKeywords)
+        assertEquals(listOf("bn", "en"), original.sort.preferLanguages)
+        assertEquals(listOf("bn"), original.subtitleLanguages)
+        assertEquals(listOf("quality"), original.streamFormat.fields)
+        assertEquals(original.addons.first().manifest, snapshot.addons.first().manifest)
+    }
+
+    @Test
+    fun importedSettingsAreSanitizedBeforeUse() {
+        val settings = Settings(
+            addons = mutableListOf(
+                AddonConfig(url = "https://example.com/addon"),
+                AddonConfig(url = "https://example.com/addon"),
+                AddonConfig(url = ""),
+            ),
+            filter = FilterSettings(
+                allowedResolutions = mutableListOf(999, 1080, 1080, -1),
+                hevcMode = 99,
+                hdrMode = -1,
+                minSizeMb = -10,
+                maxSizeGb = -5,
+                minSeeders = -1,
+                maxPerAddon = -2,
+                maxTotal = -3,
+            ),
+            sort = SortSettings(preset = "REMOVED_PRESET"),
+            timeoutSec = 999,
+            streamFormat = StreamFormatSettings(
+                fields = mutableListOf("unknown-field", "quality", "quality"),
+                separator = "invalid separator",
+            ),
+        ).sanitized()
+
+        assertEquals(180, settings.timeoutSec)
+        assertEquals(listOf(1080), settings.filter.allowedResolutions)
+        assertEquals(MODE_ONLY, settings.filter.hevcMode)
+        assertEquals(MODE_ANY, settings.filter.hdrMode)
+        assertEquals(0, settings.filter.minSizeMb)
+        assertEquals(0, settings.filter.maxSizeGb)
+        assertEquals(0, settings.filter.minSeeders)
+        assertEquals(0, settings.filter.maxPerAddon)
+        assertEquals(0, settings.filter.maxTotal)
+        assertEquals(SortPreset.BEST_QUALITY.name, settings.sort.preset)
+        assertEquals(listOf("quality"), settings.streamFormat.fields)
+        assertEquals(" · ", settings.streamFormat.separator)
+        assertEquals(1, settings.addons.size)
+        assertFalse(settings.addons.single().id.isBlank())
+    }
+
+    @Test
+    fun malformedBackupNestedSettingsAreRejectedWithoutThrowing() {
+        val malformedEnvelope = """{"format":"multistremio-backup","version":1,"settings":{"addons":[],"filter":null}}"""
+        val malformedLegacy = """{"addons":[],"sort":null}"""
+        assertEquals(null, SettingsBackupManager.parse(malformedEnvelope))
+        assertEquals(null, SettingsBackupManager.parse(malformedLegacy))
+    }
+
+    @Test
+    fun validBackupValuesAreNormalizedDuringRestoreParsing() {
+        val backup = SettingsBackup(
+            settings = Settings(timeoutSec = 1, filter = FilterSettings(minSeeders = -1)),
+        )
+        val parsed = SettingsBackupManager.parse(Json.toJson(backup))
+        assertNotNull(parsed)
+        assertEquals(5, parsed!!.settings!!.timeoutSec)
+        assertEquals(0, parsed.settings!!.filter.minSeeders)
     }
 
     @Test

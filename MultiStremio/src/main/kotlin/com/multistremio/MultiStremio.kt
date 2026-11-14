@@ -48,7 +48,7 @@ class MultiStremio : MainAPI() {
     // Built from the cached manifests every time the home page loads, so settings changes show up on refresh.
     override val mainPage: List<MainPageData>
         get() {
-            val settings = Config.settings
+            val settings = Config.snapshot()
             val rows = mutableListOf<Pair<String, MainPageData>>()
             for (addon in settings.addons) {
                 if (!addon.enabled || !addon.useCatalogs) continue
@@ -56,6 +56,7 @@ class MultiStremio : MainAPI() {
                 for (c in manifest.catalogs.orEmpty()) {
                     val type = c.type ?: continue
                     val id = c.id ?: continue
+                    if (!manifest.supports("catalog", type, null)) continue
                     if (!c.isHomeCatalog() || "$type/$id" in addon.hiddenCatalogs) continue
                     val title = "${c.name ?: id} · ${typeLabel(type)}"
                     val key = catalogOrderKey(addon.id, type, id)
@@ -89,11 +90,12 @@ class MultiStremio : MainAPI() {
         }
 
     override suspend fun getMainPage(page: Int, request: MainPageRequest): HomePageResponse? {
+        val settings = Config.snapshot()
         // External rows delegate to the provider that originally owns the selected homepage row.
-        val externalRef = Json.parse<ExternalPageRef>(request.data)
-        if (!externalRef?.key.isNullOrBlank()) {
-            val selected = Config.settings.externalRows.firstOrNull {
-                it.key == externalRef?.key && it.enabled
+        val externalKey = Json.parse<ExternalPageRef>(request.data)?.key
+        if (!externalKey.isNullOrBlank()) {
+            val selected = settings.externalRows.firstOrNull {
+                it.key == externalKey && it.enabled
             } ?: return newHomePageResponse(request, emptyList(), false)
             val installed = ExternalHomeRows.resolve(selected, this)
                 ?: return newHomePageResponse(request, emptyList(), false)
@@ -115,11 +117,16 @@ class MultiStremio : MainAPI() {
         val type = ref?.t
         val catalogId = ref?.c
         if (ref == null || type == null || catalogId == null) throw ErrorLoadingException(noAddonsMessage)
-        val addon = Config.settings.addons.firstOrNull { it.id == ref.a && it.enabled }
-            ?: throw ErrorLoadingException("This addon was removed or disabled. Pull to refresh the home page.")
+        val addon = settings.addons.firstOrNull { it.id == ref.a && it.enabled && it.useCatalogs }
+            ?: throw ErrorLoadingException("This addon was removed, disabled or no longer used for catalogs. Pull to refresh the home page.")
 
-        val catalog = Config.manifestOf(addon)?.catalogs?.firstOrNull { it.type == type && it.id == catalogId }
-        val supportsSkip = catalog?.supportsExtra("skip") ?: true
+        val manifest = Config.manifestOf(addon)
+        if (manifest?.supports("catalog", type, null) != true) {
+            throw ErrorLoadingException("This addon no longer provides the catalog resource for this content type. Refresh the home page.")
+        }
+        val catalog = manifest.catalogs?.firstOrNull { it.type == type && it.id == catalogId }
+            ?: throw ErrorLoadingException("This catalog is no longer available. Refresh the home page.")
+        val supportsSkip = catalog.supportsExtra("skip")
         if (page > 1 && !supportsSkip) return newHomePageResponse(request, emptyList(), false)
 
         val key = request.data
@@ -135,14 +142,17 @@ class MultiStremio : MainAPI() {
 
     override suspend fun search(query: String): List<SearchResponse>? {
         val q = Urls.encodeComponent(query)
+        val settings = Config.snapshot()
         val jobs = mutableListOf<Triple<AddonConfig, String, String>>() // addon, type, catalog id
-        for (addon in Config.settings.addons) {
+        for (addon in settings.addons) {
             if (!addon.enabled || !addon.useCatalogs) continue
             val manifest = Config.manifestOf(addon) ?: continue
             for (c in manifest.catalogs.orEmpty()) {
                 val type = c.type ?: continue
                 val id = c.id ?: continue
-                if (c.isSearchable()) jobs += Triple(addon, type, id)
+                if (manifest.supports("catalog", type, null) && c.isSearchable()) {
+                    jobs += Triple(addon, type, id)
+                }
             }
         }
         if (jobs.isEmpty()) return emptyList()
@@ -150,12 +160,7 @@ class MultiStremio : MainAPI() {
         val results = jobs.boundedAmap(8) { (addon, type, id) ->
             StremioClient.catalog(addon, type, id, "search=$q").map { Triple(addon.id, type, it) }
         }
-        val seen = HashSet<String>()
-        return results.flatten()
-            .filter { (_, fallbackType, meta) ->
-                val effectiveType = meta.type?.takeIf { it.isNotBlank() } ?: fallbackType
-                seen.add("$effectiveType:${meta.id}")
-            }
+        return SearchMetaDeduplication.unique(results.flatten())
             .mapNotNull { (addonId, fallbackType, meta) ->
                 meta.toSearchResponse(addonId, fallbackType)
             }
@@ -230,7 +235,7 @@ class MultiStremio : MainAPI() {
         val ref = Json.parse<StreamRef>(data) ?: return false
         val type = ref.t ?: "movie"
         val id = ref.i ?: return false
-        val settings = Config.settings
+        val settings = Config.snapshot()
         val diagnosticRunId = StreamDiagnostics.begin()
 
         val streamAddons = settings.addons.withIndex()
@@ -293,14 +298,22 @@ class MultiStremio : MainAPI() {
         }
 
         // YouTube / external links are not filterable; hand them to CloudStream's extractors.
+        // They still need deduplication because they do not enter the playable stream pipeline.
+        val seenExternalTargets = HashSet<String>()
         for (p in parsed) {
             val yt = p.raw.ytId
             val ext = p.raw.externalUrl
+            // Stremio stream objects should identify one playback target. Prefer a direct URL
+            // or torrent magnet when a malformed addon supplies multiple target fields.
+            val hasPrimaryTarget = !p.raw.url.isNullOrBlank() || !p.raw.infoHash.isNullOrBlank()
             val target = when {
+                hasPrimaryTarget -> null
                 !yt.isNullOrBlank() -> "https://www.youtube.com/watch?v=$yt"
-                p.raw.url.isNullOrBlank() && p.raw.infoHash.isNullOrBlank() && !ext.isNullOrBlank() -> ext
+                !ext.isNullOrBlank() -> ext
                 else -> null
             } ?: continue
+            val key = StreamDeduplication.externalKey(p)
+            if (key != null && !seenExternalTargets.add(key)) continue
             if (loadExtractor(target, subtitleCallback, callback)) {
                 emitted = true
                 emittedLinks++
@@ -346,7 +359,12 @@ class MultiStremio : MainAPI() {
                 },
             )
         } else if (!p.raw.infoHash.isNullOrBlank()) {
-            val magnet = Urls.magnet(p.raw.infoHash, hints?.filename ?: p.raw.title?.lineSequence()?.firstOrNull(), p.raw.sources)
+            val magnet = Urls.magnet(
+                p.raw.infoHash,
+                hints?.filename ?: p.raw.title?.lineSequence()?.firstOrNull(),
+                p.raw.sources,
+                p.raw.fileIdx,
+            )
             callback(
                 newExtractorLink(p.addonName, label, magnet, ExtractorLinkType.MAGNET) {
                     this.quality = quality
@@ -366,7 +384,7 @@ class MultiStremio : MainAPI() {
 
     /** Origin addon first, then every other addon that can serve meta for this id. */
     private suspend fun findMeta(ref: ItemRef, type: String, id: String): Meta? {
-        val candidates = Config.settings.addons
+        val candidates = Config.snapshot().addons
             .filter { it.enabled && it.useMeta && Config.manifestOf(it)?.supports("meta", type, id) == true }
         val origin = candidates.firstOrNull { it.id == ref.a }
         val originMeta = origin?.let { StremioClient.meta(it, type, id) }

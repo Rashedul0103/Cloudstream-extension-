@@ -15,6 +15,7 @@ object AddonHealthClassifier {
                 SimpleHttpStatus.TIMEOUT -> "Connection timed out after 8 seconds"
                 SimpleHttpStatus.DNS_ERROR -> "Could not resolve the addon host"
                 SimpleHttpStatus.INVALID_URL -> "Addon URL is invalid"
+                SimpleHttpStatus.BODY_TOO_LARGE -> "Manifest response exceeds the 2 MB safety limit"
                 SimpleHttpStatus.NETWORK_ERROR -> "Network connection failed"
                 SimpleHttpStatus.OK -> "Unexpected response state"
             }
@@ -24,8 +25,8 @@ object AddonHealthClassifier {
         if (manifest == null) {
             return AddonHealthAssessment(false, "Server response is not valid JSON")
         }
-        if (manifest.name == null && manifest.resources == null) {
-            return AddonHealthAssessment(false, "JSON response is not a valid Stremio addon manifest")
+        if (!manifest.isUsableByMultiStremio()) {
+            return AddonHealthAssessment(false, "Manifest must include a name and at least one resource")
         }
         return AddonHealthAssessment(true, "")
     }
