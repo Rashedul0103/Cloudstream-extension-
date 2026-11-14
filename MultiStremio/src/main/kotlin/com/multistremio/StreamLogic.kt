@@ -500,12 +500,27 @@ object Urls {
         if (!Regex("^https?://", RegexOption.IGNORE_CASE).containsMatchIn(u)) u = "https://$u"
 
         val uri = runCatching { URI(u) }.getOrNull() ?: return u.trimEnd('/')
-        val authority = uri.rawAuthority ?: return u.trimEnd('/')
+        val rawAuthority = uri.rawAuthority ?: return u.trimEnd('/')
+        val scheme = (uri.scheme ?: "https").lowercase(Locale.ROOT)
+        val host = uri.host
+        val authority = if (host.isNullOrBlank()) {
+            rawAuthority
+        } else {
+            val normalizedHost = host.lowercase(Locale.ROOT).let {
+                if (it.contains(':') && !it.startsWith("[")) "[$it]" else it
+            }
+            buildString {
+                uri.rawUserInfo?.let { append(it).append('@') }
+                append(normalizedHost)
+                val isDefaultPort = (scheme == "https" && uri.port == 443) ||
+                    (scheme == "http" && uri.port == 80)
+                if (uri.port >= 0 && !isDefaultPort) append(':').append(uri.port)
+            }
+        }
         var path = uri.rawPath.orEmpty().trimEnd('/')
         if (path.endsWith("/manifest.json", ignoreCase = true)) {
             path = path.dropLast("/manifest.json".length)
         }
-        val scheme = (uri.scheme ?: "https").lowercase(Locale.ROOT)
         val query = uri.rawQuery?.let { "?$it" }.orEmpty()
         return "$scheme://$authority${path.trimEnd('/')}$query"
     }
