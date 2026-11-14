@@ -556,6 +556,8 @@ class CoreLogicTest {
             "Addon?token=[redacted]&region=bd",
             StreamDiagnostics.safeAddonName("Addon?token=secret&region=bd"),
         )
+        assertEquals("Addon [URL redacted]", StreamDiagnostics.safeAddonName("Addon stremio://example.com/config?access_token=private"))
+        assertEquals("api_key=[redacted]", StreamDiagnostics.safeAddonName("api_key=private"))
         assertEquals("First Second", StreamDiagnostics.safeAddonName("First\nSecond"))
     }
 
