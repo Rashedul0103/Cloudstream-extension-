@@ -40,84 +40,59 @@ internal object FormatterSettingsScreen {
         val fields = StreamFormatFields.all
         val validFieldIds = fields.map { it.id }.toSet()
         val selected = format.fields.filter { it in validFieldIds }.toSet()
-        val separatorLabels = listOf(
-            "Middle dot   ·",
-            "Vertical bar   |",
-            "Bullet   •",
-            "Long dash   —",
-            "Slash   /",
-            "New line",
-        )
+        val separatorLabels = listOf("Middle dot   ·", "Vertical bar   |", "Bullet   •", "Long dash   —", "Slash   /", "New line")
         val separators = listOf(" · ", " | ", " • ", " — ", " / ", "\n")
         val separatorIndex = separators.indexOf(format.separator).takeIf { it >= 0 } ?: 0
-        val rows = listOf(
-            "Custom layout: ${onOff(format.enabled)}",
-            "Choose information to show (${selected.size} selected)",
-            "Reorder visible information",
-            "Separator: ${separatorLabels[separatorIndex]}",
-            "Show full field names: ${onOff(format.showLabels)}",
-            "Preview your design",
-            "Reset to recommended layout",
+        val again = { streamFormatterMenu(ctx) }
+        val items = listOf(
+            SettingItem("Custom layout", onOff(format.enabled), SettingItemType.Switch,
+                onClick = { updateAndReopen({ again() }) { streamFormat.enabled = !streamFormat.enabled } },
+                searchKeywords = listOf("custom", "layout", "enable", "disable")),
+            SettingItem("Choose information to show", "${selected.size} selected", SettingItemType.Value,
+                onClick = {
+                    multi(ctx, "Information to display",
+                        fields.map { "${it.title} — ${it.description}" },
+                        fields.map { it.id in selected }, onCancel = again) { chosen ->
+                        val wanted = fields.filterIndexed { index, _ -> chosen.getOrElse(index) { false } }.map { it.id }.toSet()
+                        val existingOrder = format.fields.filter { it in wanted }
+                        val newlySelected = fields.map { it.id }.filter { it in wanted && it !in existingOrder }
+                        updateAndReopen({ again() }) { streamFormat.fields = (existingOrder + newlySelected).toMutableList() }
+                    }
+                }, searchKeywords = listOf("fields", "quality", "source", "HDR", "codec", "language", "size")),
+            SettingItem("Reorder visible information", "Arrange details in the order they appear", SettingItemType.Value,
+                onClick = { streamFormatReorderDialog(ctx) },
+                searchKeywords = listOf("reorder", "drag", "order", "fields")),
+            SettingItem("Separator", separatorLabels[separatorIndex], SettingItemType.Value,
+                onClick = {
+                    choose(ctx, "Separate each detail with", separatorLabels, separatorIndex, onCancel = again) {
+                        updateAndReopen({ again() }) { streamFormat.separator = separators[it] }
+                    }
+                }, searchKeywords = listOf("separator", "dot", "bullet", "dash", "slash", "newline")),
+            SettingItem("Show full field names", onOff(format.showLabels), SettingItemType.Switch,
+                onClick = { updateAndReopen({ again() }) { streamFormat.showLabels = !streamFormat.showLabels } },
+                searchKeywords = listOf("labels", "names", "Quality:", "Video codec:")),
+            SettingItem("Preview your design", "Example only; no addon is contacted", SettingItemType.Navigate,
+                onClick = {
+                    val preview = StreamLabels.preview(format)
+                    menu(ctx, "Your stream-name preview", listOf(preview), again,
+                        "Example only. Real links show whichever information each addon provides. Missing details are automatically skipped.") { }
+                }, searchKeywords = listOf("preview", "example")),
+            SettingItem("Reset to recommended layout", "Restore the default fields, order and spacing", SettingItemType.Value,
+                onClick = {
+                    confirm(ctx, "Reset stream formatter?",
+                        "This restores the recommended field order, middle-dot separator and compact labels. Your custom layout will be turned off.",
+                        onCancel = again) {
+                        updateAndReopen({ again() }) { streamFormat = StreamFormatSettings() }
+                    }
+                }, searchKeywords = listOf("reset", "default", "recommended")),
         )
-        menu(
+        settingMenu(
             ctx,
             "Stream formatter",
-            rows,
+            items,
             { MainMenuSettingsScreen.show(ctx) },
             "Design how links look in the stream list. No codes or templates are needed. Choose the details, put them in your preferred order, and preview the result.",
-            listOf(
-                "Turn your custom design on or off. Off uses the normal MultiStremio labels.",
-                "Pick details such as quality, codec, language and file size.",
-                "Drag the grip to reorder. No long-press is needed; swipe the detail text to scroll.",
-                "Choose what appears between details.",
-                "Use names such as “Quality:” and “Video codec:” before each value.",
-                "See an example using a made-up movie; no addon is contacted.",
-                "Restore all recommended fields and spacing.",
-            ),
-        ) { which ->
-            when (which) {
-                0 -> {
-                    updateAndReopen({ streamFormatterMenu(ctx) }) { streamFormat.enabled = !streamFormat.enabled }
-                }
-                1 -> multi(
-                    ctx,
-                    "Information to display",
-                    fields.map { "${it.title} — ${it.description}" },
-                    fields.map { it.id in selected },
-                    onCancel = { streamFormatterMenu(ctx) },
-                ) { chosen ->
-                    val wanted = fields.filterIndexed { index, _ -> chosen.getOrElse(index) { false } }.map { it.id }.toSet()
-                    val existingOrder = format.fields.filter { it in wanted }
-                    val newlySelected = fields.map { it.id }.filter { it in wanted && it !in existingOrder }
-                    updateAndReopen({ streamFormatterMenu(ctx) }) { streamFormat.fields = (existingOrder + newlySelected).toMutableList() }
-                }
-                2 -> streamFormatReorderDialog(ctx)
-                3 -> choose(ctx, "Separate each detail with", separatorLabels, separatorIndex, onCancel = { streamFormatterMenu(ctx) }) {
-                    updateAndReopen({ streamFormatterMenu(ctx) }) { streamFormat.separator = separators[it] }
-                }
-                4 -> {
-                    updateAndReopen({ streamFormatterMenu(ctx) }) { streamFormat.showLabels = !streamFormat.showLabels }
-                }
-                5 -> {
-                    val preview = StreamLabels.preview(format)
-                    menu(
-                        ctx,
-                        "Your stream-name preview",
-                        listOf(preview),
-                        { streamFormatterMenu(ctx) },
-                        "Example only. Real links show whichever information each addon provides. Missing details are automatically skipped.",
-                    ) { }
-                }
-                6 -> confirm(
-                    ctx,
-                    "Reset stream formatter?",
-                    "This restores the recommended field order, middle-dot separator and compact labels. Your custom layout will be turned off.",
-                    onCancel = { streamFormatterMenu(ctx) },
-                ) {
-                    updateAndReopen({ streamFormatterMenu(ctx) }) { streamFormat = StreamFormatSettings() }
-                }
-            }
-        }
+        )
     }
 
     /** Drag selected information blocks into the exact order wanted in the stream list. */
