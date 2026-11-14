@@ -44,7 +44,7 @@ class MultiStremio : MainAPI() {
                     val type = c.type ?: continue
                     val id = c.id ?: continue
                     if (!c.isHomeCatalog() || "$type/$id" in addon.hiddenCatalogs) continue
-                    val title = "${addon.name} · ${c.name ?: id} · ${typeLabel(type)}"
+                    val title = "${c.name ?: id} · ${typeLabel(type)}"
                     val key = catalogOrderKey(addon.id, type, id)
                     rows += key to MainPageData(title, Json.toJson(CatalogRef(addon.id, type, id)), false)
                 }
