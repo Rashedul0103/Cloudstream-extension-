@@ -229,7 +229,15 @@ object StreamParser {
     private val REMUX = Regex("""\b(remux|bdremux)\b""")
     private val BLURAY = Regex("""\b(blu[ .\-_]?ray|bdrip|brrip)\b""")
     private val WEBDL = Regex("""\b(web[ .\-_]?dl|web)\b""")
+    private val WEB_DL_STRICT = Regex("""\bweb[ .\-_]?dl\b""")
     private val WEBRIP = Regex("""\bweb[ .\-_]?rip\b""")
+    private val ATMOS = Regex("""\batmos\b""")
+    private val TRUEHD = Regex("""\btruehd\b""")
+    private val DTS_HD = Regex("""\bdts[ .\-_]?(hd|x)\b""")
+    private val DTS = Regex("""\bdts\b""")
+    private val DD_PLUS = Regex("""\b(ddp|dd\+|e[ \-]?ac-?3)\b""")
+    private val DD = Regex("""\b(dd[ .\-_]?5|ac-?3|dolby digital)\b""")
+    private val AAC = Regex("""\baac\b""")
     private val HDTV = Regex("""\b(hdtv|pdtv|tvrip)\b""")
     private val DVD = Regex("""\b(dvdrip|dvd[ .\-_]?r|dvd)\b""")
     // Unambiguous tags vs. short words that can also appear in titles ("Cam", "TS", "R5").
@@ -271,7 +279,7 @@ object StreamParser {
             else -> null
         }
         val goodSource = REMUX.containsMatchIn(t) || BLURAY.containsMatchIn(t) || WEBRIP.containsMatchIn(t) ||
-            Regex("""\bweb[ .\-_]?dl\b""").containsMatchIn(t) || HDTV.containsMatchIn(t)
+            WEB_DL_STRICT.containsMatchIn(t) || HDTV.containsMatchIn(t)
         // A weak tag only counts when the release has no proper source tag next to it.
         val cam = CAM_STRONG.containsMatchIn(t) || (CAM_WEAK.containsMatchIn(t) && !goodSource)
         val source = when {
@@ -285,13 +293,13 @@ object StreamParser {
             else -> null
         }
         val audio = when {
-            t.contains("atmos") -> "Atmos"
-            t.contains("truehd") -> "TrueHD"
-            Regex("""\bdts[ .\-_]?(hd|x)""").containsMatchIn(t) -> "DTS-HD"
-            Regex("""\bdts\b""").containsMatchIn(t) -> "DTS"
-            Regex("""\b(ddp|dd\+|e[ \-]?ac-?3)""").containsMatchIn(t) -> "DD+"
-            Regex("""\b(dd[ .\-_]?5|ac-?3|dolby digital)""").containsMatchIn(t) -> "DD"
-            Regex("""\baac\b""").containsMatchIn(t) -> "AAC"
+            ATMOS.containsMatchIn(t) -> "Atmos"
+            TRUEHD.containsMatchIn(t) -> "TrueHD"
+            DTS_HD.containsMatchIn(t) -> "DTS-HD"
+            DTS.containsMatchIn(t) -> "DTS"
+            DD_PLUS.containsMatchIn(t) -> "DD+"
+            DD.containsMatchIn(t) -> "DD"
+            AAC.containsMatchIn(t) -> "AAC"
             else -> null
         }
         val cached = when {
@@ -351,7 +359,10 @@ object StreamFilter {
     fun anyMatch(lowerText: String, keywords: List<String>): Boolean =
         keywords.any { matchesKeyword(lowerText, it) }
 
-    fun passes(p: ParsedStream, f: FilterSettings): Boolean {
+    fun passes(p: ParsedStream, f: FilterSettings): Boolean =
+        passes(p, f, f.requireLanguages.map { Langs.normalize(it) }.toSet())
+
+    fun passes(p: ParsedStream, f: FilterSettings, wantedLanguages: Set<String>): Boolean {
         val i = p.info
         if (p.isMagnet && f.hideMagnets) return false
         if (f.hideCam && i.isCam) return false
@@ -378,11 +389,10 @@ object StreamFilter {
         val have = i.languages
         if (f.strictLanguage && have.isEmpty()) return false
         if (f.requireLanguages.isNotEmpty()) {
-            val want = f.requireLanguages.map { Langs.normalize(it) }.toSet()
             val ok = when {
                 "multi" in have -> true
                 have.isEmpty() -> !f.strictLanguage
-                else -> have.any { it in want }
+                else -> have.any { it in wantedLanguages }
             }
             if (!ok) return false
         }
@@ -468,23 +478,31 @@ object StreamPipeline {
     fun process(items: List<ParsedStream>, filter: FilterSettings, sort: SortSettings): List<ParsedStream> {
         // Earlier addons win when two addons return the same torrent/url.
         val seen = HashSet<String>()
-        val unique = items
-            .sortedBy { it.addonIndex }
-            .filter { StreamFilter.passes(it, filter) }
-            .filter { p -> dedupeKey(p)?.let { seen.add(it) } ?: true }
-
-        var sorted = unique.sortedWith(StreamSorter.comparator(sort))
-
-        if (filter.maxPerAddon > 0) {
-            val perAddon = HashMap<Int, Int>()
-            sorted = sorted.filter { p ->
-                val n = (perAddon[p.addonIndex] ?: 0) + 1
-                perAddon[p.addonIndex] = n
-                n <= filter.maxPerAddon
-            }
+        val wantedLanguages = filter.requireLanguages.map { Langs.normalize(it) }.toSet()
+        val unique = ArrayList<ParsedStream>(items.size)
+        for (stream in items.sortedBy { it.addonIndex }) {
+            if (!StreamFilter.passes(stream, filter, wantedLanguages)) continue
+            val key = dedupeKey(stream)
+            if (key != null && !seen.add(key)) continue
+            unique += stream
         }
-        if (filter.maxTotal > 0) sorted = sorted.take(filter.maxTotal)
-        return sorted
+
+        val sorted = unique.sortedWith(StreamSorter.comparator(sort))
+        if (filter.maxPerAddon <= 0 && filter.maxTotal <= 0) return sorted
+
+        // Apply both limits in one pass and stop as soon as the total cap is reached.
+        val perAddon = HashMap<Int, Int>()
+        val result = ArrayList<ParsedStream>(minOf(sorted.size, filter.maxTotal.takeIf { it > 0 } ?: sorted.size))
+        for (stream in sorted) {
+            if (filter.maxPerAddon > 0) {
+                val count = (perAddon[stream.addonIndex] ?: 0) + 1
+                if (count > filter.maxPerAddon) continue
+                perAddon[stream.addonIndex] = count
+            }
+            result += stream
+            if (filter.maxTotal > 0 && result.size >= filter.maxTotal) break
+        }
+        return result
     }
 }
 
