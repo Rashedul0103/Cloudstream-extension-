@@ -56,6 +56,7 @@ class MultiStremio : MainAPI() {
                 for (c in manifest.catalogs.orEmpty()) {
                     val type = c.type ?: continue
                     val id = c.id ?: continue
+                    if (!manifest.supports("catalog", type, null)) continue
                     if (!c.isHomeCatalog() || "$type/$id" in addon.hiddenCatalogs) continue
                     val title = "${c.name ?: id} · ${typeLabel(type)}"
                     val key = catalogOrderKey(addon.id, type, id)
@@ -115,11 +116,16 @@ class MultiStremio : MainAPI() {
         val type = ref?.t
         val catalogId = ref?.c
         if (ref == null || type == null || catalogId == null) throw ErrorLoadingException(noAddonsMessage)
-        val addon = Config.settings.addons.firstOrNull { it.id == ref.a && it.enabled }
-            ?: throw ErrorLoadingException("This addon was removed or disabled. Pull to refresh the home page.")
+        val addon = Config.settings.addons.firstOrNull { it.id == ref.a && it.enabled && it.useCatalogs }
+            ?: throw ErrorLoadingException("This addon was removed, disabled or no longer used for catalogs. Pull to refresh the home page.")
 
-        val catalog = Config.manifestOf(addon)?.catalogs?.firstOrNull { it.type == type && it.id == catalogId }
-        val supportsSkip = catalog?.supportsExtra("skip") ?: true
+        val manifest = Config.manifestOf(addon)
+        if (manifest?.supports("catalog", type, null) != true) {
+            throw ErrorLoadingException("This addon no longer provides the catalog resource for this content type. Refresh the home page.")
+        }
+        val catalog = manifest.catalogs?.firstOrNull { it.type == type && it.id == catalogId }
+            ?: throw ErrorLoadingException("This catalog is no longer available. Refresh the home page.")
+        val supportsSkip = catalog.supportsExtra("skip")
         if (page > 1 && !supportsSkip) return newHomePageResponse(request, emptyList(), false)
 
         val key = request.data
@@ -142,7 +148,9 @@ class MultiStremio : MainAPI() {
             for (c in manifest.catalogs.orEmpty()) {
                 val type = c.type ?: continue
                 val id = c.id ?: continue
-                if (c.isSearchable()) jobs += Triple(addon, type, id)
+                if (manifest.supports("catalog", type, null) && c.isSearchable()) {
+                    jobs += Triple(addon, type, id)
+                }
             }
         }
         if (jobs.isEmpty()) return emptyList()
