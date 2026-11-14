@@ -39,7 +39,7 @@ import kotlin.concurrent.thread
      * finger passes touch slop. No long-press timer is involved, so the gesture cannot be cancelled
      * by the ScrollView before the reorder controller starts. Swiping the row body still scrolls.
      */
-    private fun installDragReordering(
+    internal fun installDragReordering(
         ctx: Context,
         handle: View,
         item: View,
