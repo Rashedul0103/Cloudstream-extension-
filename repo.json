@@ -1,0 +1,8 @@
+{
+  "name": "MultiStremio",
+  "description": "CloudStream plugin that combines Stremio addons",
+  "manifestVersion": 1,
+  "pluginLists": [
+    "https://raw.githubusercontent.com/Rashedul0103/Cloudstream-extension-/builds/plugins.json"
+  ]
+}
