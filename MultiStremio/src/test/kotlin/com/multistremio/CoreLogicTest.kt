@@ -142,6 +142,24 @@ class CoreLogicTest {
     }
 
     @Test
+    fun invalidRegexFiltersAreDetectedBeforeTheyCanBeSaved() {
+        assertEquals(
+            listOf("/[/"),
+            StreamFilter.invalidRegexPatterns(listOf("WEB-DL", "/[/", "/x26[45]/", "/[/")),
+        )
+        assertTrue(StreamFilter.invalidRegexPatterns(listOf("WEB-DL", "/x26[45]/")).isEmpty())
+        assertTrue(StreamFilter.matchesKeyword("example release x265", "/x26[45]/"))
+    }
+
+    @Test
+    fun emptyResolutionSelectionMeansAnyResolution() {
+        val raw = RawStream(name = "Example.Movie.1080p.WEB-DL")
+        val (info, text) = StreamParser.parse(raw)
+        val parsed = ParsedStream(0, "Test addon", raw, text, info)
+        assertTrue(StreamFilter.passes(parsed, FilterSettings(allowedResolutions = mutableListOf())))
+    }
+
+    @Test
     fun catalogOrderMoveActionsPreserveRowsAndRespectListBoundaries() {
         val original = listOf("first", "middle", "last")
         assertEquals(listOf("middle", "first", "last"), CatalogOrderMath.move(original, "first", 1))
