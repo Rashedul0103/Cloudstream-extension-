@@ -108,7 +108,7 @@ object SimpleHttp {
             val code = conn.responseCode
             if (code !in 200..299) {
                 SimpleHttpResult(null, SimpleHttpStatus.HTTP_ERROR, code)
-            } else if (conn.contentLengthLong > MAX_RESPONSE_BYTES) {
+            } else if (conn.contentLength >= 0 && conn.contentLength > MAX_RESPONSE_BYTES) {
                 SimpleHttpResult(null, SimpleHttpStatus.BODY_TOO_LARGE, code)
             } else {
                 val output = java.io.ByteArrayOutputStream()
