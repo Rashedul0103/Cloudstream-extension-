@@ -383,6 +383,27 @@ internal fun menu(
     itemDetails: List<String>? = null,
     pick: (Int) -> Unit,
 ) {
+    val settingItems = items.mapIndexed { index, value ->
+        val summary = itemDetails?.getOrNull(index)
+        SettingItem(
+            title = value,
+            summary = summary,
+            type = SettingItemType.Navigate,
+            onClick = { pick(index) },
+            searchKeywords = listOfNotNull(value, summary),
+        )
+    }
+    settingMenu(ctx, title, settingItems, back, description)
+}
+
+/** Preferred typed menu API. Existing screens can migrate without changing the shared renderer. */
+internal fun settingMenu(
+    ctx: Context,
+    title: String,
+    items: List<SettingItem>,
+    back: (() -> Unit)?,
+    description: String? = null,
+) {
     val colors = palette(ctx)
     val root = shell(ctx, title, description ?: "Choose an item to manage this section.")
     val list = vertical(ctx)
@@ -394,17 +415,7 @@ internal fun menu(
             ViewGroup.LayoutParams.WRAP_CONTENT,
         ))
     }
-    val settingItems = items.mapIndexed { index, value ->
-        val summary = itemDetails?.getOrNull(index)
-        SettingItem(
-            title = value,
-            summary = summary,
-            type = SettingItemType.Navigate,
-            onClick = { pick(index) },
-            searchKeywords = listOfNotNull(value, summary),
-        )
-    }
-    val rowViews = settingItems.map { item ->
+    val rowViews = items.map { item ->
         val body = vertical(ctx).apply {
             addView(text(ctx, item.title, 15f, colors.primary, true))
             if (!item.summary.isNullOrBlank()) {
@@ -413,7 +424,12 @@ internal fun menu(
                 })
             }
         }
-        val arrow = text(ctx, "›", 25f, colors.secondary).apply { gravity = Gravity.CENTER }
+        val indicator = when (item.type) {
+            SettingItemType.Navigate -> "›"
+            SettingItemType.Switch -> "◉"
+            SettingItemType.Value -> "›"
+        }
+        val arrow = text(ctx, indicator, 25f, colors.secondary).apply { gravity = Gravity.CENTER }
         val row = LinearLayout(ctx).apply {
             orientation = LinearLayout.HORIZONTAL
             gravity = Gravity.CENTER_VERTICAL
@@ -430,7 +446,8 @@ internal fun menu(
     fun render(filter: String = "") {
         list.removeAllViews()
         val matching = rowViews.filter { (_, item) ->
-            item.searchKeywords.any { it.contains(filter, ignoreCase = true) }
+            val keywords = item.searchKeywords.ifEmpty { listOfNotNull(item.title, item.summary) }
+            keywords.any { it.contains(filter, ignoreCase = true) }
         }
         if (matching.isEmpty()) {
             list.addView(text(ctx, "No matching settings.", 13f, colors.secondary).apply {
