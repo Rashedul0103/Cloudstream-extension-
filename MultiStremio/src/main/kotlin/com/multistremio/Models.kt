@@ -210,6 +210,22 @@ fun Manifest.hasResource(resource: String): Boolean {
 fun Manifest.isUsableByMultiStremio(): Boolean =
     !name.isNullOrBlank() && !resources.isNullOrEmpty()
 
+/**
+ * Drops unusable metadata before deduplicating search results. Some addons return an item with
+ * an ID but no title; that must not reserve the ID and suppress a usable result from another addon.
+ */
+object SearchMetaDeduplication {
+    fun unique(items: List<Triple<String, String, Meta>>): List<Triple<String, String, Meta>> {
+        val seen = HashSet<String>()
+        return items.filter { (_, fallbackType, meta) ->
+            val id = meta.id?.takeIf { it.isNotBlank() } ?: return@filter false
+            if (meta.name.isNullOrBlank()) return@filter false
+            val type = meta.type?.takeIf { it.isNotBlank() } ?: fallbackType
+            seen.add("$type:$id")
+        }
+    }
+}
+
 /** Names of all extras this catalog accepts (modern `extra` plus legacy `extraSupported`). */
 fun ManifestCatalog.extraNames(): Set<String> =
     (extra.orEmpty().mapNotNull { it.name } + extraSupported.orEmpty()).toSet()
