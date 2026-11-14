@@ -185,6 +185,32 @@ data class Settings(
     var seeded: Boolean = false,
 )
 
+/**
+ * Copies every mutable settings collection while sharing immutable strings and cached manifest
+ * text. Provider code uses this before iterating settings that the UI can update concurrently.
+ */
+fun Settings.snapshot(): Settings = copy(
+    addons = addons.map { addon ->
+        addon.copy(hiddenCatalogs = addon.hiddenCatalogs.toMutableList())
+    }.toMutableList(),
+    catalogOrder = catalogOrder.toMutableList(),
+    externalRows = externalRows.map { it.copy() }.toMutableList(),
+    filter = filter.copy(
+        allowedResolutions = filter.allowedResolutions.toMutableList(),
+        excludeKeywords = filter.excludeKeywords.toMutableList(),
+        requireKeywords = filter.requireKeywords.toMutableList(),
+        requireLanguages = filter.requireLanguages.toMutableList(),
+    ),
+    sort = sort.copy(
+        preferKeywords = sort.preferKeywords.toMutableList(),
+        preferLanguages = sort.preferLanguages.toMutableList(),
+        preferCodecs = sort.preferCodecs.toMutableList(),
+        preferAudio = sort.preferAudio.toMutableList(),
+    ),
+    subtitleLanguages = subtitleLanguages.toMutableList(),
+    streamFormat = streamFormat.copy(fields = streamFormat.fields.toMutableList()),
+)
+
 
 /**
  * Normalizes persisted/imported preferences before they reach network and playback code.
