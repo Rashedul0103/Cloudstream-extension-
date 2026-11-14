@@ -344,16 +344,17 @@ object StreamFilter {
         val k = keyword.trim()
         if (k.isEmpty()) return false
         if (k.length > 2 && k.startsWith("/") && k.endsWith("/")) {
-            val re = regexCache.getOrPut(k) {
-                try {
-                    Regex(k.substring(1, k.length - 1), RegexOption.IGNORE_CASE)
-                } catch (e: Exception) {
-                    NEVER
-                }
-            }
-            return re.containsMatchIn(lowerText)
+            return compiledRegex(k).containsMatchIn(lowerText)
         }
         return lowerText.contains(k.lowercase(Locale.ROOT))
+    }
+
+    private fun compiledRegex(pattern: String): Regex = regexCache.getOrPut(pattern) {
+        try {
+            Regex(pattern.substring(1, pattern.length - 1), RegexOption.IGNORE_CASE)
+        } catch (_: Exception) {
+            NEVER
+        }
     }
 
     fun anyMatch(lowerText: String, keywords: List<String>): Boolean =
@@ -363,10 +364,7 @@ object StreamFilter {
     fun invalidRegexPatterns(keywords: List<String>): List<String> =
         keywords.map { it.trim() }
             .filter { it.length > 2 && it.startsWith("/") && it.endsWith("/") }
-            .filter { pattern ->
-                runCatching { Regex(pattern.substring(1, pattern.length - 1), RegexOption.IGNORE_CASE) }
-                    .isFailure
-            }
+            .filter { pattern -> compiledRegex(pattern) === NEVER }
             .distinct()
 
     fun passes(p: ParsedStream, f: FilterSettings): Boolean =
