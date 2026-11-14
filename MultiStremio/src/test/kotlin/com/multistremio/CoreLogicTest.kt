@@ -258,7 +258,7 @@ class CoreLogicTest {
         assertEquals("Manifest must include a name and at least one resource", invalidManifest.detail)
 
         val validManifest = AddonHealthClassifier.assess(
-            SimpleHttpResult("{\"name\":\"Working addon\"}", SimpleHttpStatus.OK, 200),
+            SimpleHttpResult("{\"name\":\"Working addon\",\"resources\":[\"stream\"]}", SimpleHttpStatus.OK, 200),
             Manifest(name = "Working addon", resources = listOf("stream")),
         )
         assertTrue(validManifest.success)
