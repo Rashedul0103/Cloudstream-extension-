@@ -367,10 +367,27 @@ object StreamFilter {
             .filter { pattern -> compiledRegex(pattern) === NEVER }
             .distinct()
 
-    fun passes(p: ParsedStream, f: FilterSettings): Boolean =
-        passes(p, f, f.requireLanguages.map { Langs.normalize(it) }.toSet())
+    /** Remove malformed legacy required-regex entries once per pipeline, not once per stream. */
+    fun validRequiredKeywords(keywords: List<String>): List<String> =
+        keywords.filterNot { invalidRegexPatterns(listOf(it)).isNotEmpty() }
 
-    fun passes(p: ParsedStream, f: FilterSettings, wantedLanguages: Set<String>): Boolean {
+    fun passes(p: ParsedStream, f: FilterSettings): Boolean =
+        passes(
+            p,
+            f,
+            f.requireLanguages.map { Langs.normalize(it) }.toSet(),
+            validRequiredKeywords(f.requireKeywords),
+        )
+
+    fun passes(p: ParsedStream, f: FilterSettings, wantedLanguages: Set<String>): Boolean =
+        passes(p, f, wantedLanguages, validRequiredKeywords(f.requireKeywords))
+
+    fun passes(
+        p: ParsedStream,
+        f: FilterSettings,
+        wantedLanguages: Set<String>,
+        validRequiredKeywords: List<String>,
+    ): Boolean {
         val i = p.info
         if (p.isMagnet && f.hideMagnets) return false
         if (f.hideCam && i.isCam) return false
@@ -394,9 +411,6 @@ object StreamFilter {
         if (f.excludeKeywords.isNotEmpty() && anyMatch(p.text, f.excludeKeywords)) return false
         // Invalid regexes may exist in older backups. Ignore them at runtime rather than allowing
         // one malformed "require" pattern to hide every stream after an upgrade.
-        val validRequiredKeywords = f.requireKeywords.filterNot {
-            invalidRegexPatterns(listOf(it)).isNotEmpty()
-        }
         if (validRequiredKeywords.isNotEmpty() && !anyMatch(p.text, validRequiredKeywords)) return false
 
         val have = i.languages
@@ -675,7 +689,10 @@ object StreamPipeline {
         }
 
         val wantedLanguages = filter.requireLanguages.map { Langs.normalize(it) }.toSet()
-        val filtered = unique.filter { StreamFilter.passes(it, filter, wantedLanguages) }
+        val validRequiredKeywords = StreamFilter.validRequiredKeywords(filter.requireKeywords)
+        val filtered = unique.filter {
+            StreamFilter.passes(it, filter, wantedLanguages, validRequiredKeywords)
+        }
         val sorted = filtered.sortedWith(StreamSorter.comparator(sort))
         if (filter.maxPerAddon <= 0 && filter.maxTotal <= 0) return sorted
 
