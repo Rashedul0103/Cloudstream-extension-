@@ -431,6 +431,33 @@ class CoreLogicTest {
     }
 
     @Test
+    fun unusableSearchMetadataDoesNotHideAValidDuplicateFromAnotherAddon() {
+        val unusable = Triple(
+            "addon-a",
+            "movie",
+            Meta(id = "tt12345", name = null, type = "movie"),
+        )
+        val valid = Triple(
+            "addon-b",
+            "movie",
+            Meta(id = "tt12345", name = "A Valid Title", type = "movie"),
+        )
+        val duplicate = Triple(
+            "addon-c",
+            "movie",
+            Meta(id = "tt12345", name = "Duplicate Title", type = "movie"),
+        )
+        val otherType = Triple(
+            "addon-d",
+            "series",
+            Meta(id = "tt12345", name = "Same ID, Different Type", type = "series"),
+        )
+
+        val unique = SearchMetaDeduplication.unique(listOf(unusable, valid, duplicate, otherType))
+        assertEquals(listOf("addon-b", "addon-d"), unique.map { it.first })
+    }
+
+    @Test
     fun preferredLanguageListOrderControlsStreamRanking() {
         // The English stream has the earlier addon index, so only the explicit preference order
         // should decide which language appears first.
