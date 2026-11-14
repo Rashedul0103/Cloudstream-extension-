@@ -535,12 +535,15 @@ object StreamDeduplication {
     }
 
     fun key(stream: ParsedStream): String? {
+        // Match emission precedence: a direct URL wins when an addon mistakenly supplies both
+        // a URL and an infoHash. Otherwise separate direct links can be collapsed by a shared hash.
+        val url = normalizeUrl(stream.raw.url)
+        if (url != null) return "u:$url"
         val hash = stream.raw.infoHash
         if (!hash.isNullOrBlank()) {
             return "h:${hash.lowercase(Locale.ROOT)}:${stream.raw.fileIdx ?: -1}"
         }
-        val url = normalizeUrl(stream.raw.url) ?: return null
-        return "u:$url"
+        return null
     }
 
     /** Stable identity for extractor-only targets that do not enter the playable stream pipeline. */
