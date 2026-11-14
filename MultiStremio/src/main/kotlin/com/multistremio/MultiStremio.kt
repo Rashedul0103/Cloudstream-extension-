@@ -50,6 +50,19 @@ class MultiStremio : MainAPI() {
                 }
             }
 
+            // Rows selected from other installed CloudStream extensions share this same order list.
+            val installedExternalRows = ExternalHomeRows.installedRows(this).associateBy { it.config.key }
+            for (selected in settings.externalRows) {
+                if (!selected.enabled) continue
+                val installed = installedExternalRows[selected.key] ?: continue
+                val original = installed.row
+                rows += selected.key to MainPageData(
+                    original.name,
+                    Json.toJson(ExternalPageRef(selected.key)),
+                    original.horizontalImages,
+                )
+            }
+
             val positions = settings.catalogOrder.withIndex().associate { it.value to it.index }
             val orderedRows = rows.withIndex()
                 .sortedWith(
@@ -63,6 +76,28 @@ class MultiStremio : MainAPI() {
         }
 
     override suspend fun getMainPage(page: Int, request: MainPageRequest): HomePageResponse? {
+        // External rows delegate to the provider that originally owns the selected homepage row.
+        val externalRef = Json.parse<ExternalPageRef>(request.data)
+        if (!externalRef?.key.isNullOrBlank()) {
+            val selected = Config.settings.externalRows.firstOrNull {
+                it.key == externalRef?.key && it.enabled
+            } ?: return newHomePageResponse(request, emptyList(), false)
+            val installed = ExternalHomeRows.resolve(selected, this)
+                ?: return newHomePageResponse(request, emptyList(), false)
+
+            return try {
+                installed.provider.getMainPage(
+                    page,
+                    MainPageRequest(installed.row.name, installed.row.data, installed.row.horizontalImages),
+                ) ?: newHomePageResponse(request, emptyList(), false)
+            } catch (e: kotlinx.coroutines.CancellationException) {
+                throw e
+            } catch (_: Exception) {
+                // A broken external provider row must not take down MultiStremio's other rows.
+                newHomePageResponse(request, emptyList(), false)
+            }
+        }
+
         val ref = Json.parse<CatalogRef>(request.data)
         val type = ref?.t
         val catalogId = ref?.c
