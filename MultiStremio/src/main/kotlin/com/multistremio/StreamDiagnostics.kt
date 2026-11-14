@@ -3,18 +3,21 @@ package com.multistremio
 import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.atomic.AtomicLong
 
-/** Safe, in-memory diagnostics for the most recent stream lookup. URLs and addon credentials are never stored. */
+/** Safe, in-memory diagnostics. URLs, request headers and addon credentials are never stored. */
 data class StreamRequestDiagnostic(
     val addonName: String,
     val resource: String,
     val elapsedMs: Long,
-    val responseReceived: Boolean,
+    val status: String,
     val resultCount: Int,
 )
 
 data class StreamDiagnosticSnapshot(
     val startedAt: Long,
     val durationMs: Long,
+    val parseWorkMs: Long,
+    val pipelineMs: Long,
+    val emissionMs: Long,
     val rawStreams: Int,
     val addonSubtitles: Int,
     val playableCandidates: Int,
@@ -28,6 +31,9 @@ object StreamDiagnostics {
         val startedAt: Long = System.currentTimeMillis(),
         val startedNanos: Long = System.nanoTime(),
         val requests: MutableList<StreamRequestDiagnostic> = mutableListOf(),
+        var parseWorkMs: Long = 0,
+        var pipelineMs: Long = 0,
+        var emissionMs: Long = 0,
     )
 
     private val ids = AtomicLong()
@@ -39,12 +45,9 @@ object StreamDiagnostics {
     fun begin(): Long {
         val id = ids.incrementAndGet()
         active[id] = ActiveRun()
-        // A cancelled player lookup must not leave unbounded diagnostic state behind.
         if (active.size > 8) {
-            active.entries
-                .sortedBy { it.value.startedAt }
-                .take(active.size - 8)
-                .forEach { active.remove(it.key) }
+            active.entries.sortedBy { it.value.startedAt }
+                .take(active.size - 8).forEach { active.remove(it.key) }
         }
         return id
     }
@@ -54,19 +57,28 @@ object StreamDiagnostics {
         addonName: String,
         resource: String,
         elapsedMs: Long,
-        responseReceived: Boolean,
+        status: String,
         resultCount: Int,
     ) {
         if (runId == null) return
         val run = active[runId] ?: return
         synchronized(run.requests) {
             run.requests += StreamRequestDiagnostic(
-                addonName = addonName,
-                resource = resource,
-                elapsedMs = elapsedMs.coerceAtLeast(0L),
-                responseReceived = responseReceived,
-                resultCount = resultCount.coerceAtLeast(0),
+                addonName, resource, elapsedMs.coerceAtLeast(0L),
+                status, resultCount.coerceAtLeast(0),
             )
+        }
+    }
+
+    /** Records aggregate CPU/work time for a stage; parallel addon parsing times are summed. */
+    fun recordStage(runId: Long, stage: String, elapsedMs: Long) {
+        val run = active[runId] ?: return
+        synchronized(run) {
+            when (stage) {
+                "parse" -> run.parseWorkMs += elapsedMs.coerceAtLeast(0L)
+                "pipeline" -> run.pipelineMs += elapsedMs.coerceAtLeast(0L)
+                "emission" -> run.emissionMs += elapsedMs.coerceAtLeast(0L)
+            }
         }
     }
 
@@ -80,9 +92,13 @@ object StreamDiagnostics {
     ) {
         val run = active.remove(runId) ?: return
         val requests = synchronized(run.requests) { run.requests.toList() }
+        val stageTimes = synchronized(run) { Triple(run.parseWorkMs, run.pipelineMs, run.emissionMs) }
         latestSnapshot = StreamDiagnosticSnapshot(
             startedAt = run.startedAt,
             durationMs = ((System.nanoTime() - run.startedNanos) / 1_000_000L).coerceAtLeast(0L),
+            parseWorkMs = stageTimes.first,
+            pipelineMs = stageTimes.second,
+            emissionMs = stageTimes.third,
             rawStreams = rawStreams.coerceAtLeast(0),
             addonSubtitles = addonSubtitles.coerceAtLeast(0),
             playableCandidates = playableCandidates.coerceAtLeast(0),
