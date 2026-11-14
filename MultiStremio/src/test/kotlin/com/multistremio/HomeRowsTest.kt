@@ -63,7 +63,7 @@ class HomeRowsTest {
         assertEquals("ADDON OFF", rows.single { it.addon === disabled }.status)
         assertEquals("CATALOGS OFF", rows.single { it.addon === catalogsOff }.status)
         assertFalse(rows.any { it.name == "Search only" })
-        assertEquals(1, HomeRows.visibleCount(settings.copy(addons = mutableListOf(active))))
+        assertEquals(1, HomeRows.visibleCount(settings.copy(addons = mutableListOf(active))) { manifests[it.id] })
     }
 
     @Test
