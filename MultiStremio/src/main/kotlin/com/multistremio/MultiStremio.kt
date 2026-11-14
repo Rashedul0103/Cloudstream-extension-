@@ -329,7 +329,7 @@ class MultiStremio : MainAPI() {
         subtitleCallback: (SubtitleFile) -> Unit,
         callback: (ExtractorLink) -> Unit,
     ) {
-        val label = StreamLabels.build(p, settings.detailedLabels)
+        val label = StreamLabels.build(p, settings.detailedLabels, settings.streamFormat)
         val quality = StreamLabels.linkQuality(p.info.resolution, settings.sort.overrideAppQuality)
             ?: Qualities.Unknown.value
         val hints = p.raw.behaviorHints

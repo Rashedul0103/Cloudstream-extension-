@@ -214,6 +214,58 @@ class CoreLogicTest {
     }
 
     @Test
+    fun visualStreamFormatterUsesChosenFieldsInChosenOrder() {
+        val parsed = StreamParser.parsed(
+            0,
+            "Example Addon",
+            RawStream(
+                name = "Example.Movie.2026.2160p.WEB-DL.HDR10.HEVC.Atmos.BENG.ENG",
+                title = "Example.Movie.2026.2160p.WEB-DL.HDR10.HEVC.Atmos.BENG.ENG",
+                url = "https://example.com/movie.mkv",
+                subtitles = listOf(
+                    RawSubtitle(url = "https://subs.example/en.vtt", lang = "eng"),
+                    RawSubtitle(url = "https://subs.example/bn.vtt", lang = "ben"),
+                ),
+                behaviorHints = BehaviorHints(
+                    filename = "Example.Movie.2026.2160p.WEB-DL.HDR10.HEVC.Atmos.BENG.ENG.mkv",
+                    videoSize = 1_500_000_000L,
+                ),
+            ),
+        )
+        val format = StreamFormatSettings(
+            enabled = true,
+            fields = mutableListOf("addon", "quality", "codec", "language", "subtitles", "release"),
+            separator = " | ",
+            showLabels = true,
+        )
+        val label = StreamLabels.build(parsed, format)
+        assertTrue(label.indexOf("Addon: Example Addon") < label.indexOf("Quality: 4K"))
+        assertTrue(label.contains("Video codec: HEVC"))
+        assertTrue(label.contains("Language: BN/EN"))
+        assertTrue(label.contains("Subtitles: BN/EN"))
+        assertTrue(label.contains("Release:"))
+        assertFalse(label.contains("Source:"))
+        assertFalse(label.contains("Audio:"))
+    }
+
+    @Test
+    fun visualStreamFormatterSkipsUnavailableFieldsAndHasSafePreview() {
+        val parsed = StreamParser.parsed(
+            0, "Example Addon",
+            RawStream(url = "https://example.com/video.mkv", name = "Plain title"),
+        )
+        val format = StreamFormatSettings(
+            enabled = true,
+            fields = mutableListOf("addon", "seeders", "hdr", "made_up_field"),
+        )
+        assertEquals("Example Addon", StreamLabels.build(parsed, format))
+        val preview = StreamLabels.preview(format.copy(fields = mutableListOf("addon", "quality", "codec")))
+        assertTrue(preview.contains("Example Addon"))
+        assertTrue(preview.contains("4K"))
+        assertTrue(preview.contains("HEVC"))
+    }
+
+    @Test
     fun strictLanguageModeRejectsUndetectedLanguageWithoutTargetList() {
         val raw = RawStream(name = "Example.Movie.1080p.WEB-DL")
         val (info, text) = StreamParser.parse(raw)

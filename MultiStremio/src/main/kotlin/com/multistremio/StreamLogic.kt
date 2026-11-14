@@ -699,6 +699,100 @@ object StreamLabels {
         return if (title.isBlank()) head else "$head | $title"
     }
 
+    private fun languageList(p: ParsedStream): String = p.info.languages
+        .filter { it != "und" }
+        .map { if (it == "multi") "MULTI" else it.uppercase(Locale.ROOT) }
+        .distinct()
+        .sorted()
+        .joinToString("/")
+
+    private fun subtitleLanguageList(p: ParsedStream): String = p.raw.subtitles.orEmpty()
+        .mapNotNull { it.lang?.takeIf { lang -> lang.isNotBlank() } }
+        .map { Langs.normalize(it) }
+        .filter { it != "und" }
+        .map { it.uppercase(Locale.ROOT) }
+        .distinct()
+        .sorted()
+        .joinToString("/")
+
+    private fun valueFor(p: ParsedStream, field: String): String? {
+        val info = p.info
+        return when (field) {
+            "addon" -> p.addonName
+            "quality" -> resolutionLabel(info.resolution).ifBlank { null }
+            "source" -> info.source
+            "hdr" -> info.hdr
+            "codec" -> info.codec
+            "audio" -> info.audio
+            "language" -> languageList(p).ifBlank { null }
+            "subtitles" -> subtitleLanguageList(p).ifBlank { null }
+            "size" -> info.sizeBytes?.let { formatSize(it) }
+            "seeders" -> info.seeders?.let { "$it seeders" }
+            "cache" -> when (info.cached) { true -> "Cached"; false -> "Uncached"; else -> null }
+            "link_type" -> when { p.isMagnet -> "Magnet"; p.isDirect -> "Direct"; else -> null }
+            "release" -> releaseName(p).ifBlank { null }
+            else -> null
+        }?.takeIf { it.isNotBlank() }
+    }
+
+    private fun labelFor(field: String): String = when (field) {
+        "addon" -> "Addon"
+        "quality" -> "Quality"
+        "source" -> "Source"
+        "hdr" -> "HDR"
+        "codec" -> "Video codec"
+        "audio" -> "Audio"
+        "language" -> "Language"
+        "subtitles" -> "Subtitles"
+        "size" -> "File size"
+        "seeders" -> "Seeders"
+        "cache" -> "Availability"
+        "link_type" -> "Link type"
+        "release" -> "Release"
+        else -> field
+    }
+
+    fun build(p: ParsedStream, format: StreamFormatSettings): String =
+        build(p, detailed = true, format = format)
+
+    fun build(p: ParsedStream, detailed: Boolean, format: StreamFormatSettings): String {
+        if (!format.enabled) return build(p, detailed = detailed)
+        val pieces = format.fields.asSequence()
+            .distinct()
+            .mapNotNull { field ->
+                val value = valueFor(p, field) ?: return@mapNotNull null
+                if (format.showLabels) "${labelFor(field)}: $value"
+                else when (field) {
+                    "language" -> "Lang $value"
+                    "subtitles" -> "Subs $value"
+                    else -> value
+                }
+            }
+            .toList()
+        return pieces.joinToString(format.separator.take(8)).ifBlank { p.addonName }
+    }
+
+    fun preview(format: StreamFormatSettings): String {
+        val example = StreamParser.parsed(
+            0,
+            "Example Addon",
+            RawStream(
+                name = "Example.Movie.2026.2160p.WEB-DL.HDR10.HEVC.Atmos.BENG.ENG",
+                title = "Example.Movie.2026.2160p.WEB-DL.HDR10.HEVC.Atmos.BENG.ENG",
+                url = "https://example.invalid/movie.mkv",
+                subtitles = listOf(
+                    RawSubtitle(url = "https://example.invalid/en.vtt", lang = "eng"),
+                    RawSubtitle(url = "https://example.invalid/bn.vtt", lang = "ben"),
+                ),
+                behaviorHints = BehaviorHints(
+                    filename = "Example.Movie.2026.2160p.WEB-DL.HDR10.HEVC.Atmos.BENG.ENG.mkv",
+                    videoSize = 1_500_000_000L,
+                ),
+            ),
+        )
+        return build(example, format.copy(enabled = true))
+    }
+
     /** Value for ExtractorLink.quality, or null for "unknown" (caller maps it to Qualities.Unknown). */
     fun linkQuality(res: Int, overrideAppOrder: Boolean): Int? {
         if (overrideAppOrder) return null
