@@ -48,7 +48,13 @@ object SettingsBackupManager {
         if (isEnvelope) {
             val envelope = Json.parse<SettingsBackup>(text) ?: return null
             if (envelope.version !in 1..CURRENT_VERSION || envelope.settings == null) return null
-            return envelope
+
+            // Do not trust the privacy flag by itself: an edited or malformed envelope can claim
+            // to be preferences-only while still containing addon URLs or private row references.
+            val containsSourceData = envelope.includesAddonUrls ||
+                envelope.settings.addons.isNotEmpty() ||
+                envelope.settings.externalRows.isNotEmpty()
+            return envelope.copy(includesAddonUrls = containsSourceData)
         }
 
         val legacy = Json.parse<Settings>(text) ?: return null
