@@ -59,24 +59,23 @@ internal object GeneralSettingsScreen {
     }
 
     private fun generalMenu(ctx: Context) {
-        val s = Config.settings
-        val rows = listOf(
-            "Request timeout: ${s.timeoutSec} s",
-            "Detailed default names (when custom layout is OFF): ${onOff(s.detailedLabels)}",
+        val settings = Config.settings
+        val again = { generalMenu(ctx) }
+        val items = listOf(
+            SettingItem("Request timeout", "${settings.timeoutSec} seconds", SettingItemType.Value,
+                onClick = {
+                    number(ctx, "Timeout per addon request (seconds)", settings.timeoutSec,
+                        description = "Enter 5–180 seconds. This controls how long each addon request can wait before timing out.",
+                        onCancel = again) {
+                        updateAndReopen({ again() }) { timeoutSec = it.coerceIn(5, 180) }
+                    }
+                }, searchKeywords = listOf("timeout", "request", "seconds", "network")),
+            SettingItem("Detailed default names", onOff(settings.detailedLabels), SettingItemType.Switch,
+                onClick = { updateAndReopen({ again() }) { detailedLabels = !detailedLabels } },
+                searchKeywords = listOf("labels", "details", "link names", "display")),
         )
-        menu(ctx, "General", rows, { MainMenuSettingsScreen.show(ctx) }, "Tune request limits and the amount of technical detail shown on stream links.") { which ->
-            when (which) {
-                0 -> number(
-                    ctx,
-                    "Timeout per addon request (seconds)",
-                    s.timeoutSec,
-                    description = "Enter 5–180 seconds. This controls how long each addon request can wait before timing out.",
-                    onCancel = { generalMenu(ctx) },
-                ) {
-                    updateAndReopen({ generalMenu(ctx) }) { timeoutSec = it.coerceIn(5, 180) }
-                }
-                1 -> { updateAndReopen({ generalMenu(ctx) }) { detailedLabels = !detailedLabels } }
-            }
-        }
+        settingMenu(ctx, "General", items, { MainMenuSettingsScreen.show(ctx) },
+            "Tune request limits and the amount of technical detail shown on stream links.")
     }
+
 }
