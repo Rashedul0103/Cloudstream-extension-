@@ -142,6 +142,26 @@ class CoreLogicTest {
     }
 
     @Test
+    fun catalogOrderMoveActionsPreserveRowsAndRespectListBoundaries() {
+        val original = listOf("first", "middle", "last")
+        assertEquals(listOf("middle", "first", "last"), CatalogOrderMath.move(original, "first", 1))
+        assertEquals(listOf("first", "last", "middle"), CatalogOrderMath.move(original, "middle", 1))
+        assertEquals(original, CatalogOrderMath.move(original, "first", -1))
+        assertEquals(original, CatalogOrderMath.move(original, "missing", 1))
+        assertEquals(original.size, CatalogOrderMath.move(original, "middle", 1).distinct().size)
+    }
+
+    @Test
+    fun importedRowsAppendAfterExistingEffectiveOrder() {
+        val currentOrder = listOf("stremio-a", "stremio-b", "external-existing")
+        assertEquals(
+            listOf("stremio-a", "stremio-b", "external-existing", "external-new"),
+            CatalogOrderMath.append(currentOrder, "external-new"),
+        )
+        assertEquals(currentOrder, CatalogOrderMath.append(currentOrder, "stremio-b"))
+    }
+
+    @Test
     fun addonHealthClassificationDistinguishesTransportAndManifestFailures() {
         val cases = listOf(
             SimpleHttpStatus.TIMEOUT to "Connection timed out after 8 seconds",
@@ -473,6 +493,32 @@ class CoreLogicTest {
         assertNotNull(legacy)
         assertTrue("Legacy raw settings contain addon URLs", legacy!!.includesAddonUrls)
         assertEquals(settings.addons.single().url, legacy.settings!!.addons.single().url)
+    }
+
+    @Test
+    fun backupPrivacyFlagCannotHideEmbeddedAddonOrExtensionSources() {
+        val forgedEnvelope = SettingsBackup(
+            includesAddonUrls = false,
+            settings = sampleSettings(),
+        )
+        val parsed = SettingsBackupManager.parse(Json.toJson(forgedEnvelope))
+        assertNotNull(parsed)
+        assertTrue(parsed!!.includesAddonUrls)
+
+        val importedExtensionOnly = SettingsBackup(
+            includesAddonUrls = false,
+            settings = Settings(
+                externalRows = mutableListOf(
+                    ExternalRowConfig(
+                        key = "external:private",
+                        sourcePlugin = "https://private-plugin.example/repo.json",
+                    ),
+                ),
+            ),
+        )
+        val parsedExtensionOnly = SettingsBackupManager.parse(Json.toJson(importedExtensionOnly))
+        assertNotNull(parsedExtensionOnly)
+        assertTrue(parsedExtensionOnly!!.includesAddonUrls)
     }
 
     @Test
