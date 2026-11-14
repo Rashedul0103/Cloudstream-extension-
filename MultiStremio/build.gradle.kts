@@ -1,0 +1,30 @@
+// Use an integer for version numbers; bump it on every release so CloudStream offers the update.
+version = 1
+
+cloudstream {
+    description = "Combine any number of Stremio addons: merged catalogs, search, metadata, " +
+        "subtitles and streams, with stream filtering/sorting. Open the plugin settings to add addons."
+    authors = listOf("MultiStremio")
+
+    /**
+     * Status int as one of the following:
+     * 0: Down
+     * 1: Ok
+     * 2: Slow
+     * 3: Beta-only
+     **/
+    status = 3
+
+    tvTypes = listOf("Movie", "TvSeries", "Anime", "Live", "Others")
+
+    requiresResources = false
+    language = "en"
+
+    iconUrl = "https://raw.githubusercontent.com/Stremio/stremio-web/development/images/icon.png"
+}
+
+android {
+    buildFeatures {
+        buildConfig = true
+    }
+}
