@@ -51,22 +51,22 @@ internal object SortingSettingsScreen {
         menu(ctx, "Stream sorting", rows, { MainMenuSettingsScreen.show(ctx) }, "Choose how available streams are ranked. The first item in each preference list has the highest priority; leave a list empty to disable that preference.") { which ->
             when (which) {
                 0 -> choose(ctx, "Sort order", SortPreset.values().map { it.label }, preset.ordinal, onCancel = again) {
-                    Config.update { s.preset = SortPreset.values()[it].name }; again()
+                    updateAndReopen({ again() }) { s.preset = SortPreset.values()[it].name }
                 }
-                1 -> { Config.update { s.cachedFirst = !s.cachedFirst }; again() }
+                1 -> { updateAndReopen({ again() }) { s.cachedFirst = !s.cachedFirst } }
                 2 -> keywordList(
                     ctx,
                     "Prefer keywords",
                     "Streams containing any of these go first. Comma separated. Wrap regular expressions in slashes, e.g. /x26[45]/.",
                     s.preferKeywords.joinToString(", "),
                     onCancel = again,
-                ) { values -> Config.update { s.preferKeywords = values }; again() }
+                ) { values -> updateAndReopen({ again() }) { s.preferKeywords = values } }
                 3 -> prompt(ctx, "Prefer languages", "e.g. bn, en, hi. Streams matching an earlier language go first.",
-                    s.preferLanguages.joinToString(", "), false, onCancel = again) { Config.update { s.preferLanguages = parseCsv(it) }; again() }
+                    s.preferLanguages.joinToString(", "), false, onCancel = again) { updateAndReopen({ again() }) { s.preferLanguages = parseCsv(it) } }
                 4 -> prompt(ctx, "Prefer video codecs", "Enter a priority order, comma separated. Example: HEVC, AV1, AVC. Unlisted and unknown codecs go after listed codecs. This does not filter streams.",
-                    s.preferCodecs.joinToString(", "), false, onCancel = again) { Config.update { s.preferCodecs = parseCsv(it) }; again() }
+                    s.preferCodecs.joinToString(", "), false, onCancel = again) { updateAndReopen({ again() }) { s.preferCodecs = parseCsv(it) } }
                 5 -> prompt(ctx, "Prefer audio formats", "Enter a priority order, comma separated. Example: Atmos, TrueHD, DTS-HD, DD+, AAC. Unlisted and unknown formats go after listed formats.",
-                    s.preferAudio.joinToString(", "), false, onCancel = again) { Config.update { s.preferAudio = parseCsv(it) }; again() }
+                    s.preferAudio.joinToString(", "), false, onCancel = again) { updateAndReopen({ again() }) { s.preferAudio = parseCsv(it) } }
                 6 -> confirm(
                     ctx, "Use my order across resolutions?",
                     "CloudStream normally ranks links by its own quality profile first and only keeps this plugin's " +
@@ -74,7 +74,7 @@ internal object SortingSettingsScreen {
                         "'unknown quality' so the order chosen here is shown exactly. Resolution still appears " +
                         "in each link's name. Currently ${onOff(s.overrideAppQuality)}; switch it?",
                     onCancel = again,
-                ) { Config.update { s.overrideAppQuality = !s.overrideAppQuality }; again() }
+                ) { updateAndReopen({ again() }) { s.overrideAppQuality = !s.overrideAppQuality } }
             }
         }
     }
