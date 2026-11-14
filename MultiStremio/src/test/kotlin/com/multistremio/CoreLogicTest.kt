@@ -46,17 +46,58 @@ class CoreLogicTest {
     }
 
     @Test
-    fun playbackHeadersMergeAndExposeRefererSeparately() {
+    fun playbackHeadersMergeCaseInsensitivelyAndExposeRefererSeparately() {
         val headers = StreamRequestHeaders.from(
             BehaviorHints(
-                headers = mapOf("User-Agent" to "AddonAgent", "X-Addon" to "kept"),
-                proxyHeaders = ProxyHeaders(request = mapOf("Referer" to "https://origin.example/", "User-Agent" to "ProxyAgent")),
+                headers = mapOf(
+                    "User-Agent" to "AddonAgent",
+                    "X-Addon" to "kept",
+                    "referer" to "https://addon.example/",
+                ),
+                proxyHeaders = ProxyHeaders(
+                    request = mapOf(
+                        "user-agent" to "ProxyAgent",
+                        "Referer" to "https://origin.example/",
+                    ),
+                ),
             ),
         )
-        assertEquals("ProxyAgent", headers["User-Agent"])
+        assertEquals("ProxyAgent", headers.entries.single { it.key.equals("USER-AGENT", ignoreCase = true) }.value)
         assertEquals("kept", headers["X-Addon"])
+        assertEquals(1, headers.keys.count { it.equals("referer", ignoreCase = true) })
         assertEquals("https://origin.example/", StreamRequestHeaders.referer(headers))
         assertEquals("", StreamRequestHeaders.referer(mapOf("Authorization" to "token")))
+    }
+
+    @Test
+    fun duplicateStreamsMergeHeaderNamesCaseInsensitivelyAndKeepPrimaryValues() {
+        val first = StreamParser.parsed(
+            0,
+            "Primary addon",
+            RawStream(
+                url = "https://example.com/watch.m3u8?token=same",
+                behaviorHints = BehaviorHints(
+                    headers = mapOf("X-Session" to "primary", "Referer" to "https://primary.example/"),
+                ),
+            ),
+        )
+        val duplicate = StreamParser.parsed(
+            1,
+            "Secondary addon",
+            RawStream(
+                url = "https://EXAMPLE.com:443/a/../watch.m3u8?token=same",
+                behaviorHints = BehaviorHints(
+                    headers = mapOf("x-session" to "secondary", "referer" to "https://secondary.example/"),
+                ),
+            ),
+        )
+
+        val result = StreamPipeline.process(listOf(first, duplicate), FilterSettings(), SortSettings())
+        assertEquals(1, result.size)
+        val headers = StreamRequestHeaders.from(result.single().raw.behaviorHints)
+        assertEquals("primary", headers.entries.single { it.key.equals("x-session", ignoreCase = true) }.value)
+        assertEquals(1, headers.keys.count { it.equals("referer", ignoreCase = true) })
+        assertEquals("https://primary.example/", StreamRequestHeaders.referer(headers))
     }
 
     @Test
