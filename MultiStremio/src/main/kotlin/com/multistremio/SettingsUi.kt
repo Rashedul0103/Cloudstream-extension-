@@ -16,6 +16,8 @@ import android.text.InputType
 import android.text.TextWatcher
 import android.util.TypedValue
 import android.view.Gravity
+import android.view.GestureDetector
+import android.view.MotionEvent
 import android.view.View
 import android.view.ViewGroup
 import android.widget.CheckBox
@@ -25,6 +27,7 @@ import android.widget.ScrollView
 import android.widget.TextView
 import android.widget.Toast
 import java.net.URL
+import java.util.concurrent.Executors
 import kotlin.concurrent.thread
 
 /** Theme-aware settings UI built from Android views; no XML or extra UI dependency required. */
@@ -409,10 +412,129 @@ object SettingsUi {
                 if (a.useStreams) "streams" else null, if (a.useSubtitles) "subs" else null,
             ).joinToString("/")
             "${i + 1}. ${if (a.enabled) "✓" else "✗"} ${a.name} (${host(a.url)}) $caps"
-        } + "+ Add addon"
-        menu(ctx, "Addons", rows, { mainMenu(ctx) }, "Enable or disable sources and set their priority. This order is separate from homepage row order.") { which ->
-            if (which == addons.size) addAddon(ctx) else addonMenu(ctx, addons[which])
+        } + listOf("Check all addon connections", "+ Add addon")
+        menu(ctx, "Addons", rows, { mainMenu(ctx) }, "Enable or disable sources, set their priority, and check whether addon manifests are reachable.") { which ->
+            when {
+                which < addons.size -> addonMenu(ctx, addons[which])
+                which == addons.size -> checkAddonConnections(ctx)
+                else -> addAddon(ctx)
+            }
         }
+    }
+
+    private data class AddonHealthResult(
+        val name: String,
+        val success: Boolean,
+        val elapsedMs: Long,
+        val detail: String,
+    )
+
+    /** Checks addon manifests off the UI thread, with bounded concurrency and no URL/token exposure. */
+    private fun checkAddonConnections(ctx: Context) {
+        val installed = Config.settings.addons.toList()
+        if (installed.isEmpty()) {
+            toast(ctx, "Add an addon before running a connection check.")
+            return
+        }
+        toast(ctx, "Checking ${installed.size} addon connection(s)…")
+        thread(start = true, name = "multistremio-health-check") {
+            val executor = Executors.newFixedThreadPool(minOf(4, installed.size))
+            val results = try {
+                installed.map { addon ->
+                    executor.submit<AddonHealthResult> {
+                        val started = System.nanoTime()
+                        val body = SimpleHttp.get(Urls.manifest(addon.url), timeoutMs = 8000)
+                        val manifest = Json.parse<Manifest>(body)
+                        val success = body != null && manifest != null &&
+                            (manifest.name != null || manifest.resources != null)
+                        val elapsed = (System.nanoTime() - started) / 1_000_000L
+
+                        if (success && body != null && manifest != null) {
+                            Config.update {
+                                val saved = this.addons.firstOrNull { it.id == addon.id }
+                                if (saved != null) {
+                                    saved.manifest = body
+                                    saved.manifestFetchedAt = System.currentTimeMillis()
+                                    if (saved.name.isBlank()) saved.name = manifest.name.orEmpty()
+                                }
+                            }
+                        }
+
+                        val cached = Config.manifestOf(addon) != null
+                        val detail = when {
+                            success -> buildString {
+                                append(manifest?.name ?: addon.name)
+                                manifest?.version?.takeIf { it.isNotBlank() }?.let { append(" · v").append(it) }
+                                append(" · ${manifest?.catalogs.orEmpty().size} catalogs")
+                            }
+                            body == null -> "No response within 8 seconds"
+                            else -> "The server did not return a valid addon manifest"
+                        } + if (!success && cached) " · saved manifest retained" else ""
+                        AddonHealthResult(addon.name, success, elapsed, detail)
+                    }
+                }.map { future ->
+                    runCatching { future.get() }.getOrElse {
+                        AddonHealthResult("Unknown addon", false, 0L, "The connection check could not be completed")
+                    }
+                }
+            } finally {
+                executor.shutdownNow()
+            }
+            main.post { showAddonHealthReport(ctx, results) }
+        }
+    }
+
+    private fun showAddonHealthReport(ctx: Context, results: List<AddonHealthResult>) {
+        val colors = palette(ctx)
+        val working = results.count { it.success }
+        val root = shell(
+            ctx,
+            "Addon health",
+            "$working of ${results.size} addons responded. Checks use an 8-second timeout and never display addon URLs or access tokens.",
+        )
+        val list = vertical(ctx)
+        results.forEach { result ->
+            val card = vertical(ctx, dp(ctx, 12)).apply {
+                background = rounded(ctx, withAlpha(if (result.success) colors.accent else colors.secondary, 12), colors.outline)
+                addView(text(
+                    ctx,
+                    if (result.success) "✓  ${result.name} · ${result.elapsedMs} ms" else "✕  ${result.name}",
+                    14f,
+                    if (result.success) colors.accent else colors.primary,
+                    true,
+                ))
+                addView(text(ctx, result.detail, 12f, colors.secondary).apply {
+                    setPadding(0, dp(ctx, 4), 0, 0)
+                })
+            }
+            list.addView(card, LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT,
+                ViewGroup.LayoutParams.WRAP_CONTENT,
+            ).apply { bottomMargin = dp(ctx, 8) })
+        }
+        val scroll = ScrollView(ctx).apply {
+            addView(list, ViewGroup.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT))
+        }
+        root.addView(scroll, LinearLayout.LayoutParams(
+            ViewGroup.LayoutParams.MATCH_PARENT,
+            minOf(dp(ctx, 360), dp(ctx, maxOf(96, results.size * 76))),
+        ))
+        val dialog = AlertDialog.Builder(ctx).setView(root).create()
+        val report = buildString {
+            appendLine("MultiStremio addon health: $working/${results.size} responded")
+            results.forEach {
+                append(if (it.success) "OK" else "FAILED")
+                append(" · ").append(it.name)
+                if (it.elapsedMs > 0) append(" · ").append(it.elapsedMs).append(" ms")
+                append(" · ").append(it.detail).append('\n')
+            }
+        }
+        addFooter(ctx, root, "Close", { dialog.dismiss() }, "Copy report", {
+            val clipboard = ctx.getSystemService(Context.CLIPBOARD_SERVICE) as? ClipboardManager
+            clipboard?.setPrimaryClip(ClipData.newPlainText("MultiStremio addon health", report))
+            toast(ctx, "Connection report copied")
+        })
+        window(dialog, ctx)
     }
 
     private fun addAddon(ctx: Context) {
@@ -601,7 +723,7 @@ object SettingsUi {
 
     private fun catalogRowsMenu(ctx: Context) {
         val rows = catalogRows()
-        val labels = rows.mapIndexed { index, row ->
+        val labels = listOf("Drag and drop to reorder rows") + rows.mapIndexed { index, row ->
             val source = row.external?.let { "Extension: ${row.sourceLabel}" }
                 ?: "${row.sourceLabel} (${row.type})"
             "${index + 1}. [${row.status}] $source · ${row.name}"
@@ -611,11 +733,12 @@ object SettingsUi {
             "Unhide all Stremio catalog rows",
         )
 
-        menu(ctx, "Catalog rows", labels, { mainMenu(ctx) }, "Arrange Stremio catalogs and rows imported from other installed extensions. Changes apply after refreshing the home page.") { which ->
+        menu(ctx, "Catalog rows", labels, { mainMenu(ctx) }, "Drag rows into the order you want, or open a row to manage its visibility.") { which ->
             when {
-                which < rows.size -> catalogRowMenu(ctx, rows[which])
-                which == rows.size -> addExternalRowsMenu(ctx)
-                which == rows.size + 1 -> confirm(
+                which == 0 -> catalogReorderDialog(ctx)
+                which in 1..rows.size -> catalogRowMenu(ctx, rows[which - 1])
+                which == rows.size + 1 -> addExternalRowsMenu(ctx)
+                which == rows.size + 2 -> confirm(
                     ctx,
                     "Reset catalog row order?",
                     "Rows will return to Stremio addon order, followed by newly added extension rows.",
@@ -635,6 +758,131 @@ object SettingsUi {
                 }
             }
         }
+    }
+
+    /** A native Android drag handle reorders the same stable keys already used by the home page. */
+    private fun catalogReorderDialog(ctx: Context) {
+        val rows = catalogRows()
+        if (rows.isEmpty()) {
+            toast(ctx, "There are no catalog rows to reorder.")
+            return
+        }
+
+        val colors = palette(ctx)
+        val root = shell(
+            ctx,
+            "Reorder catalog rows",
+            "Long-press the grip on the left, drag a row into position, then tap Save. Stremio and imported extension rows can be mixed freely.",
+        )
+        val scroll = ScrollView(ctx).apply { clipToPadding = false }
+        val list = vertical(ctx)
+        scroll.addView(list, ViewGroup.LayoutParams(
+            ViewGroup.LayoutParams.MATCH_PARENT,
+            ViewGroup.LayoutParams.WRAP_CONTENT,
+        ))
+
+        rows.forEachIndexed { index, row ->
+            val handle = text(ctx, "☰", 22f, colors.accent, true).apply {
+                gravity = Gravity.CENTER
+                setPadding(dp(ctx, 4), 0, dp(ctx, 10), 0)
+            }
+            val description = vertical(ctx).apply {
+                addView(text(ctx, "${index + 1}. ${row.name}", 14f, colors.primary, true))
+                val source = row.external?.let { "Extension · ${it.providerName}" }
+                    ?: "${row.sourceLabel} · ${row.type}"
+                addView(text(ctx, "$source · ${row.status}", 11f, colors.secondary).apply {
+                    setPadding(0, dp(ctx, 3), 0, 0)
+                })
+            }
+            val item = LinearLayout(ctx).apply {
+                orientation = LinearLayout.HORIZONTAL
+                gravity = Gravity.CENTER_VERTICAL
+                setPadding(dp(ctx, 12), dp(ctx, 12), dp(ctx, 12), dp(ctx, 12))
+                background = rounded(ctx, colors.background, colors.outline)
+                tag = row.key
+                addView(handle, LinearLayout.LayoutParams(dp(ctx, 34), ViewGroup.LayoutParams.MATCH_PARENT))
+                addView(description, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
+            }
+            list.addView(item, LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT,
+                ViewGroup.LayoutParams.WRAP_CONTENT,
+            ).apply { bottomMargin = dp(ctx, 7) })
+
+            var dragging = false
+            var moved = false
+            val detector = GestureDetector(ctx, object : GestureDetector.SimpleOnGestureListener() {
+                override fun onDown(e: MotionEvent): Boolean = true
+
+                override fun onLongPress(e: MotionEvent) {
+                    dragging = true
+                    item.background = rounded(ctx, withAlpha(colors.accent, 24), colors.accent)
+                    item.elevation = dp(ctx, 6).toFloat()
+                    scroll.requestDisallowInterceptTouchEvent(true)
+                }
+            })
+            handle.setOnTouchListener { _, event ->
+                detector.onTouchEvent(event)
+                when (event.actionMasked) {
+                    MotionEvent.ACTION_DOWN -> true
+                    MotionEvent.ACTION_MOVE -> {
+                        if (dragging) {
+                            val pointerY = event.rawY
+                            var insertion = 0
+                            for (childIndex in 0 until list.childCount) {
+                                val child = list.getChildAt(childIndex)
+                                if (child === item) continue
+                                val location = IntArray(2)
+                                child.getLocationOnScreen(location)
+                                if (pointerY >= location[1] + child.height / 2f) insertion++
+                            }
+                            val current = list.indexOfChild(item)
+                            if (current != insertion) {
+                                list.removeView(item)
+                                list.addView(item, insertion.coerceIn(0, list.childCount))
+                                moved = true
+                            }
+
+                            val scrollLocation = IntArray(2)
+                            scroll.getLocationOnScreen(scrollLocation)
+                            val edge = dp(ctx, 36)
+                            when {
+                                pointerY < scrollLocation[1] + edge -> scroll.scrollBy(0, -dp(ctx, 20))
+                                pointerY > scrollLocation[1] + scroll.height - edge -> scroll.scrollBy(0, dp(ctx, 20))
+                            }
+                        }
+                        true
+                    }
+                    MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL -> {
+                        if (dragging) {
+                            dragging = false
+                            item.background = rounded(ctx, colors.background, colors.outline)
+                            item.elevation = 0f
+                            scroll.requestDisallowInterceptTouchEvent(false)
+                        }
+                        true
+                    }
+                    else -> true
+                }
+            }
+        }
+
+        root.addView(scroll, LinearLayout.LayoutParams(
+            ViewGroup.LayoutParams.MATCH_PARENT,
+            minOf(dp(ctx, 460), dp(ctx, maxOf(100, rows.size * 70))),
+        ))
+        val dialog = AlertDialog.Builder(ctx).setView(root).create()
+        addFooter(ctx, root, "Save order", {
+            val orderedKeys = (0 until list.childCount).mapNotNull { list.getChildAt(it).tag as? String }
+            if (orderedKeys.size == rows.size) {
+                Config.update { catalogOrder = orderedKeys.toMutableList() }
+                dialog.dismiss()
+                toast(ctx, "Row order saved. Refresh the home page to apply.")
+                catalogRowsMenu(ctx)
+            } else {
+                toast(ctx, "Could not save the row order. Please try again.")
+            }
+        }, "Cancel", { dialog.dismiss() })
+        window(dialog, ctx)
     }
 
     private fun addExternalRowsMenu(ctx: Context) {
@@ -664,15 +912,9 @@ object SettingsUi {
     }
 
     private fun catalogRowMenu(ctx: Context, row: CatalogRow) {
-        val rows = catalogRows()
-        val position = rows.indexOfFirst { it.key == row.key }
         val external = row.external
         val labels = listOf(
             if (row.rowEnabled) "Hide this row" else "Show this row",
-            "Move up",
-            "Move down",
-            "Move to top",
-            "Move to bottom",
             if (external != null) "Remove row from MultiStremio" else "Manage addon settings",
         )
         menu(
@@ -702,11 +944,7 @@ object SettingsUi {
                     toast(ctx, "Saved row visibility. Refresh the home page to apply.")
                     catalogRowsMenu(ctx)
                 }
-                1 -> { moveCatalogRow(ctx, row, position - 1); catalogRowsMenu(ctx) }
-                2 -> { moveCatalogRow(ctx, row, position + 1); catalogRowsMenu(ctx) }
-                3 -> { moveCatalogRow(ctx, row, 0); catalogRowsMenu(ctx) }
-                4 -> { moveCatalogRow(ctx, row, rows.lastIndex); catalogRowsMenu(ctx) }
-                5 -> {
+                1 -> {
                     if (external != null) {
                         confirm(ctx, "Remove extension row?", "This only removes the row from MultiStremio. The source extension remains installed.") {
                             Config.update {
@@ -722,16 +960,6 @@ object SettingsUi {
                 }
             }
         }
-    }
-
-    private fun moveCatalogRow(ctx: Context, row: CatalogRow, targetIndex: Int) {
-        val keys = catalogRows().map { it.key }.toMutableList()
-        val currentIndex = keys.indexOf(row.key)
-        if (currentIndex < 0 || targetIndex !in keys.indices || currentIndex == targetIndex) return
-        val key = keys.removeAt(currentIndex)
-        keys.add(targetIndex, key)
-        Config.update { catalogOrder = keys }
-        toast(ctx, "Catalog row order saved. Refresh the home page to apply.")
     }
 
     // ---- filters ---------------------------------------------------------------------------
