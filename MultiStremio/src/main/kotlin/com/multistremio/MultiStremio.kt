@@ -16,6 +16,18 @@ import java.util.concurrent.CancellationException
 import java.util.concurrent.ConcurrentHashMap
 
 /**
+ * Run addon fan-out in bounded batches. Batches stay sequential while requests inside each
+ * batch remain concurrent, avoiding hundreds of simultaneous calls on large addon lists.
+ */
+private suspend fun <T, R> List<T>.boundedAmap(
+    maxConcurrent: Int = 8,
+    transform: suspend (T) -> R,
+): List<R> {
+    val batchSize = maxConcurrent.coerceAtLeast(1)
+    return chunked(batchSize).flatMap { batch -> batch.amap(transform) }
+}
+
+/**
  * One CloudStream provider that fronts any number of Stremio addons.
  * Addons, filters and sorting are configured in the plugin settings (see SettingsUi).
  */
@@ -135,7 +147,7 @@ class MultiStremio : MainAPI() {
         }
         if (jobs.isEmpty()) return emptyList()
 
-        val results = jobs.amap { (addon, type, id) ->
+        val results = jobs.boundedAmap(8) { (addon, type, id) ->
             StremioClient.catalog(addon, type, id, "search=$q").map { Triple(addon.id, type, it) }
         }
         val seen = HashSet<String>()
@@ -230,14 +242,17 @@ class MultiStremio : MainAPI() {
 
         var parsed: List<ParsedStream> = emptyList()
         var subtitles: List<RawSubtitle> = emptyList()
+        val perBranchLimit = if (subAddons.isNotEmpty()) 4 else 8
         runAllAsync(
             {
-                parsed = streamAddons.amap { (index, addon) ->
+                parsed = streamAddons.boundedAmap(perBranchLimit) { (index, addon) ->
                     StremioClient.streams(addon, type, id).map { StreamParser.parsed(index, addon.name, it) }
                 }.flatten()
             },
             {
-                subtitles = subAddons.amap { StremioClient.subtitles(it, type, id) }.flatten()
+                subtitles = subAddons.boundedAmap(perBranchLimit) {
+                    StremioClient.subtitles(it, type, id)
+                }.flatten()
             },
         )
 
@@ -327,7 +342,7 @@ class MultiStremio : MainAPI() {
 
         // Metadata addons are queried in parallel after the source addon fails to give a named item.
         val alternatives = candidates.filter { it.id != origin?.id }
-            .amap { addon -> StremioClient.meta(addon, type, id) }
+            .boundedAmap(8) { addon -> StremioClient.meta(addon, type, id) }
         alternatives.firstOrNull { !it?.name.isNullOrBlank() }?.let { return it }
 
         // Preserve useful sparse metadata (e.g. videos) instead of throwing it away.
