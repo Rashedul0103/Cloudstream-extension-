@@ -318,11 +318,16 @@ object SettingsUi {
     }
 
     private fun multi(
-        ctx: Context, title: String, labels: List<String>, initial: List<Boolean>, onSave: (List<Boolean>) -> Unit,
+        ctx: Context,
+        title: String,
+        labels: List<String>,
+        initial: List<Boolean>,
+        description: String = "Select all options that should remain enabled.",
+        onSave: (List<Boolean>) -> Unit,
     ) {
         val colors = palette(ctx)
         val state = initial.toBooleanArray()
-        val root = shell(ctx, title, "Select all options that should remain enabled.")
+        val root = shell(ctx, title, description)
         val list = vertical(ctx)
         labels.forEachIndexed { index, label ->
             val check = CheckBox(ctx).apply {
@@ -354,6 +359,26 @@ object SettingsUi {
 
     private fun csv(list: List<String>) = if (list.isEmpty()) "none" else list.joinToString(", ")
     private fun parseCsv(s: String) = s.split(',', '\n').map { it.trim() }.filter { it.isNotEmpty() }.toMutableList()
+
+    /** Reject invalid slash-delimited regex filters instead of silently saving rules that match nothing. */
+    private fun keywordList(
+        ctx: Context,
+        title: String,
+        description: String,
+        initial: String,
+        onSave: (MutableList<String>) -> Unit,
+    ) {
+        prompt(ctx, title, description, initial, false) { value ->
+            val keywords = parseCsv(value)
+            val invalid = StreamFilter.invalidRegexPatterns(keywords)
+            if (invalid.isNotEmpty()) {
+                toast(ctx, "Invalid regular expression: ${invalid.first()}. Nothing was saved.")
+                keywordList(ctx, title, description, value, onSave)
+            } else {
+                onSave(keywords)
+            }
+        }
+    }
     private fun onOff(b: Boolean) = if (b) "ON" else "OFF"
     private fun limit(n: Int, unit: String) = if (n <= 0) "off" else if (unit.isEmpty()) n.toString() else "$n $unit"
     private fun modeLabel(m: Int) = when (m) { MODE_HIDE -> "hide"; MODE_ONLY -> "only"; else -> "any" }
@@ -364,11 +389,14 @@ object SettingsUi {
 
     private fun mainMenu(ctx: Context) {
         val s = Config.settings
-        val activeRows = s.addons.sumOf { addon ->
+        val activeStremioRows = s.addons.sumOf { addon ->
             Config.manifestOf(addon)?.catalogs.orEmpty().count {
                 it.isHomeCatalog() && "${it.type}/${it.id}" !in addon.hiddenCatalogs && addon.enabled && addon.useCatalogs
             }
-        } + s.externalRows.count { it.enabled }
+        }
+        val installedRows = if (s.externalRows.any { it.enabled }) ExternalHomeRows.installedRows() else emptyList()
+        val activeExternalRows = s.externalRows.count { it.enabled && ExternalHomeRows.resolve(it, installedRows) != null }
+        val activeRows = activeStremioRows + activeExternalRows
         menu(
             ctx, "MultiStremio",
             listOf(
@@ -1382,7 +1410,8 @@ object SettingsUi {
     private fun filtersMenu(ctx: Context) {
         val f = Config.settings.filter
         val rows = listOf(
-            "Resolutions: " + RES_OPTIONS.filter { it.first in f.allowedResolutions }.joinToString(" ") { it.second },
+            "Resolutions: " + RES_OPTIONS.filter { it.first in f.allowedResolutions }.joinToString(" ") { it.second }
+                .ifBlank { "Any (no restriction)" },
             "Hide CAM / telesync: ${onOff(f.hideCam)}",
             "Hide magnet (torrent) links: ${onOff(f.hideMagnets)}",
             "Hide uncached debrid links: ${onOff(f.hideUncachedDebrid)}",
@@ -1401,8 +1430,13 @@ object SettingsUi {
         val again = { filtersMenu(ctx) }
         menu(ctx, "Stream filters", rows, { mainMenu(ctx) }, "Remove unwanted sources and narrow results by quality, size, language and keywords.") { which ->
             when (which) {
-                0 -> multi(ctx, "Allowed resolutions", RES_OPTIONS.map { it.second },
-                    RES_OPTIONS.map { it.first in f.allowedResolutions }) { v ->
+                0 -> multi(
+                    ctx,
+                    "Allowed resolutions",
+                    RES_OPTIONS.map { it.second },
+                    RES_OPTIONS.map { it.first in f.allowedResolutions },
+                    description = "Select which resolutions to allow. Leave every box unchecked to allow any resolution.",
+                ) { v ->
                     Config.update { f.allowedResolutions = RES_OPTIONS.filterIndexed { i, _ -> v[i] }.map { it.first }.toMutableList() }
                     again()
                 }
@@ -1420,12 +1454,18 @@ object SettingsUi {
                 8 -> number(ctx, "Min seeders (0 = off). Streams without seeder info are kept.", f.minSeeders) {
                     Config.update { f.minSeeders = it }; again()
                 }
-                9 -> prompt(ctx, "Exclude keywords",
-                    "Comma separated, case-insensitive. Wrap in slashes for a regex, e.g. /x26[45]/",
-                    f.excludeKeywords.joinToString(", "), false) { Config.update { f.excludeKeywords = parseCsv(it) }; again() }
-                10 -> prompt(ctx, "Require keywords",
-                    "A stream must contain at least one of these. Leave empty to disable.",
-                    f.requireKeywords.joinToString(", "), false) { Config.update { f.requireKeywords = parseCsv(it) }; again() }
+                9 -> keywordList(
+                    ctx,
+                    "Exclude keywords",
+                    "Comma separated, case-insensitive. Wrap in slashes for a regex, e.g. /x26[45]/. Invalid regex patterns are rejected.",
+                    f.excludeKeywords.joinToString(", "),
+                ) { values -> Config.update { f.excludeKeywords = values }; again() }
+                10 -> keywordList(
+                    ctx,
+                    "Require keywords",
+                    "A stream must contain at least one of these. Leave empty to disable. Wrap regex patterns in slashes, e.g. /x26[45]/.",
+                    f.requireKeywords.joinToString(", "),
+                ) { values -> Config.update { f.requireKeywords = values }; again() }
                 11 -> prompt(ctx, "Required languages",
                     "Codes, regional tags or names, e.g. en, eng, en-US, pt-BR, Bengali. Streams with no detectable language are kept unless strict mode is on. Leave empty to disable.",
                     f.requireLanguages.joinToString(", "), false) { Config.update { f.requireLanguages = parseCsv(it) }; again() }
