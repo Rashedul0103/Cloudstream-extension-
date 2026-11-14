@@ -27,7 +27,7 @@ object HomeRows {
         if (manifest == null) return emptyList()
         return manifest.catalogs.orEmpty().filter { catalog ->
             val type = catalog.type
-            type != null && !catalog.id.isNullOrBlank() &&
+            type != null && catalog.id != null &&
                 catalog.isHomeCatalog() && manifest.supports("catalog", type, null)
         }
     }
@@ -50,7 +50,7 @@ object HomeRows {
             val manifest = manifestOf(addon) ?: continue
             for (catalog in manifest.catalogs.orEmpty()) {
                 val type = catalog.type ?: continue
-                val id = catalog.id?.takeIf { it.isNotBlank() } ?: continue
+                val id = catalog.id ?: continue
                 if (!catalog.isHomeCatalog()) continue
 
                 val resourceAvailable = manifest.supports("catalog", type, null)
