@@ -394,7 +394,12 @@ object StreamFilter {
         if (f.minSeeders > 0 && seeders != null && seeders < f.minSeeders) return false
 
         if (f.excludeKeywords.isNotEmpty() && anyMatch(p.text, f.excludeKeywords)) return false
-        if (f.requireKeywords.isNotEmpty() && !anyMatch(p.text, f.requireKeywords)) return false
+        // Invalid regexes may exist in older backups. Ignore them at runtime rather than allowing
+        // one malformed "require" pattern to hide every stream after an upgrade.
+        val validRequiredKeywords = f.requireKeywords.filterNot {
+            invalidRegexPatterns(listOf(it)).isNotEmpty()
+        }
+        if (validRequiredKeywords.isNotEmpty() && !anyMatch(p.text, validRequiredKeywords)) return false
 
         val have = i.languages
         if (f.strictLanguage && have.isEmpty()) return false
