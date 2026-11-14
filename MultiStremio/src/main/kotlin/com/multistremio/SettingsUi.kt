@@ -870,35 +870,87 @@ object SettingsUi {
     }
 
     private fun backupMenu(ctx: Context) {
+        fun copyBackup(includeAddonUrls: Boolean) {
+            val payload = runCatching {
+                SettingsBackupManager.export(Config.settings, includeAddonUrls)
+            }.getOrElse {
+                toast(ctx, "Could not create the backup")
+                return
+            }
+            runCatching {
+                val manager = ctx.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
+                manager.setPrimaryClip(ClipData.newPlainText("MultiStremio backup", payload))
+            }.onSuccess {
+                toast(
+                    ctx,
+                    if (includeAddonUrls) {
+                        "Full backup copied. The clipboard contains private addon URLs and may contain access keys."
+                    } else {
+                        "Preferences-only backup copied. Addon sources and imported extension rows were excluded."
+                    },
+                )
+            }.onFailure {
+                toast(ctx, "Could not copy the backup to the clipboard")
+            }
+        }
+
         menu(
             ctx, "Backup & maintenance",
-            listOf("Copy settings to clipboard", "Restore from pasted settings", "Reset filters & sorting", "Remove ALL addons and settings"),
+            listOf(
+                "Copy preferences-only backup (no source URLs)",
+                "Copy full backup (includes addon URLs)",
+                "Restore from backup",
+                "Reset filters & sorting",
+                "Remove ALL addons and settings",
+            ),
             { mainMenu(ctx) },
-            "Back up your configuration before making major changes. Backups include addon URLs, which may contain private keys.",
+            "Choose a privacy level before exporting. Full backups may contain private access keys in addon URLs.",
         ) { which ->
             when (which) {
                 0 -> confirm(
-                    ctx, "Copy settings?",
-                    "The copy includes your addon links. Those can contain private keys (debrid API keys, etc.), so don't share it.",
-                ) {
-                    val cm = ctx.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
-                    cm.setPrimaryClip(ClipData.newPlainText("MultiStremio settings", Json.toJson(Config.settings)))
-                    toast(ctx, "Copied")
+                    ctx,
+                    "Copy preferences-only backup?",
+                    "This export excludes all Stremio addon URLs, manifests and imported homepage-row references. " +
+                        "Restoring it will not restore your sources; you will need to add them again.",
+                ) { copyBackup(includeAddonUrls = false) }
+                1 -> confirm(
+                    ctx,
+                    "Copy full backup?",
+                    "This includes addon endpoints and cached manifests. Addon URLs may contain debrid keys or other " +
+                        "credentials. The clipboard is not encrypted. Do not share this backup publicly.",
+                ) { copyBackup(includeAddonUrls = true) }
+                2 -> prompt(
+                    ctx,
+                    "Restore backup",
+                    "Paste a MultiStremio backup or settings JSON copied from an older version. This replaces the current configuration.",
+                    "",
+                    false,
+                ) { pasted ->
+                    val backup = SettingsBackupManager.parse(pasted)
+                    val restored = backup?.settings
+                    if (backup == null || restored == null) {
+                        toast(ctx, "That is not a supported MultiStremio backup")
+                    } else {
+                        val warning = if (backup.includesAddonUrls) {
+                            "This backup includes addon URLs and may restore private access keys. It will replace all current settings."
+                        } else {
+                            "This preferences-only backup contains no addon sources. Restoring it will remove your current addons and imported homepage rows."
+                        }
+                        confirm(ctx, "Restore this backup?", warning) {
+                            restored.seeded = true
+                            Config.replace(restored)
+                            toast(ctx, "Backup restored. Refresh the home page.")
+                        }
+                    }
                 }
-                1 -> prompt(ctx, "Restore settings", "Paste settings copied earlier. This replaces everything.", "", false) { text ->
-                    val parsed = Json.parse<Settings>(text)
-                    if (parsed == null) toast(ctx, "That is not valid MultiStremio settings")
-                    else { parsed.seeded = true; Config.replace(parsed); toast(ctx, "Restored. Refresh the home page.") }
-                }
-                2 -> confirm(ctx, "Reset filters & sorting?", "Addons are kept.") {
+                3 -> confirm(ctx, "Reset filters & sorting?", "Addons are kept.") {
                     Config.update { filter = FilterSettings(); sort = SortSettings() }
                     toast(ctx, "Reset")
                 }
-                3 -> confirm(ctx, "Remove everything?", "All addons and settings are deleted (Cinemeta is not re-added).") {
+                4 -> confirm(ctx, "Remove everything?", "All addons and settings are deleted (Cinemeta is not re-added).") {
                     Config.replace(Settings(seeded = true))
                     toast(ctx, "Cleared")
                 }
             }
         }
-    }
-}
+    }}
