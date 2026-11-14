@@ -562,6 +562,27 @@ class CoreLogicTest {
     }
 
     @Test
+    fun addonArrayParsingSkipsNullItemsAndReportsPartialResults() {
+        val parsed = Json.parseArrayDetailed<RawStream>(
+            """{"streams":[null,{"url":"https://example.com/video.mkv"}]}""",
+            "streams",
+        )
+        assertEquals("PARTIAL", parsed.status)
+        assertEquals(1, parsed.items.size)
+        assertEquals("https://example.com/video.mkv", parsed.items.single().url)
+    }
+
+    @Test
+    fun addonArrayParsingRejectsAnArrayContainingOnlyNullItems() {
+        val parsed = Json.parseArrayDetailed<RawStream>(
+            """{"streams":[null,null]}""",
+            "streams",
+        )
+        assertEquals("INVALID_ITEMS", parsed.status)
+        assertTrue(parsed.items.isEmpty())
+    }
+
+    @Test
     fun addonArrayParsingDistinguishesFailureFromEmptyResults() {
         assertEquals("EMPTY_BODY", Json.parseArrayDetailed<RawStream>(null, "streams").status)
         assertEquals("INVALID_JSON", Json.parseArrayDetailed<RawStream>("{broken", "streams").status)

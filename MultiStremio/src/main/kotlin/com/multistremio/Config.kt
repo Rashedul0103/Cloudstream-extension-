@@ -46,8 +46,16 @@ object Json {
         val out = ArrayList<T>(arr.size())
         var rejected = 0
         for (node in arr) {
-            try { out.add(mapper.treeToValue(node, T::class.java)) }
-            catch (e: Exception) { rejected++ }
+            if (node.isNull) {
+                rejected++
+                continue
+            }
+            val item = try {
+                mapper.treeToValue(node, T::class.java)
+            } catch (e: Exception) {
+                null
+            }
+            if (item == null) rejected++ else out.add(item)
         }
         val status = when {
             out.isEmpty() -> "INVALID_ITEMS"
@@ -56,7 +64,6 @@ object Json {
         }
         return ArrayParseResult(out, status)
     }
-
     inline fun <reified T> parseArray(text: String?, field: String): List<T> =
         parseArrayDetailed<T>(text, field).items
 }
