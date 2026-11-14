@@ -47,59 +47,126 @@ class ParsedStream(
 
 object Langs {
     private val FLAG_TO_LANG = mapOf(
-        "GB" to "en", "US" to "en", "AU" to "en", "CA" to "en", "FR" to "fr", "ES" to "es",
-        "MX" to "es", "AR" to "es", "DE" to "de", "AT" to "de", "IT" to "it", "PT" to "pt",
-        "BR" to "pt", "RU" to "ru", "JP" to "ja", "KR" to "ko", "CN" to "zh", "TW" to "zh",
-        "HK" to "zh", "IN" to "hi", "TR" to "tr", "SA" to "ar", "EG" to "ar", "AE" to "ar",
-        "PL" to "pl", "NL" to "nl", "SE" to "sv", "NO" to "no", "DK" to "da", "FI" to "fi",
-        "GR" to "el", "UA" to "uk", "TH" to "th", "ID" to "id", "VN" to "vi", "IL" to "he",
-        "CZ" to "cs", "HU" to "hu", "RO" to "ro", "BD" to "bn", "PK" to "ur", "IR" to "fa",
+        "GB" to "en", "US" to "en", "AU" to "en", "CA" to "en", "NZ" to "en",
+        "FR" to "fr", "BE" to "fr", "ES" to "es", "MX" to "es", "AR" to "es", "CL" to "es",
+        "DE" to "de", "AT" to "de", "CH" to "de", "IT" to "it", "PT" to "pt", "BR" to "pt",
+        "RU" to "ru", "JP" to "ja", "KR" to "ko", "CN" to "zh", "TW" to "zh", "HK" to "zh",
+        "IN" to "hi", "TR" to "tr", "SA" to "ar", "EG" to "ar", "AE" to "ar",
+        "BD" to "bn", "PK" to "ur", "IR" to "fa", "PL" to "pl", "NL" to "nl",
+        "SE" to "sv", "NO" to "no", "DK" to "da", "FI" to "fi", "GR" to "el",
+        "UA" to "uk", "TH" to "th", "ID" to "id", "VN" to "vi", "IL" to "he",
+        "CZ" to "cs", "HU" to "hu", "RO" to "ro", "MY" to "ms", "PH" to "tl",
     )
 
-    /** English name / 3-letter code / 2-letter code -> 2-letter code. */
+    /** ISO 639 codes, common subtitle tags and common release-name aliases -> ISO 639-1. */
     private val ALIASES: Map<String, String> = buildMap {
         val rows = listOf(
-            Triple("en", "eng", "english"), Triple("hi", "hin", "hindi"), Triple("fr", "fra", "french"),
-            Triple("es", "spa", "spanish"), Triple("de", "deu", "german"), Triple("it", "ita", "italian"),
-            Triple("pt", "por", "portuguese"), Triple("ru", "rus", "russian"), Triple("ja", "jpn", "japanese"),
-            Triple("ko", "kor", "korean"), Triple("zh", "zho", "chinese"), Triple("tr", "tur", "turkish"),
-            Triple("ar", "ara", "arabic"), Triple("bn", "ben", "bengali"), Triple("ta", "tam", "tamil"),
-            Triple("te", "tel", "telugu"), Triple("pl", "pol", "polish"), Triple("nl", "nld", "dutch"),
-            Triple("sv", "swe", "swedish"), Triple("uk", "ukr", "ukrainian"), Triple("th", "tha", "thai"),
-            Triple("id", "ind", "indonesian"), Triple("vi", "vie", "vietnamese"), Triple("he", "heb", "hebrew"),
-            Triple("ur", "urd", "urdu"), Triple("fa", "fas", "persian"),
+            "en" to listOf("eng", "english"),
+            "hi" to listOf("hin", "hindi"),
+            "fr" to listOf("fra", "fre", "french", "francais", "français", "truefrench", "vff", "vfq", "vfi", "vf2"),
+            "es" to listOf("spa", "spanish", "espanol", "español", "castellano", "latino", "latam", "esp"),
+            "de" to listOf("deu", "ger", "german", "deutsch"),
+            "it" to listOf("ita", "italian", "italiano"),
+            "pt" to listOf("por", "pob", "portuguese", "portugues", "português", "brazilian portuguese", "dublado"),
+            "ru" to listOf("rus", "russian"),
+            "ja" to listOf("jpn", "jap", "japanese", "japonais"),
+            "ko" to listOf("kor", "korean"),
+            "zh" to listOf("zho", "chi", "cmn", "yue", "chinese", "mandarin", "cantonese"),
+            "tr" to listOf("tur", "turkish", "turkce", "türkçe"),
+            "ar" to listOf("ara", "arabic", "العربية"),
+            "bn" to listOf("ben", "beng", "bengali", "bangla", "বাংলা"),
+            "ta" to listOf("tam", "tamil"),
+            "te" to listOf("tel", "telugu"),
+            "ur" to listOf("urd", "urdu", "اردو"),
+            "fa" to listOf("fas", "per", "persian", "farsi", "فارسی"),
+            "pl" to listOf("pol", "polish", "polski"),
+            "nl" to listOf("nld", "dut", "dutch", "nederlands"),
+            "sv" to listOf("swe", "swedish"),
+            "no" to listOf("nor", "norwegian"),
+            "da" to listOf("dan", "danish"),
+            "fi" to listOf("fin", "finnish"),
+            "el" to listOf("ell", "gre", "greek"),
+            "uk" to listOf("ukr", "ukrainian"),
+            "th" to listOf("tha", "thai"),
+            "id" to listOf("ind", "indonesian", "bahasa"),
+            "vi" to listOf("vie", "vietnamese"),
+            "he" to listOf("heb", "hebrew"),
+            "cs" to listOf("ces", "cze", "czech"),
+            "hu" to listOf("hun", "hungarian"),
+            "ro" to listOf("ron", "rum", "romanian"),
+            "ms" to listOf("msa", "may", "malay"),
+            "tl" to listOf("tgl", "fil", "filipino", "tagalog"),
+            "multi" to listOf("dual audio", "dual-audio", "multiaudio", "multi audio"),
+            "und" to listOf("unknown", "undefined", "undetermined"),
         )
-        for ((two, three, name) in rows) {
-            put(two, two); put(three, two); put(name, two)
+        for ((twoLetter, aliases) in rows) {
+            put(twoLetter, twoLetter)
+            aliases.forEach { put(it, twoLetter) }
         }
-        put("fre", "fr"); put("ger", "de"); put("chi", "zh"); put("multi", "multi")
     }
 
     fun normalize(input: String): String {
-        val k = input.trim().lowercase(Locale.ROOT)
-        return ALIASES[k] ?: k
+        val raw = input.trim().lowercase(Locale.ROOT).replace('_', '-')
+        if (raw.isEmpty()) return ""
+        val label = raw.substringBefore('(').substringBefore('[').trim()
+        ALIASES[label]?.let { return it }
+
+        // BCP-47 forms such as en-US, pt-BR and zh-Hans share their primary language code.
+        val primary = label.substringBefore('-').trim()
+        ALIASES[primary]?.let { return it }
+
+        val compact = label.filter { it.isLetterOrDigit() }
+        ALIASES[compact]?.let { return it }
+        return primary.ifEmpty { label }
     }
 
-    // Words in release names that reveal the audio language.
+    // Release markers are deliberately limited to clear words / 3-letter tags to avoid
+    // interpreting ordinary title words such as "it", "no" or "in" as language codes.
     private val WORD_LANGS = listOf(
-        Regex("""\b(english|eng)\b""") to "en",
-        Regex("""\b(hindi|hin)\b""") to "hi",
-        Regex("""\b(french|vff|vfq|vfi|truefrench)\b""") to "fr",
-        Regex("""\b(spanish|castellano|latino)\b""") to "es",
-        Regex("""\b(german|deutsch)\b""") to "de",
-        Regex("""\b(italian|ita)\b""") to "it",
-        Regex("""\b(portuguese|dublado)\b""") to "pt",
-        Regex("""\b(russian|rus)\b""") to "ru",
-        Regex("""\b(japanese|jpn)\b""") to "ja",
-        Regex("""\b(korean|kor)\b""") to "ko",
-        Regex("""\b(chinese|mandarin|cantonese)\b""") to "zh",
-        Regex("""\b(turkish)\b""") to "tr",
-        Regex("""\b(arabic)\b""") to "ar",
-        Regex("""\b(tamil)\b""") to "ta",
-        Regex("""\b(telugu)\b""") to "te",
-        Regex("""\b(bengali|bangla)\b""") to "bn",
+        Regex("""\\b(english|eng)\\b""") to "en",
+        Regex("""\\b(hindi|hin)\\b""") to "hi",
+        Regex("""\\b(french|français|francais|fra|fre|truefrench|vff|vfq|vfi)\\b""") to "fr",
+        Regex("""\\b(spanish|español|espanol|castellano|latino|latam|spa|esp)\\b""") to "es",
+        Regex("""\\b(german|deutsch|deu|ger)\\b""") to "de",
+        Regex("""\\b(italian|italiano|ita)\\b""") to "it",
+        Regex("""\\b(portuguese|português|portugues|dublado|por|pob)\\b""") to "pt",
+        Regex("""\\b(russian|rus)\\b""") to "ru",
+        Regex("""\\b(japanese|jpn|jap)\\b""") to "ja",
+        Regex("""\\b(korean|kor)\\b""") to "ko",
+        Regex("""\\b(chinese|mandarin|cantonese|zho|chi)\\b""") to "zh",
+        Regex("""\\b(turkish|türkçe|tur)\\b""") to "tr",
+        Regex("""\\b(arabic|ara)\\b""") to "ar",
+        Regex("""\\b(bengali|bangla|beng|ben)\\b""") to "bn",
+        Regex("""\\b(tamil|tam)\\b""") to "ta",
+        Regex("""\\b(telugu|tel)\\b""") to "te",
+        Regex("""\\b(urdu|urd)\\b""") to "ur",
+        Regex("""\\b(persian|farsi|fas|per)\\b""") to "fa",
+        Regex("""\\b(polish|polski|pol)\\b""") to "pl",
+        Regex("""\\b(dutch|nederlands|nld|dut)\\b""") to "nl",
+        Regex("""\\b(sweden|swedish|swe)\\b""") to "sv",
+        Regex("""\\b(norwegian|nor)\\b""") to "no",
+        Regex("""\\b(danish|dan)\\b""") to "da",
+        Regex("""\\b(finnish|fin)\\b""") to "fi",
+        Regex("""\\b(greek|ell|gre)\\b""") to "el",
+        Regex("""\\b(ukrainian|ukr)\\b""") to "uk",
+        Regex("""\\b(thai|tha)\\b""") to "th",
+        Regex("""\\b(indonesian|bahasa|ind)\\b""") to "id",
+        Regex("""\\b(vietnamese|vie)\\b""") to "vi",
+        Regex("""\\b(hebrew|heb)\\b""") to "he",
+        Regex("""\\b(czech|ces|cze)\\b""") to "cs",
+        Regex("""\\b(hungarian|hun)\\b""") to "hu",
+        Regex("""\\b(romanian|ron|rum)\\b""") to "ro",
+        Regex("""\\b(malay|msa|may)\\b""") to "ms",
+        Regex("""\\b(filipino|tagalog|fil|tgl)\\b""") to "tl",
     )
-    private val MULTI = Regex("""\b(multi|dual[ .\-_]?audio|multi[ .\-_]?audio)\b""")
+    private val MULTI = Regex("""\\b(multi|dual[ ._\\-]?audio|multi[ ._\\-]?audio)\\b""")
+
+    private val NATIVE_NAMES = listOf(
+        "বাংলা" to "bn", "हिंदी" to "hi", "हिन्दी" to "hi", "اردو" to "ur",
+        "العربية" to "ar", "فارسی" to "fa", "日本語" to "ja", "한국어" to "ko",
+        "中文" to "zh", "français" to "fr", "español" to "es", "português" to "pt",
+        "türkçe" to "tr", "русский" to "ru", "deutsch" to "de",
+    )
 
     /** Decode regional-indicator flag emoji (two code points) into ISO country codes. */
     fun flagCountries(text: String): List<String> {
@@ -121,11 +188,15 @@ object Langs {
         return out
     }
 
-    fun detect(lowerText: String): Set<String> {
+    fun detect(text: String): Set<String> {
+        val normalizedText = text.lowercase(Locale.ROOT)
         val found = linkedSetOf<String>()
-        for (c in flagCountries(lowerText)) FLAG_TO_LANG[c]?.let { found += it }
-        for ((re, code) in WORD_LANGS) if (re.containsMatchIn(lowerText)) found += code
-        if (MULTI.containsMatchIn(lowerText)) found += "multi"
+        for (country in flagCountries(text)) FLAG_TO_LANG[country]?.let { found += it }
+        for ((pattern, code) in WORD_LANGS) if (pattern.containsMatchIn(normalizedText)) found += code
+        for ((nativeName, code) in NATIVE_NAMES) {
+            if (normalizedText.contains(nativeName)) found += code
+        }
+        if (MULTI.containsMatchIn(normalizedText)) found += "multi"
         return found
     }
 }
