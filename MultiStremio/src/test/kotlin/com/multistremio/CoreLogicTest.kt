@@ -152,6 +152,22 @@ class CoreLogicTest {
     }
 
     @Test
+    fun invalidLegacyRequireRegexDoesNotHideEveryStream() {
+        val raw = RawStream(name = "Example.Movie.1080p.WEB-DL")
+        val (info, text) = StreamParser.parse(raw)
+        val parsed = ParsedStream(0, "Test addon", raw, text, info)
+        assertTrue(
+            StreamFilter.passes(
+                parsed,
+                FilterSettings(
+                    allowedResolutions = mutableListOf(1080),
+                    requireKeywords = mutableListOf("/[/"),
+                ),
+            ),
+        )
+    }
+
+    @Test
     fun emptyResolutionSelectionMeansAnyResolution() {
         val raw = RawStream(name = "Example.Movie.1080p.WEB-DL")
         val (info, text) = StreamParser.parse(raw)
