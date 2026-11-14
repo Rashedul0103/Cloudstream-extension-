@@ -403,6 +403,7 @@ internal fun settingMenu(
     items: List<SettingItem>,
     back: (() -> Unit)?,
     description: String? = null,
+    screenKey: String? = null,
 ) {
     val colors = palette(ctx)
     val root = shell(ctx, title, description ?: "Choose an item to manage this section.")
@@ -487,7 +488,7 @@ internal fun settingMenu(
     addFooter(ctx, root, if (back != null) "Back" else "Close", {
         if (back != null) back() else SettingsDialogHost.dismiss()
     })
-    SettingsDialogHost.show(ctx, "menu:$title", root, back)
+    SettingsDialogHost.show(ctx, screenKey ?: "menu:$title", root, back)
 }
 
 internal fun prompt(
