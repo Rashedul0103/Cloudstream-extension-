@@ -235,7 +235,7 @@ object StreamParser {
     private val TRUEHD = Regex("""\btruehd\b""")
     private val DTS_HD = Regex("""\bdts[ .\-_]?(hd|x)\b""")
     private val DTS = Regex("""\bdts\b""")
-    private val DD_PLUS = Regex("""\b(ddp|dd\+|e[ \-]?ac-?3)\b""")
+    private val DD_PLUS = Regex("""\b(ddp|dd\+|e[ \-]?ac-?3)(?![a-z0-9])""")
     private val DD = Regex("""\b(dd[ .\-_]?5|ac-?3|dolby digital)\b""")
     private val AAC = Regex("""\baac\b""")
     private val HDTV = Regex("""\b(hdtv|pdtv|tvrip)\b""")
