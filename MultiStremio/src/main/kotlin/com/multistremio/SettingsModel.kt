@@ -81,6 +81,8 @@ data class ExternalRowConfig(
     var sourcePlugin: String = "",
     var rowName: String = "",
     var dataHash: String = "",
+    /** Stable position only distinguishes duplicate same-name rows from the same provider. */
+    var occurrence: Int = 0,
     var horizontalImages: Boolean = false,
     var enabled: Boolean = true,
 )
