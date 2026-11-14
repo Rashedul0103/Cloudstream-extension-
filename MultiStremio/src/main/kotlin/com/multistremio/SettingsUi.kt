@@ -374,6 +374,7 @@ object SettingsUi {
                 "Catalog rows (visibility & order)",
                 "Stream filters",
                 "Stream sorting",
+                "Stream formatter (design link names)",
                 "Last streaming diagnostics",
                 "Subtitles",
                 "General",
@@ -386,6 +387,7 @@ object SettingsUi {
                 "$activeRows homepage rows currently enabled",
                 "Choose which streams are allowed",
                 "Control quality, language, codec and audio ranking",
+                "Build your own link layout without writing code",
                 "See the most recent source responses and filtered-link counts",
                 "Control subtitle sources and languages",
                 "Request timeout and link display options",
@@ -397,12 +399,230 @@ object SettingsUi {
                 1 -> catalogRowsMenu(ctx)
                 2 -> filtersMenu(ctx)
                 3 -> sortMenu(ctx)
-                4 -> streamDiagnosticsMenu(ctx)
-                5 -> subtitlesMenu(ctx)
-                6 -> generalMenu(ctx)
-                7 -> backupMenu(ctx)
+                4 -> streamFormatterMenu(ctx)
+                5 -> streamDiagnosticsMenu(ctx)
+                6 -> subtitlesMenu(ctx)
+                7 -> generalMenu(ctx)
+                8 -> backupMenu(ctx)
             }
         }
+    }
+
+    // ---- visual stream formatter -----------------------------------------------------------
+
+    private fun streamFormatterMenu(ctx: Context) {
+        val format = Config.settings.streamFormat
+        val fields = StreamFormatFields.all
+        val selected = format.fields.toSet()
+        val separatorLabels = listOf(
+            "Middle dot   ·",
+            "Vertical bar   |",
+            "Bullet   •",
+            "Long dash   —",
+            "Slash   /",
+            "New line",
+        )
+        val separators = listOf(" · ", " | ", " • ", " — ", " / ", "\n")
+        val separatorIndex = separators.indexOf(format.separator).takeIf { it >= 0 } ?: 0
+        val rows = listOf(
+            "Custom layout: ${onOff(format.enabled)}",
+            "Choose information to show (${format.fields.size} selected)",
+            "Reorder visible information",
+            "Separator: ${separatorLabels[separatorIndex]}",
+            "Show full field names: ${onOff(format.showLabels)}",
+            "Preview your design",
+            "Reset to recommended layout",
+        )
+        menu(
+            ctx,
+            "Stream formatter",
+            rows,
+            { mainMenu(ctx) },
+            "Design how links look in the stream list. No codes or templates are needed. Choose the details, put them in your preferred order, and preview the result.",
+            listOf(
+                "Turn your custom design on or off. Off uses the normal MultiStremio labels.",
+                "Pick details such as quality, codec, language and file size.",
+                "Drag the selected details into the order you want.",
+                "Choose what appears between details.",
+                "Use names such as “Quality:” and “Video codec:” before each value.",
+                "See an example using a made-up movie; no addon is contacted.",
+                "Restore all recommended fields and spacing.",
+            ),
+        ) { which ->
+            when (which) {
+                0 -> {
+                    Config.update { streamFormat.enabled = !streamFormat.enabled }
+                    streamFormatterMenu(ctx)
+                }
+                1 -> multi(
+                    ctx,
+                    "Information to display",
+                    fields.map { "${it.title} — ${it.description}" },
+                    fields.map { it.id in selected },
+                ) { chosen ->
+                    val wanted = fields.filterIndexed { index, _ -> chosen.getOrElse(index) { false } }.map { it.id }.toSet()
+                    val existingOrder = format.fields.filter { it in wanted }
+                    val newlySelected = fields.map { it.id }.filter { it in wanted && it !in existingOrder }
+                    Config.update { streamFormat.fields = (existingOrder + newlySelected).toMutableList() }
+                    streamFormatterMenu(ctx)
+                }
+                2 -> streamFormatReorderDialog(ctx)
+                3 -> choose(ctx, "Separate each detail with", separatorLabels, separatorIndex) {
+                    Config.update { streamFormat.separator = separators[it] }
+                    streamFormatterMenu(ctx)
+                }
+                4 -> {
+                    Config.update { streamFormat.showLabels = !streamFormat.showLabels }
+                    streamFormatterMenu(ctx)
+                }
+                5 -> {
+                    val preview = StreamLabels.preview(format)
+                    menu(
+                        ctx,
+                        "Your stream-name preview",
+                        listOf(preview),
+                        { streamFormatterMenu(ctx) },
+                        "Example only. Real links show whichever information each addon provides. Missing details are automatically skipped.",
+                    ) { }
+                }
+                6 -> confirm(
+                    ctx,
+                    "Reset stream formatter?",
+                    "This restores the recommended field order, middle-dot separator and compact labels. Your custom layout will be turned off.",
+                ) {
+                    Config.update { streamFormat = StreamFormatSettings() }
+                    streamFormatterMenu(ctx)
+                }
+            }
+        }
+    }
+
+    /** Drag selected information blocks into the exact order wanted in the stream list. */
+    private fun streamFormatReorderDialog(ctx: Context) {
+        val format = Config.settings.streamFormat
+        val orderedIds = format.fields.distinct().filter { id -> StreamFormatFields.all.any { it.id == id } }.toMutableList()
+        if (orderedIds.size < 2) {
+            toast(ctx, "Choose at least two fields before reordering.")
+            streamFormatterMenu(ctx)
+            return
+        }
+        val titles = StreamFormatFields.all.associate { it.id to it.title }
+        val colors = palette(ctx)
+        val root = shell(
+            ctx,
+            "Arrange stream details",
+            "Long-press the grip on the left and drag each detail up or down. The first detail appears first in the link name.",
+        )
+        val scroll = ScrollView(ctx).apply { clipToPadding = false }
+        val list = vertical(ctx)
+        fun refreshNumbers() {
+            for (position in 0 until list.childCount) {
+                val item = list.getChildAt(position) as? LinearLayout ?: continue
+                val id = item.tag as? String ?: continue
+                val description = item.getChildAt(1) as? LinearLayout ?: continue
+                val title = description.getChildAt(0) as? TextView ?: continue
+                title.text = "${position + 1}. ${titles[id].orEmpty()}"
+            }
+        }
+        scroll.addView(list, ViewGroup.LayoutParams(
+            ViewGroup.LayoutParams.MATCH_PARENT,
+            ViewGroup.LayoutParams.WRAP_CONTENT,
+        ))
+        orderedIds.forEachIndexed { index, id ->
+            val handle = text(ctx, "☰", 22f, colors.accent, true).apply {
+                gravity = Gravity.CENTER
+                setPadding(dp(ctx, 4), 0, dp(ctx, 10), 0)
+            }
+            val detail = StreamFormatFields.all.first { it.id == id }.description
+            val description = vertical(ctx).apply {
+                addView(text(ctx, "${index + 1}. ${titles[id].orEmpty()}", 14f, colors.primary, true))
+                addView(text(ctx, detail, 11f, colors.secondary).apply {
+                    setPadding(0, dp(ctx, 3), 0, 0)
+                })
+            }
+            val item = LinearLayout(ctx).apply {
+                orientation = LinearLayout.HORIZONTAL
+                gravity = Gravity.CENTER_VERTICAL
+                setPadding(dp(ctx, 12), dp(ctx, 12), dp(ctx, 12), dp(ctx, 12))
+                background = rounded(ctx, colors.background, colors.outline)
+                tag = id
+                addView(handle, LinearLayout.LayoutParams(dp(ctx, 34), ViewGroup.LayoutParams.MATCH_PARENT))
+                addView(description, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
+            }
+            list.addView(item, LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT,
+                ViewGroup.LayoutParams.WRAP_CONTENT,
+            ).apply { bottomMargin = dp(ctx, 7) })
+            var dragging = false
+            val detector = GestureDetector(ctx, object : GestureDetector.SimpleOnGestureListener() {
+                override fun onDown(e: MotionEvent): Boolean = true
+                override fun onLongPress(e: MotionEvent) {
+                    dragging = true
+                    item.background = rounded(ctx, withAlpha(colors.accent, 24), colors.accent)
+                    item.elevation = dp(ctx, 6).toFloat()
+                    scroll.requestDisallowInterceptTouchEvent(true)
+                }
+            })
+            handle.setOnTouchListener { _, event ->
+                detector.onTouchEvent(event)
+                when (event.actionMasked) {
+                    MotionEvent.ACTION_DOWN -> true
+                    MotionEvent.ACTION_MOVE -> {
+                        if (dragging) {
+                            val pointerY = event.rawY
+                            var insertion = 0
+                            for (childIndex in 0 until list.childCount) {
+                                val child = list.getChildAt(childIndex)
+                                if (child === item) continue
+                                val location = IntArray(2)
+                                child.getLocationOnScreen(location)
+                                if (pointerY >= location[1] + child.height / 2f) insertion++
+                            }
+                            val current = list.indexOfChild(item)
+                            if (current != insertion) {
+                                list.removeView(item)
+                                list.addView(item, insertion.coerceIn(0, list.childCount))
+                                refreshNumbers()
+                            }
+                            val scrollLocation = IntArray(2)
+                            scroll.getLocationOnScreen(scrollLocation)
+                            val edge = dp(ctx, 36)
+                            when {
+                                pointerY < scrollLocation[1] + edge -> scroll.scrollBy(0, -dp(ctx, 20))
+                                pointerY > scrollLocation[1] + scroll.height - edge -> scroll.scrollBy(0, dp(ctx, 20))
+                            }
+                        }
+                        true
+                    }
+                    MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL -> {
+                        if (dragging) {
+                            dragging = false
+                            item.background = rounded(ctx, colors.background, colors.outline)
+                            item.elevation = 0f
+                            scroll.requestDisallowInterceptTouchEvent(false)
+                        }
+                        true
+                    }
+                    else -> true
+                }
+            }
+        }
+        root.addView(scroll, LinearLayout.LayoutParams(
+            ViewGroup.LayoutParams.MATCH_PARENT,
+            minOf(dp(ctx, 460), dp(ctx, maxOf(100, orderedIds.size * 70))),
+        ))
+        val dialog = AlertDialog.Builder(ctx).setView(root).create()
+        addFooter(ctx, root, "Save order", {
+            val order = (0 until list.childCount).mapNotNull { list.getChildAt(it).tag as? String }
+            if (order.size == orderedIds.size && order.toSet() == orderedIds.toSet()) {
+                Config.update { streamFormat.fields = order.toMutableList() }
+                dialog.dismiss()
+                streamFormatterMenu(ctx)
+            } else {
+                toast(ctx, "Could not save the format order. Please try again.")
+            }
+        }, "Cancel", { dialog.dismiss() })
+        window(dialog, ctx)
     }
 
     private fun streamDiagnosticsMenu(ctx: Context) {
@@ -1198,7 +1418,7 @@ object SettingsUi {
         val s = Config.settings
         val rows = listOf(
             "Request timeout: ${s.timeoutSec} s",
-            "Detailed link names (resolution, size, seeders…): ${onOff(s.detailedLabels)}",
+            "Detailed default names (when custom layout is OFF): ${onOff(s.detailedLabels)}",
         )
         menu(ctx, "General", rows, { mainMenu(ctx) }, "Tune request limits and the amount of technical detail shown on stream links.") { which ->
             when (which) {
