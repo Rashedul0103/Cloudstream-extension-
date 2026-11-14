@@ -33,6 +33,9 @@ object SettingsUi {
 
     fun show(ctx: Context) = mainMenu(ctx)
 
+    private fun toast(ctx: Context, message: String) =
+        main.post { Toast.makeText(ctx, message, Toast.LENGTH_LONG).show() }
+
     private data class Palette(
         val background: Int,
         val primary: Int,
@@ -175,7 +178,7 @@ object SettingsUi {
         val root = shell(ctx, title, description ?: "Choose an item to manage this section.")
         val scroll = ScrollView(ctx).apply { isFillViewport = false }
         val list = vertical(ctx)
-        scroll.addView(list, ScrollView.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT))
+        scroll.addView(list, ViewGroup.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT))
         val rowViews = mutableListOf<Pair<View, String>>()
 
         items.forEachIndexed { index, value ->
@@ -235,7 +238,7 @@ object SettingsUi {
                 textSize = 14f
                 setTextColor(colors.primary)
                 setHintTextColor(colors.secondary)
-                singleLine = true
+                setSingleLine(true)
                 inputType = InputType.TYPE_CLASS_TEXT
                 setPadding(dp(ctx, 14), dp(ctx, 8), dp(ctx, 14), dp(ctx, 8))
                 background = rounded(ctx, withAlpha(colors.accent, 12), colors.outline)
@@ -330,7 +333,7 @@ object SettingsUi {
             list.addView(check)
         }
         val scroll = ScrollView(ctx).apply {
-            addView(list, ScrollView.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT))
+            addView(list, ViewGroup.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT))
         }
         root.addView(scroll, LinearLayout.LayoutParams(
             ViewGroup.LayoutParams.MATCH_PARENT,
