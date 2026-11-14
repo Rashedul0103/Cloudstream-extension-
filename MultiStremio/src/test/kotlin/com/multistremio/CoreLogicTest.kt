@@ -265,6 +265,27 @@ class CoreLogicTest {
     }
 
     @Test
+    fun catalogResourceDeclarationsGateHomepageAndSearchTypes() {
+        val stringResource = Manifest(
+            resources = listOf("catalog"),
+            types = listOf("movie"),
+            idPrefixes = listOf("tt"),
+        )
+        assertTrue(stringResource.supports("catalog", "movie", null))
+        assertFalse(stringResource.supports("catalog", "series", null))
+
+        val scopedResource = Manifest(
+            resources = listOf(mapOf("name" to "catalog", "types" to listOf("series"))),
+            types = listOf("movie"),
+        )
+        assertTrue(scopedResource.supports("catalog", "series", null))
+        assertFalse(scopedResource.supports("catalog", "movie", null))
+
+        val streamOnly = Manifest(resources = listOf("stream"), types = listOf("movie"))
+        assertFalse(streamOnly.supports("catalog", "movie", null))
+    }
+
+    @Test
     fun legacySettingsJsonUsesDefaultsForNewSettings() {
         val settings = Json.parse<Settings>("""{"addons":[],"filter":{},"sort":{}}""")
         assertNotNull(settings)
