@@ -299,13 +299,6 @@ internal object SettingsDialogHost {
         }
         dialog = hostDialog
         container = frame
-        hostDialog.show()
-        hostDialog.window?.let { window ->
-            window.setBackgroundDrawableResource(android.R.color.transparent)
-            val density = ctx.resources.displayMetrics.density
-            val width = minOf((520 * density + 0.5f).toInt(), ctx.resources.displayMetrics.widthPixels - (36 * density + 0.5f).toInt())
-            window.setLayout(width.coerceAtLeast(1), ViewGroup.LayoutParams.WRAP_CONTENT)
-        }
     }
 
     private fun render(ctx: Context) {
@@ -325,6 +318,16 @@ internal object SettingsDialogHost {
         }
         findScroll(entry.root)?.let { scroll ->
             scroll.post { scroll.scrollTo(0, entry.scrollY.coerceAtLeast(0)) }
+        }
+        val hostDialog = dialog
+        if (hostDialog != null && !hostDialog.isShowing) {
+            hostDialog.show()
+            hostDialog.window?.let { window ->
+                window.setBackgroundDrawableResource(android.R.color.transparent)
+                val density = ctx.resources.displayMetrics.density
+                val width = minOf((520 * density + 0.5f).toInt(), ctx.resources.displayMetrics.widthPixels - (36 * density + 0.5f).toInt())
+                window.setLayout(width.coerceAtLeast(1), ViewGroup.LayoutParams.WRAP_CONTENT)
+            }
         }
     }
 
@@ -351,7 +354,6 @@ internal object SettingsDialogHost {
         if (stack.size > 1) {
             capture(stack.lastOrNull())
             stack.removeAt(stack.lastIndex)
-            val previous = stack.last()
             // A screen's context is stable for one plugin settings session.
             val ctx = container?.context ?: return
             render(ctx)
