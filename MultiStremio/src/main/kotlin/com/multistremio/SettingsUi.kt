@@ -667,18 +667,10 @@ object SettingsUi {
         var tracking = false
         var dragging = false
         var downRawY = 0f
+        var lastPointerY = 0f
+        var edgeDirection = 0
 
-        fun finishDrag() {
-            tracking = false
-            if (dragging) {
-                dragging = false
-                item.background = rounded(ctx, colors.background, colors.outline)
-                item.elevation = 0f
-            }
-            scroll.requestDisallowInterceptTouchEvent(false)
-        }
-
-        fun moveItem(pointerY: Float) {
+        fun moveItem(pointerY: Float, updateEdgeScroll: Boolean = true) {
             val centers = (0 until list.childCount).mapNotNull { index ->
                 val child = list.getChildAt(index)
                 if (child === item) null else {
@@ -696,15 +688,49 @@ object SettingsUi {
                 onMoved()
             }
 
-            // Keep the row under the finger while the user drags near either edge of the list.
-            val scrollPosition = IntArray(2)
-            scroll.getLocationOnScreen(scrollPosition)
-            val edge = dp(ctx, 42)
-            when {
-                pointerY < scrollPosition[1] + edge ->
-                    scroll.scrollBy(0, -dp(ctx, 5))
-                pointerY > scrollPosition[1] + scroll.height - edge ->
-                    scroll.scrollBy(0, dp(ctx, 5))
+            if (updateEdgeScroll) {
+                val scrollPosition = IntArray(2)
+                scroll.getLocationOnScreen(scrollPosition)
+                val edge = dp(ctx, 48)
+                edgeDirection = when {
+                    pointerY < scrollPosition[1] + edge -> -1
+                    pointerY > scrollPosition[1] + scroll.height - edge -> 1
+                    else -> 0
+                }
+            }
+        }
+
+        val edgeScroller = object : Runnable {
+            override fun run() {
+                if (!tracking || !dragging || edgeDirection == 0) return
+                val before = scroll.scrollY
+                scroll.scrollBy(0, edgeDirection * dp(ctx, 8))
+                if (scroll.scrollY != before) {
+                    // Re-evaluate the insertion point while the list moves under a stationary finger.
+                    moveItem(lastPointerY, updateEdgeScroll = false)
+                    handle.postDelayed(this, 16L)
+                } else {
+                    edgeDirection = 0
+                }
+            }
+        }
+
+        fun finishDrag() {
+            tracking = false
+            edgeDirection = 0
+            handle.removeCallbacks(edgeScroller)
+            if (dragging) {
+                dragging = false
+                item.background = rounded(ctx, colors.background, colors.outline)
+                item.elevation = 0f
+            }
+            scroll.requestDisallowInterceptTouchEvent(false)
+        }
+
+        fun updateAutoScroll() {
+            handle.removeCallbacks(edgeScroller)
+            if (tracking && dragging && edgeDirection != 0) {
+                handle.postDelayed(edgeScroller, 16L)
             }
         }
 
@@ -714,19 +740,25 @@ object SettingsUi {
                     tracking = true
                     dragging = false
                     downRawY = event.rawY
+                    lastPointerY = event.rawY
+                    edgeDirection = 0
                     // Only the grip is a drag target. Keep ScrollView from stealing its gesture.
                     scroll.requestDisallowInterceptTouchEvent(true)
                     true
                 }
                 MotionEvent.ACTION_MOVE -> {
                     if (tracking) {
+                        lastPointerY = event.rawY
                         if (!dragging && abs(event.rawY - downRawY) >= touchSlop) {
                             dragging = true
                             item.background = rounded(ctx, withAlpha(colors.accent, 28), colors.accent)
                             item.elevation = dp(ctx, 6).toFloat()
                             handle.performHapticFeedback(HapticFeedbackConstants.LONG_PRESS)
                         }
-                        if (dragging) moveItem(event.rawY)
+                        if (dragging) {
+                            moveItem(lastPointerY)
+                            updateAutoScroll()
+                        }
                     }
                     true
                 }
@@ -738,6 +770,7 @@ object SettingsUi {
             }
         }
     }
+
 
     private fun streamDiagnosticsMenu(ctx: Context) {
         val snapshot = StreamDiagnostics.latest()
