@@ -24,8 +24,8 @@ object AddonHealthClassifier {
         if (manifest == null) {
             return AddonHealthAssessment(false, "Server response is not valid JSON")
         }
-        if (manifest.name == null && manifest.resources == null) {
-            return AddonHealthAssessment(false, "JSON response is not a valid Stremio addon manifest")
+        if (!manifest.isUsableByMultiStremio()) {
+            return AddonHealthAssessment(false, "Manifest must include a name and at least one resource")
         }
         return AddonHealthAssessment(true, "")
     }
