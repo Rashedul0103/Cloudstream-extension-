@@ -249,6 +249,7 @@ object StreamParser {
     )
     private val CACHED_TAG = Regex("""\[[a-z]{2,4}\+\]""")
     private val UNCACHED_TAG = Regex("""\[[a-z]{2,4}\s?download\]""")
+    private val CACHED_WORD = Regex("""\bcached\b""")
 
     fun parse(raw: RawStream): Pair<StreamInfo, String> {
         val rawText = listOfNotNull(
@@ -304,7 +305,7 @@ object StreamParser {
         }
         val cached = when {
             UNCACHED_TAG.containsMatchIn(t) || t.contains("uncached") -> false
-            CACHED_TAG.containsMatchIn(t) || t.contains(EMOJI_BOLT) || Regex("""\bcached\b""").containsMatchIn(t) -> true
+            CACHED_TAG.containsMatchIn(t) || t.contains(EMOJI_BOLT) || CACHED_WORD.containsMatchIn(t) -> true
             else -> null
         }
         val info = StreamInfo(
@@ -464,15 +465,6 @@ object StreamSorter {
         else -> null
     }
 
-    private fun <T> preferenceRank(value: T?, preferences: List<String>, canonical: (String?) -> String?): Int {
-        if (preferences.isEmpty()) return 0
-        val wanted = preferences.mapNotNull { canonical(it) }
-        val actual = canonical(value?.toString())
-        if (actual == null) return wanted.size + 2
-        val position = wanted.indexOf(actual)
-        return if (position >= 0) position else wanted.size + 1
-    }
-
     fun comparator(s: SortSettings): Comparator<ParsedStream> {
         val chain = mutableListOf<Comparator<ParsedStream>>()
 
@@ -502,10 +494,24 @@ object StreamSorter {
             }
         }
         if (s.preferCodecs.isNotEmpty()) {
-            chain += compareBy<ParsedStream> { preferenceRank(it.info.codec, s.preferCodecs, ::canonicalCodec) }
+            val ranks = s.preferCodecs.mapNotNull(::canonicalCodec).distinct()
+                .withIndex().associate { it.value to it.index }
+            if (ranks.isNotEmpty()) {
+                chain += compareBy<ParsedStream> {
+                    canonicalCodec(it.info.codec)?.let { codec -> ranks[codec] ?: ranks.size + 1 }
+                        ?: ranks.size + 2
+                }
+            }
         }
         if (s.preferAudio.isNotEmpty()) {
-            chain += compareBy<ParsedStream> { preferenceRank(it.info.audio, s.preferAudio, ::canonicalAudio) }
+            val ranks = s.preferAudio.mapNotNull(::canonicalAudio).distinct()
+                .withIndex().associate { it.value to it.index }
+            if (ranks.isNotEmpty()) {
+                chain += compareBy<ParsedStream> {
+                    canonicalAudio(it.info.audio)?.let { audio -> ranks[audio] ?: ranks.size + 1 }
+                        ?: ranks.size + 2
+                }
+            }
         }
         if (s.cachedFirst) {
             chain += compareByDescending<ParsedStream> {
