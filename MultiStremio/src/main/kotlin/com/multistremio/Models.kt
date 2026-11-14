@@ -206,6 +206,10 @@ fun Manifest.hasResource(resource: String): Boolean {
     return list.any { (it is String && it == resource) || (it is Map<*, *> && it["name"] == resource) }
 }
 
+/** Minimum manifest shape needed to show and route a Stremio addon in MultiStremio. */
+fun Manifest.isUsableByMultiStremio(): Boolean =
+    !name.isNullOrBlank() && !resources.isNullOrEmpty()
+
 /** Names of all extras this catalog accepts (modern `extra` plus legacy `extraSupported`). */
 fun ManifestCatalog.extraNames(): Set<String> =
     (extra.orEmpty().mapNotNull { it.name } + extraSupported.orEmpty()).toSet()
