@@ -30,10 +30,12 @@ object ExternalHomeRows {
             val providerClass = provider.javaClass.name
             for (row in mainRows) {
                 val dataHash = Hashing.sha256(row.data)
-                val identity = externalRowIdentity(source, provider.name, providerClass, row.name, row.horizontalImages)
+                val identity = ExternalRowIdentity.descriptor(
+                    source, providerClass, row.name, row.horizontalImages
+                )
                 val occurrence = occurrences[identity] ?: 0
                 occurrences[identity] = occurrence + 1
-                val key = externalHomeRowKey(identity, occurrence)
+                val key = ExternalRowIdentity.key(identity, occurrence)
                 rows += InstalledExternalHomeRow(
                     ExternalRowConfig(
                         key = key,
@@ -66,13 +68,7 @@ object ExternalHomeRows {
     ): InstalledExternalHomeRow? {
         availableRows.firstOrNull { it.config.key == config.key }?.let { return it }
 
-        val matches = availableRows.filter {
-            it.config.sourcePlugin == config.sourcePlugin &&
-                it.config.providerName == config.providerName &&
-                it.config.providerClass == config.providerClass &&
-                it.config.rowName == config.rowName &&
-                it.config.horizontalImages == config.horizontalImages
-        }
+        val matches = availableRows.filter { ExternalRowIdentity.matches(config, it.config) }
         if (matches.isEmpty()) return null
         if (config.dataHash.isNotBlank()) {
             matches.firstOrNull { it.config.dataHash == config.dataHash }?.let { return it }
@@ -81,17 +77,6 @@ object ExternalHomeRows {
         return matches.singleOrNull()
     }
 
-    private fun externalRowIdentity(
-        sourcePlugin: String,
-        providerName: String,
-        providerClass: String,
-        rowName: String,
-        horizontalImages: Boolean,
-    ): String = listOf(
-        sourcePlugin, providerName, providerClass, rowName, horizontalImages.toString()
-    ).joinToString("\u0000")
 
-    private fun externalHomeRowKey(identity: String, occurrence: Int): String =
-        "external:" + Hashing.sha256("$identity\u0000$occurrence")
 
 }
