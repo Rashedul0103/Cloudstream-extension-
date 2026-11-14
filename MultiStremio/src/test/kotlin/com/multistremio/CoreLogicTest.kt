@@ -431,6 +431,34 @@ class CoreLogicTest {
     }
 
     @Test
+    fun preferredLanguageListOrderControlsStreamRanking() {
+        // The English stream has the earlier addon index, so only the explicit preference order
+        // should decide which language appears first.
+        val english = StreamParser.parsed(
+            0, "English addon",
+            RawStream(name = "Example.Movie.1080p.WEB-DL.ENG"),
+        )
+        val bangla = StreamParser.parsed(
+            1, "Bangla addon",
+            RawStream(name = "Example.Movie.1080p.WEB-DL.BENG"),
+        )
+
+        val banglaFirst = StreamPipeline.process(
+            listOf(english, bangla),
+            FilterSettings(),
+            SortSettings(preferLanguages = mutableListOf("bn", "en")),
+        )
+        assertEquals(listOf("bn", "en"), banglaFirst.map { it.info.languages.single() })
+
+        val englishFirst = StreamPipeline.process(
+            listOf(english, bangla),
+            FilterSettings(),
+            SortSettings(preferLanguages = mutableListOf("English", "Bengali")),
+        )
+        assertEquals(listOf("en", "bn"), englishFirst.map { it.info.languages.single() })
+    }
+
+    @Test
     fun detailedStreamLabelsShowDetectedLanguagesAndSubtitleTracks() {
         val parsed = StreamParser.parsed(
             0,
