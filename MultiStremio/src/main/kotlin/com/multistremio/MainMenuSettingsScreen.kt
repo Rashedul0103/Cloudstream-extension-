@@ -36,46 +36,70 @@ internal object MainMenuSettingsScreen {
     fun show(ctx: Context) = mainMenu(ctx)
 
     private fun mainMenu(ctx: Context) {
-        val s = Config.settings
-        val activeRows = HomeRows.visibleCount(s)
-        menu(
-            ctx, "MultiStremio",
-            listOf(
-                "Addons (${s.addons.count { it.enabled }}/${s.addons.size} enabled)",
-                "Catalog rows (visibility & order)",
-                "Stream filters",
-                "Stream sorting",
-                "Stream formatter (design link names)",
-                "Last streaming diagnostics",
-                "Subtitles",
-                "General",
-                "Backup / restore / reset",
+        val settings = Config.settings
+        val homeRowCount = HomeRows.visibleCount(settings)
+        val items = listOf(
+            SettingItem(
+                title = "Addons (${settings.addons.count { it.enabled }}/${settings.addons.size} enabled)",
+                summary = "${settings.addons.size} sources configured; manage their priority and capabilities",
+                onClick = { AddonsSettingsScreen.show(ctx) },
+                searchKeywords = listOf("addons", "sources", "priority", "manifests"),
             ),
+            SettingItem(
+                title = "Catalog rows (visibility & order)",
+                summary = "$homeRowCount homepage rows currently enabled; manage visibility and order",
+                onClick = { CatalogRowsSettingsScreen.show(ctx) },
+                searchKeywords = listOf("catalog", "homepage", "rows", "visibility", "order", "extensions"),
+            ),
+            SettingItem(
+                title = "Stream filters",
+                summary = "Choose which streams are allowed",
+                onClick = { FiltersSettingsScreen.show(ctx) },
+                searchKeywords = listOf("filters", "resolution", "size", "language", "keywords", "HDR"),
+            ),
+            SettingItem(
+                title = "Stream sorting",
+                summary = "Control quality, language, codec and audio ranking",
+                onClick = { SortingSettingsScreen.show(ctx) },
+                searchKeywords = listOf("sorting", "ranking", "quality", "seeders", "codec", "audio"),
+            ),
+            SettingItem(
+                title = "Stream formatter",
+                summary = "Build your own link layout without writing code",
+                onClick = { FormatterSettingsScreen.show(ctx) },
+                searchKeywords = listOf("formatter", "format", "labels", "link name", "layout"),
+            ),
+            SettingItem(
+                title = "Last streaming diagnostics",
+                summary = "Inspect recent source responses and filtered-link counts",
+                onClick = { DiagnosticsSettingsScreen.show(ctx) },
+                searchKeywords = listOf("diagnostics", "debug", "requests", "performance"),
+            ),
+            SettingItem(
+                title = "Subtitles",
+                summary = "Control subtitle sources and languages",
+                onClick = { GeneralSettingsScreen.showSubtitles(ctx) },
+                searchKeywords = listOf("subtitles", "captions", "languages"),
+            ),
+            SettingItem(
+                title = "General",
+                summary = "Request timeout and link display options",
+                onClick = { GeneralSettingsScreen.show(ctx) },
+                searchKeywords = listOf("general", "timeout", "labels", "display"),
+            ),
+            SettingItem(
+                title = "Backup / restore / reset",
+                summary = "Protect, copy or restore your configuration",
+                onClick = { BackupSettingsScreen.show(ctx) },
+                searchKeywords = listOf("backup", "restore", "reset", "export", "import"),
+            ),
+        )
+        settingMenu(
+            ctx,
+            "MultiStremio",
+            items,
             null,
             "Manage sources, homepage layout and playback. Search is available inside longer settings lists.",
-            listOf(
-                "${s.addons.size} sources configured · ${s.addons.count { it.enabled }} active",
-                "$activeRows homepage rows configured as enabled; check Catalog rows for missing sources",
-                "Choose which streams are allowed",
-                "Control quality, language, codec and audio ranking",
-                "Build your own link layout without writing code",
-                "See the most recent source responses and filtered-link counts",
-                "Control subtitle sources and languages",
-                "Request timeout and link display options",
-                "Protect, copy or restore your configuration",
-            ),
-        ) {
-            when (it) {
-                0 -> AddonsSettingsScreen.show(ctx)
-                1 -> CatalogRowsSettingsScreen.show(ctx)
-                2 -> FiltersSettingsScreen.show(ctx)
-                3 -> SortingSettingsScreen.show(ctx)
-                4 -> FormatterSettingsScreen.show(ctx)
-                5 -> DiagnosticsSettingsScreen.show(ctx)
-                6 -> GeneralSettingsScreen.showSubtitles(ctx)
-                7 -> GeneralSettingsScreen.show(ctx)
-                8 -> BackupSettingsScreen.show(ctx)
-            }
-        }
+        )
     }
 }
