@@ -36,6 +36,10 @@ Beta.
 
 Imported homepage rows are matched using the source plugin, provider class, row title, image orientation and duplicate-row position. Their opaque request data is not part of the identity, so an extension can refresh paging or query data without automatically making the saved row unavailable. If a provider exposes multiple rows with the same title and no stable row identifier, identity can still be ambiguous when those rows change order.
 
+## Stream filter edge cases
+
+Leaving every box unchecked under **Allowed resolutions** means no resolution restriction is applied; it does not hide every stream. The settings summary displays this as **Any (no restriction)**. Keyword filters accept plain comma-separated text or slash-delimited regular expressions. Invalid regular expressions are rejected before saving so a typo cannot silently produce an always-false rule.
+
 ## Language matching
 
 Language filters accept common ISO 639 codes, three-letter codes, regional tags such as `pt-BR`, and language names. Release-name detection recognizes common audio-language labels, country flags and selected native-language names. Detection is heuristic: an addon that does not describe the audio language cannot be identified reliably from its stream label alone.
