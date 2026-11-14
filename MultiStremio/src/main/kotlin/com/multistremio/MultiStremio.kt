@@ -380,6 +380,13 @@ class MultiStremio : MainAPI() {
             ?: SubtitleHelper.fromThreeLettersToLanguage(code)
             ?: code
 
-    /** Comparable key so "en", "eng" and "English" all match each other. */
-    private fun subtitleKey(code: String): String = subtitleName(code.trim()).lowercase()
+    /** Canonicalize ISO codes, BCP-47 tags, display names and CloudStream language aliases. */
+    private fun subtitleKey(code: String): String {
+        val normalized = Langs.normalize(code)
+        if (normalized.length <= 2 || normalized == "multi" || normalized == "und") return normalized
+        val displayName = SubtitleHelper.fromTagToLanguageName(code.trim())
+            ?: SubtitleHelper.fromTwoLettersToLanguage(code.trim())
+            ?: SubtitleHelper.fromThreeLettersToLanguage(code.trim())
+        return Langs.normalize(displayName ?: code)
+    }
 }
