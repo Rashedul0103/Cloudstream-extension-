@@ -52,10 +52,10 @@ class MultiStremio : MainAPI() {
             }
 
             // Rows selected from other installed CloudStream extensions share this same order list.
-            val installedExternalRows = ExternalHomeRows.installedRows(this).associateBy { it.config.key }
+            val installedExternalRows = ExternalHomeRows.installedRows(this)
             for (selected in settings.externalRows) {
                 if (!selected.enabled) continue
-                val installed = installedExternalRows[selected.key] ?: continue
+                val installed = ExternalHomeRows.resolve(selected, installedExternalRows) ?: continue
                 val original = installed.row
                 rows += selected.key to MainPageData(
                     original.name,
