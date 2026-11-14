@@ -77,8 +77,7 @@ internal object FormatterSettingsScreen {
         ) { which ->
             when (which) {
                 0 -> {
-                    Config.update { streamFormat.enabled = !streamFormat.enabled }
-                    streamFormatterMenu(ctx)
+                    updateAndReopen({ streamFormatterMenu(ctx) }) { streamFormat.enabled = !streamFormat.enabled }
                 }
                 1 -> multi(
                     ctx,
@@ -90,17 +89,14 @@ internal object FormatterSettingsScreen {
                     val wanted = fields.filterIndexed { index, _ -> chosen.getOrElse(index) { false } }.map { it.id }.toSet()
                     val existingOrder = format.fields.filter { it in wanted }
                     val newlySelected = fields.map { it.id }.filter { it in wanted && it !in existingOrder }
-                    Config.update { streamFormat.fields = (existingOrder + newlySelected).toMutableList() }
-                    streamFormatterMenu(ctx)
+                    updateAndReopen({ streamFormatterMenu(ctx) }) { streamFormat.fields = (existingOrder + newlySelected).toMutableList() }
                 }
                 2 -> streamFormatReorderDialog(ctx)
                 3 -> choose(ctx, "Separate each detail with", separatorLabels, separatorIndex, onCancel = { streamFormatterMenu(ctx) }) {
-                    Config.update { streamFormat.separator = separators[it] }
-                    streamFormatterMenu(ctx)
+                    updateAndReopen({ streamFormatterMenu(ctx) }) { streamFormat.separator = separators[it] }
                 }
                 4 -> {
-                    Config.update { streamFormat.showLabels = !streamFormat.showLabels }
-                    streamFormatterMenu(ctx)
+                    updateAndReopen({ streamFormatterMenu(ctx) }) { streamFormat.showLabels = !streamFormat.showLabels }
                 }
                 5 -> {
                     val preview = StreamLabels.preview(format)
@@ -118,8 +114,7 @@ internal object FormatterSettingsScreen {
                     "This restores the recommended field order, middle-dot separator and compact labels. Your custom layout will be turned off.",
                     onCancel = { streamFormatterMenu(ctx) },
                 ) {
-                    Config.update { streamFormat = StreamFormatSettings() }
-                    streamFormatterMenu(ctx)
+                    updateAndReopen({ streamFormatterMenu(ctx) }) { streamFormat = StreamFormatSettings() }
                 }
             }
         }
@@ -237,8 +232,7 @@ internal object FormatterSettingsScreen {
         addFooter(ctx, root, "Save row order", {
             val order = (0 until list.childCount).mapNotNull { list.getChildAt(it).tag as? String }
             if (order.size == orderedIds.size && order.toSet() == orderedIds.toSet()) {
-                Config.update { streamFormat.fields = order.toMutableList() }
-                        streamFormatterMenu(ctx)
+                updateAndReopen({ streamFormatterMenu(ctx) }) { streamFormat.fields = order.toMutableList() }
             } else {
                 toast(ctx, "Could not save the format order. Please try again.")
             }
