@@ -556,6 +556,12 @@ class CoreLogicTest {
     }
 
     @Test
+    fun arbitraryJsonCannotBeImportedAsAnEmptyLegacyBackup() {
+        assertEquals(null, SettingsBackupManager.parse("{}"))
+        assertEquals(null, SettingsBackupManager.parse("""{"unrelated":"value"}"""))
+    }
+
+    @Test
     fun backupPrivacyFlagCannotHideEmbeddedAddonOrExtensionSources() {
         val forgedEnvelope = SettingsBackup(
             includesAddonUrls = false,
