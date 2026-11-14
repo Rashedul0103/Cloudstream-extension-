@@ -390,8 +390,15 @@ object SettingsUi {
     private fun mainMenu(ctx: Context) {
         val s = Config.settings
         val activeRows = s.addons.sumOf { addon ->
-            Config.manifestOf(addon)?.catalogs.orEmpty().count {
-                it.isHomeCatalog() && "${it.type}/${it.id}" !in addon.hiddenCatalogs && addon.enabled && addon.useCatalogs
+            if (!addon.enabled || !addon.useCatalogs) 0 else {
+                val manifest = Config.manifestOf(addon)
+                manifest?.catalogs.orEmpty().count { catalog ->
+                    val type = catalog.type
+                    val id = catalog.id
+                    type != null && id != null &&
+                        manifest.supports("catalog", type, null) &&
+                        catalog.isHomeCatalog() && "$type/$id" !in addon.hiddenCatalogs
+                }
             }
         } + s.externalRows.count { it.enabled }
         menu(
@@ -594,7 +601,7 @@ object SettingsUi {
             minOf(dp(ctx, 460), dp(ctx, maxOf(100, orderedIds.size * 70))),
         ))
         val dialog = AlertDialog.Builder(ctx).setView(root).create()
-        addFooter(ctx, root, "Save order", {
+        addFooter(ctx, root, "Save row order", {
             val order = (0 until list.childCount).mapNotNull { list.getChildAt(it).tag as? String }
             if (order.size == orderedIds.size && order.toSet() == orderedIds.toSet()) {
                 Config.update { streamFormat.fields = order.toMutableList() }
@@ -1045,8 +1052,13 @@ object SettingsUi {
     }
 
     private fun catalogPicker(ctx: Context, a: AddonConfig) {
-        val cats = Config.manifestOf(a)?.catalogs.orEmpty()
-            .filter { it.type != null && it.id != null && it.isHomeCatalog() }
+        val manifest = Config.manifestOf(a)
+        val cats = manifest?.catalogs.orEmpty()
+            .filter {
+                val type = it.type
+                type != null && it.id != null && it.isHomeCatalog() &&
+                    manifest.supports("catalog", type, null)
+            }
         if (cats.isEmpty()) { toast(ctx, "This addon has no browsable catalogs"); addonMenu(ctx, a); return }
         val keys = cats.map { "${it.type}/${it.id}" }
         multi(
@@ -1088,10 +1100,12 @@ object SettingsUi {
                 val type = catalog.type ?: continue
                 val id = catalog.id ?: continue
                 if (!catalog.isHomeCatalog()) continue
+                val providesCatalog = manifest.supports("catalog", type, null)
                 val enabled = "$type/$id" !in addon.hiddenCatalogs
                 val status = when {
                     !addon.enabled -> "ADDON OFF"
                     !addon.useCatalogs -> "CATALOGS OFF"
+                    !providesCatalog -> "RESOURCE MISSING"
                     enabled -> "ON"
                     else -> "HIDDEN"
                 }
@@ -1175,7 +1189,7 @@ object SettingsUi {
             val handle = text(ctx, "☰", 23f, colors.accent, true).apply {
                 gravity = Gravity.CENTER
                 setPadding(dp(ctx, 10), 0, dp(ctx, 10), 0)
-                contentDescription = "Hold and drag to reorder " + row.name
+                contentDescription = "Drag to reorder " + row.name
             }
             val item = LinearLayout(ctx).apply {
                 orientation = LinearLayout.HORIZONTAL
