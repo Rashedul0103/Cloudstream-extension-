@@ -163,8 +163,11 @@ class CoreLogicTest {
     @Test
     fun streamDiagnosticsRecordOnlySafeCountsAndTimings() {
         val run = StreamDiagnostics.begin()
-        StreamDiagnostics.record(run, "Example addon", "Streams", 125L, true, 4)
-        StreamDiagnostics.record(run, "Unavailable addon", "Subtitles", 8000L, false, 0)
+        StreamDiagnostics.record(run, "Example addon", "Streams", 125L, "OK", 4)
+        StreamDiagnostics.record(run, "Unavailable addon", "Subtitles", 8000L, "TIMEOUT", 0)
+        StreamDiagnostics.recordStage(run, "parse", 7L)
+        StreamDiagnostics.recordStage(run, "pipeline", 3L)
+        StreamDiagnostics.recordStage(run, "emission", 2L)
         StreamDiagnostics.finish(
             run,
             rawStreams = 4,
@@ -181,7 +184,19 @@ class CoreLogicTest {
         assertEquals(2, snapshot.keptAfterFilters)
         assertEquals(2, snapshot.emittedLinks)
         assertEquals(2, snapshot.requests.size)
-        assertFalse(snapshot.requests[1].responseReceived)
+        assertEquals("TIMEOUT", snapshot.requests[1].status)
+        assertEquals(7L, snapshot.parseWorkMs)
+        assertEquals(3L, snapshot.pipelineMs)
+        assertEquals(2L, snapshot.emissionMs)
+    }
+
+    @Test
+    fun addonArrayParsingDistinguishesFailureFromEmptyResults() {
+        assertEquals("EMPTY_BODY", Json.parseArrayDetailed<RawStream>(null, "streams").status)
+        assertEquals("INVALID_JSON", Json.parseArrayDetailed<RawStream>("{broken", "streams").status)
+        assertEquals("MISSING_ARRAY", Json.parseArrayDetailed<RawStream>("{\"streams\":{}}", "streams").status)
+        assertEquals("EMPTY", Json.parseArrayDetailed<RawStream>("{\"streams\":[]}", "streams").status)
+        assertEquals("OK", Json.parseArrayDetailed<RawStream>("{\"streams\":[{\"url\":\"https://example.com/a.m3u8\"}]}", "streams").status)
     }
 
     @Test
