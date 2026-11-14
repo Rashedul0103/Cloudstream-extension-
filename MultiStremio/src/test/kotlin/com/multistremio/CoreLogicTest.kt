@@ -535,6 +535,31 @@ class CoreLogicTest {
     }
 
     @Test
+    fun olderSlowLookupCannotReplaceNewerDiagnosticsSnapshot() {
+        val older = StreamDiagnostics.begin()
+        val newer = StreamDiagnostics.begin()
+
+        StreamDiagnostics.finish(newer, 20, 0, 18, 16, 16)
+        StreamDiagnostics.finish(older, 10, 0, 8, 6, 6)
+
+        assertEquals(20, StreamDiagnostics.latest()!!.rawStreams)
+        assertEquals(16, StreamDiagnostics.latest()!!.emittedLinks)
+    }
+
+    @Test
+    fun diagnosticAddonNamesRedactUrlsCredentialsAndNewlines() {
+        assertEquals(
+            "Private addon [URL redacted]",
+            StreamDiagnostics.safeAddonName("Private addon https://example.com/manifest?token=secret"),
+        )
+        assertEquals(
+            "Addon?token=[redacted]&region=bd",
+            StreamDiagnostics.safeAddonName("Addon?token=secret&region=bd"),
+        )
+        assertEquals("First Second", StreamDiagnostics.safeAddonName("First\\nSecond"))
+    }
+
+    @Test
     fun addonArrayParsingDistinguishesFailureFromEmptyResults() {
         assertEquals("EMPTY_BODY", Json.parseArrayDetailed<RawStream>(null, "streams").status)
         assertEquals("INVALID_JSON", Json.parseArrayDetailed<RawStream>("{broken", "streams").status)
