@@ -2,29 +2,39 @@ package com.multistremio
 
 import com.lagradost.cloudstream3.app
 import com.lagradost.cloudstream3.mvvm.logError
+import java.net.SocketTimeoutException
 import kotlin.coroutines.cancellation.CancellationException
 
-/** Talks to Stremio addons over HTTP. Every call swallows its own errors so one bad addon never breaks the rest. */
+/** Talks to Stremio addons over HTTP. Every call isolates failures so one bad addon never breaks the rest. */
 object StremioClient {
-    private suspend fun fetch(url: String): String? =
+    private data class FetchResult(val body: String?, val status: String)
+
+    private suspend fun fetch(url: String): FetchResult =
         try {
             val res = app.get(url, timeout = Config.settings.timeoutSec.toLong())
-            if (res.isSuccessful) res.text else null
+            if (!res.isSuccessful) FetchResult(null, "HTTP_ERROR")
+            else {
+                val body = res.text
+                if (body.isBlank()) FetchResult(body, "EMPTY_BODY")
+                else FetchResult(body, "RECEIVED")
+            }
         } catch (e: CancellationException) {
             throw e
+        } catch (e: SocketTimeoutException) {
+            FetchResult(null, "TIMEOUT")
         } catch (e: Throwable) {
             logError(e)
-            null
+            FetchResult(null, "NETWORK_ERROR")
         }
 
     suspend fun catalog(addon: AddonConfig, type: String, catalogId: String, extra: String?): List<Meta> {
-        val text = fetch(Urls.resource(addon.url, "catalog", type, catalogId, extra))
-        return Json.parseArray<Meta>(text, "metas")
+        val response = fetch(Urls.resource(addon.url, "catalog", type, catalogId, extra))
+        return Json.parseArray<Meta>(response.body, "metas")
     }
 
     suspend fun meta(addon: AddonConfig, type: String, id: String): Meta? {
-        val text = fetch(Urls.resource(addon.url, "meta", type, id))
-        return Json.parse<MetaResponse>(text)?.meta
+        val response = fetch(Urls.resource(addon.url, "meta", type, id))
+        return Json.parse<MetaResponse>(response.body)?.meta
     }
 
     suspend fun streams(
@@ -34,17 +44,14 @@ object StremioClient {
         diagnosticRunId: Long? = null,
     ): List<RawStream> {
         val started = System.nanoTime()
-        val text = fetch(Urls.resource(addon.url, "stream", type, id))
-        val result = Json.parseArray<RawStream>(text, "streams")
+        val response = fetch(Urls.resource(addon.url, "stream", type, id))
+        val parsed = if (response.body == null) ArrayParseResult<RawStream>(emptyList(), response.status)
+            else Json.parseArrayDetailed<RawStream>(response.body, "streams")
         StreamDiagnostics.record(
-            diagnosticRunId,
-            addon.name,
-            "Streams",
-            (System.nanoTime() - started) / 1_000_000L,
-            text != null,
-            result.size,
+            diagnosticRunId, addon.name, "Streams",
+            (System.nanoTime() - started) / 1_000_000L, parsed.status, parsed.items.size,
         )
-        return result
+        return parsed.items
     }
 
     suspend fun subtitles(
@@ -54,16 +61,13 @@ object StremioClient {
         diagnosticRunId: Long? = null,
     ): List<RawSubtitle> {
         val started = System.nanoTime()
-        val text = fetch(Urls.resource(addon.url, "subtitles", type, id))
-        val result = Json.parseArray<RawSubtitle>(text, "subtitles")
+        val response = fetch(Urls.resource(addon.url, "subtitles", type, id))
+        val parsed = if (response.body == null) ArrayParseResult<RawSubtitle>(emptyList(), response.status)
+            else Json.parseArrayDetailed<RawSubtitle>(response.body, "subtitles")
         StreamDiagnostics.record(
-            diagnosticRunId,
-            addon.name,
-            "Subtitles",
-            (System.nanoTime() - started) / 1_000_000L,
-            text != null,
-            result.size,
+            diagnosticRunId, addon.name, "Subtitles",
+            (System.nanoTime() - started) / 1_000_000L, parsed.status, parsed.items.size,
         )
-        return result
+        return parsed.items
     }
 }

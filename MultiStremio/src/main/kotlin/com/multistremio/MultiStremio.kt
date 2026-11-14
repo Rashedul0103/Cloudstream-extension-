@@ -247,8 +247,14 @@ class MultiStremio : MainAPI() {
         runAllAsync(
             {
                 parsed = streamAddons.boundedAmap(perBranchLimit) { (index, addon) ->
-                    StremioClient.streams(addon, type, id, diagnosticRunId)
-                        .map { StreamParser.parsed(index, addon.name, it) }
+                    val raw = StremioClient.streams(addon, type, id, diagnosticRunId)
+                    val parseStarted = System.nanoTime()
+                    val converted = raw.map { StreamParser.parsed(index, addon.name, it) }
+                    StreamDiagnostics.recordStage(
+                        diagnosticRunId, "parse",
+                        (System.nanoTime() - parseStarted) / 1_000_000L,
+                    )
+                    converted
                 }.flatten()
             },
             {
@@ -271,9 +277,15 @@ class MultiStremio : MainAPI() {
 
         // YouTube/external-only entries are handled below and must not use up filter/limit slots.
         val playable = parsed.filter { it.isDirect || it.isMagnet }
+        val pipelineStarted = System.nanoTime()
         val processed = StreamPipeline.process(playable, settings.filter, settings.sort)
+        StreamDiagnostics.recordStage(
+            diagnosticRunId, "pipeline",
+            (System.nanoTime() - pipelineStarted) / 1_000_000L,
+        )
         var emitted = false
         var emittedLinks = 0
+        val emissionStarted = System.nanoTime()
         for (p in processed) {
             emitStream(p, settings, sentSubs, wantedSubs, subtitleCallback, callback)
             emitted = true
@@ -294,6 +306,10 @@ class MultiStremio : MainAPI() {
                 emittedLinks++
             }
         }
+        StreamDiagnostics.recordStage(
+            diagnosticRunId, "emission",
+            (System.nanoTime() - emissionStarted) / 1_000_000L,
+        )
         StreamDiagnostics.finish(
             diagnosticRunId,
             rawStreams = parsed.size,

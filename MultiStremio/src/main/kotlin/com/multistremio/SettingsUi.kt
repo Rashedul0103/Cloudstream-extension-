@@ -435,6 +435,9 @@ object SettingsUi {
                 "Streams kept after filters and deduplication: ${snapshot.keptAfterFilters}",
                 "Links handed to CloudStream: ${snapshot.emittedLinks}",
                 "Addon requests recorded: ${snapshot.requests.size}",
+                "Parsing work (parallel totals): ${snapshot.parseWorkMs} ms",
+                "Filtering, merging & sorting: ${snapshot.pipelineMs} ms",
+                "Link emission & subtitle callbacks: ${snapshot.emissionMs} ms",
             ).forEach { addView(text(ctx, it, 13f, colors.primary).apply {
                 setPadding(0, dp(ctx, 3), 0, dp(ctx, 3))
             }) }
@@ -444,13 +447,11 @@ object SettingsUi {
         if (snapshot.requests.isEmpty()) {
             list.addView(text(ctx, "No addon request details were recorded.", 13f, colors.secondary))
         } else {
-            snapshot.requests.sortedWith(compareBy<StreamRequestDiagnostic> { it.responseReceived }.thenByDescending { it.elapsedMs })
+            snapshot.requests.sortedWith(compareBy<StreamRequestDiagnostic> { it.status == "OK" }.thenByDescending { it.elapsedMs })
                 .forEach { item ->
-                    val status = when {
-                        !item.responseReceived -> "NO RESPONSE"
-                        item.resultCount == 0 -> "EMPTY"
-                        else -> "${item.resultCount} items"
-                    }
+                    val status = if (item.resultCount > 0) {
+                        "${item.status} · ${item.resultCount} items"
+                    } else item.status
                     val card = vertical(ctx, dp(ctx, 10)).apply {
                         background = rounded(ctx, colors.background, colors.outline)
                         addView(text(
