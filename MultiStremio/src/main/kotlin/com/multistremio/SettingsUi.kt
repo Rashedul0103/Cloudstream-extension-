@@ -1063,7 +1063,7 @@ object SettingsUi {
                         )
                     }
                 }
-                7 -> confirm(ctx, "Remove ${a.name}?", "This only removes it from MultiStremio. Its catalog rows and saved row-order entries will also be removed.") {
+                7 -> confirm(ctx, "Remove ${a.name}?", "This only removes it from MultiStremio. Its catalog rows and saved row-order entries will also be removed.", onCancel = { addonMenu(ctx, a) }) {
                     Config.update {
                         addons.remove(a)
                         val addonPrefix = a.id + "|"
@@ -1587,6 +1587,7 @@ object SettingsUi {
                         "order between links of equal quality. Turning this ON makes every link report " +
                         "'unknown quality' so the order chosen here is shown exactly. Resolution still appears " +
                         "in each link's name. Currently ${onOff(s.overrideAppQuality)}; switch it?",
+                    onCancel = again,
                 ) { Config.update { s.overrideAppQuality = !s.overrideAppQuality }; again() }
             }
         }
@@ -1670,12 +1671,14 @@ object SettingsUi {
                     "Copy preferences-only backup?",
                     "This export excludes all Stremio addon URLs, manifests and imported homepage-row references. " +
                         "Restoring it will not restore your sources; you will need to add them again.",
+                    onCancel = { backupMenu(ctx) },
                 ) { copyBackup(includeAddonUrls = false) }
                 1 -> confirm(
                     ctx,
                     "Copy full backup?",
                     "This includes addon endpoints and cached manifests. Addon URLs may contain debrid keys or other " +
                         "credentials. The clipboard is not encrypted. Do not share this backup publicly.",
+                    onCancel = { backupMenu(ctx) },
                 ) { copyBackup(includeAddonUrls = true) }
                 2 -> prompt(
                     ctx,
@@ -1683,6 +1686,7 @@ object SettingsUi {
                     "Paste a MultiStremio backup or settings JSON copied from an older version. This replaces the current configuration.",
                     "",
                     false,
+                    onCancel = { backupMenu(ctx) },
                 ) { pasted ->
                     val backup = SettingsBackupManager.parse(pasted)
                     val restored = backup?.settings
@@ -1694,18 +1698,18 @@ object SettingsUi {
                         } else {
                             "This preferences-only backup contains no addon sources or imported-extension references. Restoring it will remove your current addons and imported homepage rows."
                         }
-                        confirm(ctx, "Restore this backup?", warning) {
+                        confirm(ctx, "Restore this backup?", warning, onCancel = { backupMenu(ctx) }) {
                             restored.seeded = true
                             Config.replace(restored)
                             toast(ctx, "Backup restored. Refresh the home page.")
                         }
                     }
                 }
-                3 -> confirm(ctx, "Reset filters & sorting?", "Addons are kept.") {
+                3 -> confirm(ctx, "Reset filters & sorting?", "Addons are kept.", onCancel = { backupMenu(ctx) }) {
                     Config.update { filter = FilterSettings(); sort = SortSettings() }
                     toast(ctx, "Reset")
                 }
-                4 -> confirm(ctx, "Remove everything?", "All addons and settings are deleted (Cinemeta is not re-added).") {
+                4 -> confirm(ctx, "Remove everything?", "All addons and settings are deleted (Cinemeta is not re-added).", onCancel = { backupMenu(ctx) }) {
                     Config.replace(Settings(seeded = true))
                     toast(ctx, "Cleared")
                 }
