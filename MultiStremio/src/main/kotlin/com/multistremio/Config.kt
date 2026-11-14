@@ -179,7 +179,9 @@ object Config {
 
     fun init(context: Context) {
         prefs = context.applicationContext.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
-        settings = Json.parse<Settings>(prefs?.getString(KEY, null)) ?: Settings()
+        settings = runCatching {
+            Json.parse<Settings>(prefs?.getString(KEY, null))?.sanitized()
+        }.getOrNull() ?: Settings()
         if (!settings.seeded) {
             settings.seeded = true
             if (settings.addons.isEmpty()) {
@@ -209,7 +211,7 @@ object Config {
 
     @Synchronized
     fun replace(newSettings: Settings) {
-        settings = newSettings
+        settings = newSettings.sanitized()
         save()
     }
 
