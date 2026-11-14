@@ -362,7 +362,12 @@ class MultiStremio : MainAPI() {
                 },
             )
         } else if (!p.raw.infoHash.isNullOrBlank()) {
-            val magnet = Urls.magnet(p.raw.infoHash, hints?.filename ?: p.raw.title?.lineSequence()?.firstOrNull(), p.raw.sources)
+            val magnet = Urls.magnet(
+                p.raw.infoHash,
+                hints?.filename ?: p.raw.title?.lineSequence()?.firstOrNull(),
+                p.raw.sources,
+                p.raw.fileIdx,
+            )
             callback(
                 newExtractorLink(p.addonName, label, magnet, ExtractorLinkType.MAGNET) {
                     this.quality = quality
