@@ -1079,6 +1079,10 @@ object SettingsUi {
                                 "provides ${resources.joinToString(", ").ifEmpty { "nothing" }}"
                             else "Could not download the manifest",
                         )
+                        main.post {
+                            val current = Config.settings.addons.firstOrNull { it.id == a.id && it.url == a.url }
+                            if (current != null) addonMenu(ctx, current) else addonsMenu(ctx)
+                        }
                     }
                 }
                 7 -> confirm(ctx, "Remove ${a.name}?", "This only removes it from MultiStremio. Its catalog rows and saved row-order entries will also be removed.", onCancel = { addonMenu(ctx, a) }) {
