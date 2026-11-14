@@ -1,5 +1,5 @@
 // Use an integer for version numbers; bump it on every release so CloudStream offers the update.
-version = 13
+version = 14
 
 cloudstream {
     description = "Combine any number of Stremio addons: merged catalogs, search, metadata, " +
@@ -32,4 +32,12 @@ android {
 
 dependencies {
     testImplementation("junit:junit:4.13.2")
+}
+
+
+tasks.withType<Test>().configureEach {
+    testLogging {
+        events("passed", "failed", "skipped", "standardOut")
+        showStandardStreams = true
+    }
 }
