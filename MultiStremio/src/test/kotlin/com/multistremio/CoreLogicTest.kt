@@ -312,6 +312,34 @@ class CoreLogicTest {
     }
 
     @Test
+    fun directUrlIdentityTakesPriorityOverAnAccompanyingTorrentHash() {
+        val first = StreamParser.parsed(
+            0, "First addon",
+            RawStream(url = "https://example.com/one.mkv", infoHash = "samehash", fileIdx = 0),
+        )
+        val second = StreamParser.parsed(
+            1, "Second addon",
+            RawStream(url = "https://example.com/two.mkv", infoHash = "samehash", fileIdx = 0),
+        )
+        val duplicate = StreamParser.parsed(
+            2, "Third addon",
+            RawStream(url = "https://example.com/one.mkv", infoHash = "differenthash", fileIdx = 4),
+        )
+        assertNotEquals(StreamDeduplication.key(first), StreamDeduplication.key(second))
+        assertEquals(StreamDeduplication.key(first), StreamDeduplication.key(duplicate))
+
+        val torrentFileOne = StreamParser.parsed(
+            3, "Torrent one",
+            RawStream(infoHash = "samehash", fileIdx = 0),
+        )
+        val torrentFileTwo = StreamParser.parsed(
+            4, "Torrent two",
+            RawStream(infoHash = "samehash", fileIdx = 1),
+        )
+        assertNotEquals(StreamDeduplication.key(torrentFileOne), StreamDeduplication.key(torrentFileTwo))
+    }
+
+    @Test
     fun streamPipelineDeduplicatesEquivalentUrlsButKeepsDifferentSignedLinks() {
         val first = StreamParser.parsed(
             0, "First addon",
