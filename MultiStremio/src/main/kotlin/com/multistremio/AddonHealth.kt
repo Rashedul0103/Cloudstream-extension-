@@ -15,6 +15,7 @@ object AddonHealthClassifier {
                 SimpleHttpStatus.TIMEOUT -> "Connection timed out after 8 seconds"
                 SimpleHttpStatus.DNS_ERROR -> "Could not resolve the addon host"
                 SimpleHttpStatus.INVALID_URL -> "Addon URL is invalid"
+                SimpleHttpStatus.BODY_TOO_LARGE -> "Manifest response exceeds the 2 MB safety limit"
                 SimpleHttpStatus.NETWORK_ERROR -> "Network connection failed"
                 SimpleHttpStatus.OK -> "Unexpected response state"
             }
