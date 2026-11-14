@@ -252,14 +252,14 @@ class CoreLogicTest {
 
         val invalidManifest = AddonHealthClassifier.assess(
             SimpleHttpResult("{}", SimpleHttpStatus.OK, 200),
-            Manifest(),
+            Manifest(name = "Incomplete addon", resources = emptyList()),
         )
         assertFalse(invalidManifest.success)
-        assertEquals("JSON response is not a valid Stremio addon manifest", invalidManifest.detail)
+        assertEquals("Manifest must include a name and at least one resource", invalidManifest.detail)
 
         val validManifest = AddonHealthClassifier.assess(
             SimpleHttpResult("{\"name\":\"Working addon\"}", SimpleHttpStatus.OK, 200),
-            Manifest(name = "Working addon"),
+            Manifest(name = "Working addon", resources = listOf("stream")),
         )
         assertTrue(validManifest.success)
     }
