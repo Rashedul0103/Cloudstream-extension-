@@ -1087,114 +1087,170 @@ object SettingsUi {
 
     private fun catalogRowsMenu(ctx: Context) {
         val rows = catalogRows()
-        val labels = listOf("Drag and drop to reorder rows") + rows.mapIndexed { index, row ->
-            val source = row.external?.let { "Extension: ${row.sourceLabel}" }
-                ?: "${row.sourceLabel} (${row.type})"
-            "${index + 1}. [${row.status}] $source · ${row.name}"
-        } + listOf(
-            "Add rows from installed extensions",
-            "Reset row order",
-            "Unhide all Stremio catalog rows",
-        )
-
-        menu(ctx, "Catalog rows", labels, { mainMenu(ctx) }, "Drag rows into the order you want, or open a row to manage its visibility.") { which ->
-            when {
-                which == 0 -> catalogReorderDialog(ctx)
-                which in 1..rows.size -> catalogRowMenu(ctx, rows[which - 1])
-                which == rows.size + 1 -> addExternalRowsMenu(ctx)
-                which == rows.size + 2 -> confirm(
-                    ctx,
-                    "Reset catalog row order?",
-                    "Rows will return to Stremio addon order, followed by newly added extension rows.",
-                ) {
-                    Config.update { catalogOrder.clear() }
-                    toast(ctx, "Catalog row order reset. Refresh the home page to apply.")
-                    catalogRowsMenu(ctx)
-                }
-                else -> confirm(
-                    ctx,
-                    "Unhide every Stremio catalog row?",
-                    "This clears row-level hiding. Disabled addons and disabled catalog use remain inactive. Extension rows are unchanged.",
-                ) {
-                    Config.update { addons.forEach { it.hiddenCatalogs.clear() } }
-                    toast(ctx, "Stremio catalog rows unhidden. Refresh the home page to apply.")
-                    catalogRowsMenu(ctx)
-                }
-            }
-        }
-    }
-
-    /** A native Android drag handle reorders the same stable keys already used by the home page. */
-    /** Uses the same long-press drag controller as the Stream Formatter field sorter. */
-    private fun catalogReorderDialog(ctx: Context) {
-        val rows = catalogRows()
-        if (rows.isEmpty()) {
-            toast(ctx, "There are no catalog rows to reorder.")
-            return
-        }
-
         val colors = palette(ctx)
         val root = shell(
             ctx,
-            "Reorder catalog rows",
-            "Press and hold the grip, then move a row up or down. Stremio and imported extension rows can be mixed. Tap Save when finished.",
+            "Catalog rows",
+            "Hold the ☰ grip on the right of a row and move it up or down. Tap a row's name to manage visibility. Save order when finished.",
         )
         val scroll = ScrollView(ctx).apply { clipToPadding = false }
+        val content = vertical(ctx)
         val list = vertical(ctx)
         val rowNames = rows.associate { it.key to it.name }
+        val dialog = AlertDialog.Builder(ctx).setView(root).create()
 
         fun refreshRowNumbers() {
             for (position in 0 until list.childCount) {
                 val item = list.getChildAt(position) as? LinearLayout ?: continue
                 val key = item.tag as? String ?: continue
-                val description = item.getChildAt(1) as? LinearLayout ?: continue
+                val description = item.getChildAt(0) as? LinearLayout ?: continue
                 val title = description.getChildAt(0) as? TextView ?: continue
-                title.text = "${position + 1}. ${rowNames[key].orEmpty()}"
+                title.text = (position + 1).toString() + ". " + rowNames[key].orEmpty()
             }
         }
 
-        scroll.addView(list, ViewGroup.LayoutParams(
-            ViewGroup.LayoutParams.MATCH_PARENT,
-            ViewGroup.LayoutParams.WRAP_CONTENT,
-        ))
-
         rows.forEachIndexed { index, row ->
-            val handle = text(ctx, "☰", 22f, colors.accent, true).apply {
-                gravity = Gravity.CENTER
-                setPadding(dp(ctx, 4), 0, dp(ctx, 10), 0)
-                contentDescription = "Drag to reorder ${row.name}"
-            }
+            val source = row.external?.let { "Extension · " + it.providerName }
+                ?: row.sourceLabel + " · " + row.type
             val description = vertical(ctx).apply {
-                addView(text(ctx, "${index + 1}. ${row.name}", 14f, colors.primary, true))
-                val source = row.external?.let { "Extension · ${it.providerName}" }
-                    ?: "${row.sourceLabel} · ${row.type}"
-                addView(text(ctx, "$source · ${row.status}", 11f, colors.secondary).apply {
+                addView(text(ctx, (index + 1).toString() + ". " + row.name, 14f, colors.primary, true))
+                addView(text(
+                    ctx,
+                    source + " · " + row.status + " · Tap to manage",
+                    11f,
+                    colors.secondary,
+                ).apply {
                     setPadding(0, dp(ctx, 3), 0, 0)
                 })
+                setPadding(0, dp(ctx, 2), 0, dp(ctx, 2))
+                setOnClickListener {
+                    dialog.dismiss()
+                    catalogRowMenu(ctx, row)
+                }
+                isClickable = true
+            }
+            val handle = text(ctx, "☰", 23f, colors.accent, true).apply {
+                gravity = Gravity.CENTER
+                setPadding(dp(ctx, 10), 0, dp(ctx, 10), 0)
+                contentDescription = "Hold and drag to reorder " + row.name
             }
             val item = LinearLayout(ctx).apply {
                 orientation = LinearLayout.HORIZONTAL
                 gravity = Gravity.CENTER_VERTICAL
-                setPadding(dp(ctx, 12), dp(ctx, 12), dp(ctx, 12), dp(ctx, 12))
+                setPadding(dp(ctx, 12), dp(ctx, 9), dp(ctx, 7), dp(ctx, 9))
                 background = rounded(ctx, colors.background, colors.outline)
+                minimumHeight = dp(ctx, 66)
                 tag = row.key
-                addView(handle, LinearLayout.LayoutParams(dp(ctx, 42), dp(ctx, 48)))
-                addView(description, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
+                addView(description, LinearLayout.LayoutParams(
+                    0,
+                    ViewGroup.LayoutParams.WRAP_CONTENT,
+                    1f,
+                ))
+                addView(handle, LinearLayout.LayoutParams(dp(ctx, 48), dp(ctx, 48)))
             }
             list.addView(item, LinearLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT,
                 ViewGroup.LayoutParams.WRAP_CONTENT,
             ).apply { bottomMargin = dp(ctx, 7) })
-            installDragReordering(ctx, handle, item, list, scroll, colors) { refreshRowNumbers() }
+            installDragReordering(ctx, handle, item, list, scroll, colors) {
+                refreshRowNumbers()
+            }
         }
 
+        if (rows.isEmpty()) {
+            content.addView(text(
+                ctx,
+                "No catalog rows are available yet. Add a Stremio addon or import a row from another installed extension.",
+                13f,
+                colors.secondary,
+            ).apply {
+                setPadding(dp(ctx, 12), dp(ctx, 16), dp(ctx, 12), dp(ctx, 16))
+            })
+        } else {
+            content.addView(list)
+        }
+
+        content.addView(text(ctx, "MORE ACTIONS", 10f, colors.accent, true).apply {
+            letterSpacing = 0.10f
+            setPadding(dp(ctx, 4), dp(ctx, 10), 0, dp(ctx, 7))
+        })
+
+        fun addAction(label: String, detail: String, action: () -> Unit) {
+            val body = vertical(ctx).apply {
+                addView(text(ctx, label, 14f, colors.primary, true))
+                addView(text(ctx, detail, 11f, colors.secondary).apply {
+                    setPadding(0, dp(ctx, 3), 0, 0)
+                })
+            }
+            val actionRow = LinearLayout(ctx).apply {
+                orientation = LinearLayout.HORIZONTAL
+                gravity = Gravity.CENTER_VERTICAL
+                setPadding(dp(ctx, 12), dp(ctx, 10), dp(ctx, 10), dp(ctx, 10))
+                background = ripple(ctx, colors.background, colors)
+                minimumHeight = dp(ctx, 58)
+                addView(body, LinearLayout.LayoutParams(
+                    0,
+                    ViewGroup.LayoutParams.WRAP_CONTENT,
+                    1f,
+                ))
+                addView(text(ctx, "›", 24f, colors.secondary).apply {
+                    gravity = Gravity.CENTER
+                }, LinearLayout.LayoutParams(dp(ctx, 24), ViewGroup.LayoutParams.MATCH_PARENT))
+                setOnClickListener {
+                    dialog.dismiss()
+                    action()
+                }
+            }
+            content.addView(actionRow, LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT,
+                ViewGroup.LayoutParams.WRAP_CONTENT,
+            ).apply { bottomMargin = dp(ctx, 5) })
+        }
+
+        addAction(
+            "Add rows from installed extensions",
+            "Import a homepage row from another CloudStream extension.",
+        ) { addExternalRowsMenu(ctx) }
+        addAction(
+            "Reset row order",
+            "Return to the default addon order.",
+        ) {
+            confirm(
+                ctx,
+                "Reset catalog row order?",
+                "Rows will return to Stremio addon order, followed by newly added extension rows.",
+            ) {
+                Config.update { catalogOrder.clear() }
+                toast(ctx, "Catalog row order reset. Refresh the home page to apply.")
+                catalogRowsMenu(ctx)
+            }
+        }
+        addAction(
+            "Unhide all Stremio catalog rows",
+            "Make every Stremio catalog row visible again.",
+        ) {
+            confirm(
+                ctx,
+                "Unhide every Stremio catalog row?",
+                "This clears row-level hiding. Disabled addons and disabled catalog use remain inactive. Extension rows are unchanged.",
+            ) {
+                Config.update { addons.forEach { it.hiddenCatalogs.clear() } }
+                toast(ctx, "Stremio catalog rows unhidden. Refresh the home page to apply.")
+                catalogRowsMenu(ctx)
+            }
+        }
+
+        scroll.addView(content, ViewGroup.LayoutParams(
+            ViewGroup.LayoutParams.MATCH_PARENT,
+            ViewGroup.LayoutParams.WRAP_CONTENT,
+        ))
         root.addView(scroll, LinearLayout.LayoutParams(
             ViewGroup.LayoutParams.MATCH_PARENT,
-            minOf(dp(ctx, 460), dp(ctx, maxOf(100, rows.size * 70))),
+            minOf(dp(ctx, 460), dp(ctx, maxOf(190, rows.size * 76 + 230))),
         ))
-        val dialog = AlertDialog.Builder(ctx).setView(root).create()
         addFooter(ctx, root, "Save order", {
-            val orderedKeys = (0 until list.childCount).mapNotNull { list.getChildAt(it).tag as? String }
+            val orderedKeys = (0 until list.childCount)
+                .mapNotNull { list.getChildAt(it).tag as? String }
             if (orderedKeys.size == rows.size && orderedKeys.toSet() == rows.map { it.key }.toSet()) {
                 Config.update { catalogOrder = orderedKeys.toMutableList() }
                 dialog.dismiss()
@@ -1203,7 +1259,10 @@ object SettingsUi {
             } else {
                 toast(ctx, "Could not save the row order. Please try again.")
             }
-        }, "Cancel", { dialog.dismiss() })
+        }, "Back", {
+            dialog.dismiss()
+            mainMenu(ctx)
+        })
         window(dialog, ctx)
     }
 
