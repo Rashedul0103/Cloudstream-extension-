@@ -87,6 +87,29 @@ data class ExternalRowConfig(
     var enabled: Boolean = true,
 )
 
+/**
+ * Identity for imported rows deliberately excludes their opaque request data and display name.
+ * Those values can change when an extension updates without changing the logical homepage row.
+ */
+object ExternalRowIdentity {
+    fun descriptor(
+        sourcePlugin: String,
+        providerClass: String,
+        rowName: String,
+        horizontalImages: Boolean,
+    ): String = listOf(sourcePlugin, providerClass, rowName, horizontalImages.toString())
+        .joinToString("\u0000")
+
+    fun key(descriptor: String, occurrence: Int): String =
+        "external:" + Hashing.sha256("$descriptor\u0000$occurrence")
+
+    fun matches(saved: ExternalRowConfig, current: ExternalRowConfig): Boolean =
+        saved.sourcePlugin == current.sourcePlugin &&
+            saved.providerClass == current.providerClass &&
+            saved.rowName == current.rowName &&
+            saved.horizontalImages == current.horizontalImages
+}
+
 data class Settings(
     var addons: MutableList<AddonConfig> = mutableListOf(),
     /** Stable keys defining the user's global order for all homepage rows. */
