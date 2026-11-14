@@ -776,6 +776,16 @@ object SettingsUi {
         )
         val scroll = ScrollView(ctx).apply { clipToPadding = false }
         val list = vertical(ctx)
+        val rowNames = rows.associate { it.key to it.name }
+        fun refreshRowNumbers() {
+            for (position in 0 until list.childCount) {
+                val item = list.getChildAt(position)
+                val key = item.tag as? String ?: continue
+                val description = item.getChildAt(1) as? LinearLayout ?: continue
+                val title = description.getChildAt(0) as? TextView ?: continue
+                title.text = "${position + 1}. ${rowNames[key].orEmpty()}"
+            }
+        }
         scroll.addView(list, ViewGroup.LayoutParams(
             ViewGroup.LayoutParams.MATCH_PARENT,
             ViewGroup.LayoutParams.WRAP_CONTENT,
@@ -838,6 +848,7 @@ object SettingsUi {
                             if (current != insertion) {
                                 list.removeView(item)
                                 list.addView(item, insertion.coerceIn(0, list.childCount))
+                                refreshRowNumbers()
                             }
 
                             val scrollLocation = IntArray(2)
