@@ -714,6 +714,46 @@ class CoreLogicTest {
     }
 
     @Test
+    fun settingsSnapshotsDoNotShareMutableNestedCollections() {
+        val original = Settings(
+            addons = mutableListOf(AddonConfig(
+                id = "addon",
+                url = "https://example.com",
+                hiddenCatalogs = mutableListOf("movie/top"),
+            )),
+            catalogOrder = mutableListOf("addon|movie|top"),
+            externalRows = mutableListOf(ExternalRowConfig(key = "external:one", rowName = "Original")),
+            filter = FilterSettings(
+                allowedResolutions = mutableListOf(1080),
+                excludeKeywords = mutableListOf("CAM"),
+            ),
+            sort = SortSettings(preferLanguages = mutableListOf("bn", "en")),
+            subtitleLanguages = mutableListOf("bn"),
+            streamFormat = StreamFormatSettings(fields = mutableListOf("quality")),
+        )
+        val snapshot = original.snapshot()
+
+        snapshot.addons.first().hiddenCatalogs += "series/top"
+        snapshot.catalogOrder += "addon|series/top"
+        snapshot.externalRows.first().rowName = "Changed"
+        snapshot.filter.allowedResolutions += 720
+        snapshot.filter.excludeKeywords += "TS"
+        snapshot.sort.preferLanguages.reverse()
+        snapshot.subtitleLanguages += "en"
+        snapshot.streamFormat.fields += "codec"
+
+        assertEquals(listOf("movie/top"), original.addons.first().hiddenCatalogs)
+        assertEquals(listOf("addon|movie|top"), original.catalogOrder)
+        assertEquals("Original", original.externalRows.first().rowName)
+        assertEquals(listOf(1080), original.filter.allowedResolutions)
+        assertEquals(listOf("CAM"), original.filter.excludeKeywords)
+        assertEquals(listOf("bn", "en"), original.sort.preferLanguages)
+        assertEquals(listOf("bn"), original.subtitleLanguages)
+        assertEquals(listOf("quality"), original.streamFormat.fields)
+        assertEquals(original.addons.first().manifest, snapshot.addons.first().manifest)
+    }
+
+    @Test
     fun importedSettingsAreSanitizedBeforeUse() {
         val settings = Settings(
             addons = mutableListOf(
