@@ -3,7 +3,6 @@ package com.multistremio
 import com.lagradost.cloudstream3.APIHolder
 import com.lagradost.cloudstream3.MainAPI
 import com.lagradost.cloudstream3.MainPageData
-import java.security.MessageDigest
 
 /** A currently installed provider homepage row and the stable reference used to save it. */
 data class InstalledExternalHomeRow(
@@ -29,7 +28,7 @@ object ExternalHomeRows {
             val mainRows = runCatching { provider.mainPage }.getOrNull() ?: continue
             val providerClass = provider.javaClass.name
             for (row in mainRows) {
-                val dataHash = sha256(row.data)
+                val dataHash = Hashing.sha256(row.data)
                 val key = externalHomeRowKey(
                     source, provider.name, providerClass, row.name, dataHash, row.horizontalImages
                 )
@@ -62,20 +61,9 @@ object ExternalHomeRows {
         rowName: String,
         dataHash: String,
         horizontalImages: Boolean,
-    ): String = "external:" + sha256(
+    ): String = "external:" + Hashing.sha256(
         listOf(sourcePlugin, providerName, providerClass, rowName, dataHash, horizontalImages.toString())
             .joinToString("\u0000")
     )
 
-    private fun sha256(value: String): String {
-        val bytes = MessageDigest.getInstance("SHA-256").digest(value.toByteArray(Charsets.UTF_8))
-        val hex = "0123456789abcdef"
-        return buildString(bytes.size * 2) {
-            for (byte in bytes) {
-                val unsigned = byte.toInt() and 0xff
-                append(hex[unsigned ushr 4])
-                append(hex[unsigned and 0x0f])
-            }
-        }
-    }
 }

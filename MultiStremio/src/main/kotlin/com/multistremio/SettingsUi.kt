@@ -356,7 +356,6 @@ object SettingsUi {
     private fun host(url: String) = try { URL(url).host } catch (e: Exception) { url }
 
     // ---- main menu -------------------------------------------------------------------------
-// ---- main menu -------------------------------------------------------------------------
 
     private fun mainMenu(ctx: Context) {
         val s = Config.settings
@@ -425,12 +424,12 @@ object SettingsUi {
         ) { raw ->
             val url = Urls.normalizeAddonUrl(raw)
             if (url.isEmpty()) return@prompt
-            if (Config.settings.addons.any { it.url.equals(url, ignoreCase = true) }) {
+            if (Config.settings.addons.any { it.url == url }) {
                 toast(ctx, "That addon is already added"); return@prompt
             }
             toast(ctx, "Checking addon…")
             thread(start = true) {
-                val text = SimpleHttp.get("$url/manifest.json")
+                val text = SimpleHttp.get(Urls.manifest(url))
                 val m = Json.parse<Manifest>(text)
                 if (text == null || m == null || (m.name == null && m.resources == null)) {
                     toast(ctx, "Could not read a manifest from that link"); return@thread

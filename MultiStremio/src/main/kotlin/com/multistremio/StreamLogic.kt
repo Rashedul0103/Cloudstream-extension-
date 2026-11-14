@@ -1,6 +1,7 @@
 package com.multistremio
 
 import java.net.URLEncoder
+import java.net.URI
 import java.util.Locale
 import java.util.concurrent.ConcurrentHashMap
 
@@ -480,17 +481,43 @@ object Urls {
 
     fun resource(base: String, resource: String, type: String, id: String, extra: String? = null): String {
         val seg = encodeId(id)
-        return if (extra.isNullOrBlank()) "$base/$resource/$type/$seg.json" else "$base/$resource/$type/$seg/$extra.json"
+        val path = if (extra.isNullOrBlank()) {
+            "$resource/$type/$seg.json"
+        } else {
+            "$resource/$type/$seg/$extra.json"
+        }
+        return appendPath(base, path)
     }
 
-    /** "https://x/y/manifest.json", "stremio://x/y", "x.com/y/" -> "https://x/y" */
+    /**
+     * Converts a pasted manifest URL into its addon base URL.
+     * Query parameters are retained because addons may use them as access tokens.
+     */
     fun normalizeAddonUrl(input: String): String {
-        var u = input.trim().replace("stremio://", "https://")
+        var u = input.trim().replace(Regex("^stremio://", RegexOption.IGNORE_CASE), "https://")
         if (u.isEmpty()) return u
-        if (!u.startsWith("http://") && !u.startsWith("https://")) u = "https://$u"
-        val idx = u.indexOf("/manifest.json")
-        if (idx >= 0) u = u.substring(0, idx)
-        return u.trimEnd('/')
+        if (!Regex("^https?://", RegexOption.IGNORE_CASE).containsMatchIn(u)) u = "https://$u"
+
+        val uri = runCatching { URI(u) }.getOrNull() ?: return u.trimEnd('/')
+        val authority = uri.rawAuthority ?: return u.trimEnd('/')
+        var path = uri.rawPath.orEmpty().trimEnd('/')
+        if (path.endsWith("/manifest.json", ignoreCase = true)) {
+            path = path.dropLast("/manifest.json".length)
+        }
+        val scheme = (uri.scheme ?: "https").lowercase(Locale.ROOT)
+        val query = uri.rawQuery?.let { "?$it" }.orEmpty()
+        return "$scheme://$authority${path.trimEnd('/')}$query"
+    }
+
+    /** Builds a manifest URL without placing its path after a query string. */
+    fun manifest(base: String): String = appendPath(base, "manifest.json")
+
+    private fun appendPath(base: String, path: String): String {
+        val withoutFragment = base.substringBefore('#')
+        val queryIndex = withoutFragment.indexOf('?')
+        val basePath = if (queryIndex >= 0) withoutFragment.substring(0, queryIndex) else withoutFragment
+        val query = if (queryIndex >= 0) withoutFragment.substring(queryIndex) else ""
+        return "${basePath.trimEnd('/')}/$path$query"
     }
 
     private val DEFAULT_TRACKERS = listOf(

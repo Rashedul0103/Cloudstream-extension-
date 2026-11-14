@@ -176,24 +176,32 @@ class MultiStremio : MainAPI() {
         if (tvType == TvType.Live) {
             return newLiveStreamLoadResponse(title, url, Json.toJson(StreamRef(type, metaId, metaId))) { decorate() }
         }
-        if (type == "movie" || videos.isEmpty()) {
+        if (type == "movie") {
             val movieType = if (tvType == TvType.Anime) TvType.AnimeMovie else tvType
             return newMovieLoadResponse(title, url, movieType, Json.toJson(StreamRef(type, metaId, metaId))) { decorate() }
         }
 
         val episodes = videos.mapIndexed { idx, v ->
-            val data = StreamRef(type, v.id, metaId, v.season, v.episode ?: v.number)
+            val episodeNumber = v.episode ?: v.number ?: (idx + 1)
+            val data = StreamRef(type, v.id, metaId, v.season, episodeNumber)
             newEpisode(data) {
                 val upcoming = isUpcoming(v.released?.take(10))
-                this.name = (v.name ?: v.title) + if (upcoming) " [UPCOMING]" else ""
+                val episodeTitle = v.name?.takeIf { it.isNotBlank() }
+                    ?: v.title?.takeIf { it.isNotBlank() }
+                    ?: "Episode $episodeNumber"
+                this.name = episodeTitle + if (upcoming) " [UPCOMING]" else ""
                 this.season = v.season
-                this.episode = v.episode ?: v.number ?: (idx + 1)
+                this.episode = episodeNumber
                 this.posterUrl = v.thumbnail
                 this.description = v.overview ?: v.description
                 addDate(v.released?.take(10))
             }
         }.sortedWith(compareBy({ it.season ?: 0 }, { it.episode ?: 0 }))
-        return newTvSeriesLoadResponse(title, url, tvType, episodes) { decorate() }
+        return newTvSeriesLoadResponse(title, url, tvType, episodes) {
+            decorate()
+            // A missing metadata response is not evidence that a series is upcoming.
+            if (meta == null && type == "series") comingSoon = false
+        }
     }
 
     override suspend fun loadLinks(

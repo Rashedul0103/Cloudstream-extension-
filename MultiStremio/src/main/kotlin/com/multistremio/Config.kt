@@ -8,6 +8,7 @@ import com.fasterxml.jackson.module.kotlin.jacksonObjectMapper
 import com.fasterxml.jackson.module.kotlin.readValue
 import java.net.HttpURLConnection
 import java.net.URL
+import java.security.MessageDigest
 import java.util.concurrent.ConcurrentHashMap
 import kotlin.concurrent.thread
 
@@ -54,6 +55,20 @@ object SimpleHttp {
             null
         } finally {
             conn.disconnect()
+        }
+    }
+}
+
+object Hashing {
+    fun sha256(value: String): String {
+        val bytes = MessageDigest.getInstance("SHA-256").digest(value.toByteArray(Charsets.UTF_8))
+        val hex = "0123456789abcdef"
+        return buildString(bytes.size * 2) {
+            for (byte in bytes) {
+                val unsigned = byte.toInt() and 0xff
+                append(hex[unsigned ushr 4])
+                append(hex[unsigned and 0x0f])
+            }
         }
     }
 }
@@ -115,7 +130,8 @@ object Config {
         save()
     }
 
-    fun idFor(url: String): String = Integer.toHexString(url.lowercase().hashCode())
+    /** Collision-resistant ID for newly added addons. Existing saved IDs are not rewritten. */
+    fun idFor(url: String): String = Hashing.sha256(url)
 
     /** Parsed manifest of an addon, cached per manifest text. */
     fun manifestOf(addon: AddonConfig): Manifest? {
@@ -129,7 +145,7 @@ object Config {
 
     /** Downloads and stores a fresh manifest. Blocking; call off the main thread. */
     fun refreshManifest(addon: AddonConfig): Boolean {
-        val text = SimpleHttp.get("${addon.url}/manifest.json") ?: return false
+        val text = SimpleHttp.get(Urls.manifest(addon.url)) ?: return false
         val m = Json.parse<Manifest>(text) ?: return false
         if (m.name == null && m.resources == null) return false
         update {
