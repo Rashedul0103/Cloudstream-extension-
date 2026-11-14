@@ -75,7 +75,4 @@ object ExternalHomeRows {
         // A legacy row with no exact data match can only be safely migrated when unambiguous.
         return matches.singleOrNull()
     }
-
-
-
 }
