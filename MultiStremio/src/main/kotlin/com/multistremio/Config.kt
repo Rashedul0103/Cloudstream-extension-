@@ -61,7 +61,6 @@ object Json {
         parseArrayDetailed<T>(text, field).items
 }
 
-/** Blocking HTTP used only by settings/background threads (the provider uses CloudStream's `app`). */
 enum class SimpleHttpStatus {
     OK,
     EMPTY_BODY,
@@ -69,6 +68,7 @@ enum class SimpleHttpStatus {
     TIMEOUT,
     DNS_ERROR,
     INVALID_URL,
+    BODY_TOO_LARGE,
     NETWORK_ERROR,
 }
 
@@ -80,6 +80,8 @@ data class SimpleHttpResult(
 
 /** Blocking HTTP used only by settings/background threads (the provider uses CloudStream's `app`). */
 object SimpleHttp {
+    private const val MAX_RESPONSE_BYTES = 2 * 1024 * 1024
+
     /** Backwards-compatible body-only helper for addon creation and manifest refresh. */
     fun get(url: String, timeoutMs: Int = 20000): String? =
         getDetailed(url, timeoutMs).body
@@ -106,8 +108,22 @@ object SimpleHttp {
             val code = conn.responseCode
             if (code !in 200..299) {
                 SimpleHttpResult(null, SimpleHttpStatus.HTTP_ERROR, code)
+            } else if (conn.contentLengthLong > MAX_RESPONSE_BYTES) {
+                SimpleHttpResult(null, SimpleHttpStatus.BODY_TOO_LARGE, code)
             } else {
-                val body = conn.inputStream.bufferedReader().use { it.readText() }
+                val output = java.io.ByteArrayOutputStream()
+                val buffer = ByteArray(8192)
+                conn.inputStream.use { input ->
+                    while (true) {
+                        val count = input.read(buffer)
+                        if (count < 0) break
+                        if (output.size() + count > MAX_RESPONSE_BYTES) {
+                            return SimpleHttpResult(null, SimpleHttpStatus.BODY_TOO_LARGE, code)
+                        }
+                        output.write(buffer, 0, count)
+                    }
+                }
+                val body = output.toString(Charsets.UTF_8.name())
                 if (body.isBlank()) SimpleHttpResult(body, SimpleHttpStatus.EMPTY_BODY, code)
                 else SimpleHttpResult(body, SimpleHttpStatus.OK, code)
             }
