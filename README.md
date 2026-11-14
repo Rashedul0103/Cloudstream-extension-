@@ -31,3 +31,21 @@ Open the plugin settings and choose **Catalog rows (visibility & order)**. Selec
 ## Status
 
 Beta.
+
+## Imported extension row identity
+
+Imported homepage rows are matched using the source plugin, provider class, row title, image orientation and duplicate-row position. Their opaque request data is not part of the identity, so an extension can refresh paging or query data without automatically making the saved row unavailable. If a provider exposes multiple rows with the same title and no stable row identifier, identity can still be ambiguous when those rows change order.
+
+## Language matching
+
+Language filters accept common ISO 639 codes, three-letter codes, regional tags such as `pt-BR`, and language names. Release-name detection recognizes common audio-language labels, country flags and selected native-language names. Detection is heuristic: an addon that does not describe the audio language cannot be identified reliably from its stream label alone.
+
+## Backup privacy
+
+**Preferences-only backup** excludes Stremio addon URLs, cached manifests, imported extension-row references and their order. It is suitable for sharing general filter and sorting preferences, but it does not restore sources.
+
+**Full backup** preserves addon URLs and cached manifests. URLs may contain private keys or credentials, and imported extension references may expose private repository addresses. The export is copied as plain text to the clipboard; treat it as sensitive and do not share it publicly. Older raw settings backups remain restorable and are treated as full backups.
+
+## Stream request handling
+
+Requests to Stremio addons are capped at eight concurrent network calls. If the original addon cannot provide named metadata, fallback metadata providers are queried concurrently. Stream parsing reuses compiled patterns and the filtering pipeline avoids several intermediate list allocations. These are workload protections and code-path optimizations; performance has not been benchmarked against a fixed addon set.
