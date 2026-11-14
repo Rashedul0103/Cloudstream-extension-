@@ -17,6 +17,7 @@ import android.text.TextWatcher
 import android.util.TypedValue
 import android.view.Gravity
 import android.view.GestureDetector
+import android.view.HapticFeedbackConstants
 import android.view.MotionEvent
 import android.view.View
 import android.view.ViewGroup
@@ -500,18 +501,21 @@ object SettingsUi {
     /** Drag selected information blocks into the exact order wanted in the stream list. */
     private fun streamFormatReorderDialog(ctx: Context) {
         val format = Config.settings.streamFormat
-        val orderedIds = format.fields.distinct().filter { id -> StreamFormatFields.all.any { it.id == id } }.toMutableList()
+        val orderedIds = format.fields.distinct()
+            .filter { id -> StreamFormatFields.all.any { it.id == id } }
+            .toMutableList()
         if (orderedIds.size < 2) {
             toast(ctx, "Choose at least two fields before reordering.")
             streamFormatterMenu(ctx)
             return
         }
+
         val titles = StreamFormatFields.all.associate { it.id to it.title }
         val colors = palette(ctx)
         val root = shell(
             ctx,
             "Arrange stream details",
-            "Long-press the grip on the left and drag each detail up or down. The first detail appears first in the link name.",
+            "Press and hold the grip, then move the field up or down. Tap Save when the order is correct.",
         )
         val scroll = ScrollView(ctx).apply { clipToPadding = false }
         val list = vertical(ctx)
@@ -528,10 +532,12 @@ object SettingsUi {
             ViewGroup.LayoutParams.MATCH_PARENT,
             ViewGroup.LayoutParams.WRAP_CONTENT,
         ))
+
         orderedIds.forEachIndexed { index, id ->
             val handle = text(ctx, "☰", 22f, colors.accent, true).apply {
                 gravity = Gravity.CENTER
                 setPadding(dp(ctx, 4), 0, dp(ctx, 10), 0)
+                contentDescription = "Drag to reorder ${titles[id].orEmpty()}"
             }
             val detail = StreamFormatFields.all.first { it.id == id }.description
             val description = vertical(ctx).apply {
@@ -546,67 +552,16 @@ object SettingsUi {
                 setPadding(dp(ctx, 12), dp(ctx, 12), dp(ctx, 12), dp(ctx, 12))
                 background = rounded(ctx, colors.background, colors.outline)
                 tag = id
-                addView(handle, LinearLayout.LayoutParams(dp(ctx, 34), ViewGroup.LayoutParams.MATCH_PARENT))
+                addView(handle, LinearLayout.LayoutParams(dp(ctx, 42), dp(ctx, 48)))
                 addView(description, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
             }
             list.addView(item, LinearLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT,
                 ViewGroup.LayoutParams.WRAP_CONTENT,
             ).apply { bottomMargin = dp(ctx, 7) })
-            var dragging = false
-            val detector = GestureDetector(ctx, object : GestureDetector.SimpleOnGestureListener() {
-                override fun onDown(e: MotionEvent): Boolean = true
-                override fun onLongPress(e: MotionEvent) {
-                    dragging = true
-                    item.background = rounded(ctx, withAlpha(colors.accent, 24), colors.accent)
-                    item.elevation = dp(ctx, 6).toFloat()
-                    scroll.requestDisallowInterceptTouchEvent(true)
-                }
-            })
-            handle.setOnTouchListener { _, event ->
-                detector.onTouchEvent(event)
-                when (event.actionMasked) {
-                    MotionEvent.ACTION_DOWN -> true
-                    MotionEvent.ACTION_MOVE -> {
-                        if (dragging) {
-                            val pointerY = event.rawY
-                            var insertion = 0
-                            for (childIndex in 0 until list.childCount) {
-                                val child = list.getChildAt(childIndex)
-                                if (child === item) continue
-                                val location = IntArray(2)
-                                child.getLocationOnScreen(location)
-                                if (pointerY >= location[1] + child.height / 2f) insertion++
-                            }
-                            val current = list.indexOfChild(item)
-                            if (current != insertion) {
-                                list.removeView(item)
-                                list.addView(item, insertion.coerceIn(0, list.childCount))
-                                refreshNumbers()
-                            }
-                            val scrollLocation = IntArray(2)
-                            scroll.getLocationOnScreen(scrollLocation)
-                            val edge = dp(ctx, 36)
-                            when {
-                                pointerY < scrollLocation[1] + edge -> scroll.scrollBy(0, -dp(ctx, 20))
-                                pointerY > scrollLocation[1] + scroll.height - edge -> scroll.scrollBy(0, dp(ctx, 20))
-                            }
-                        }
-                        true
-                    }
-                    MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL -> {
-                        if (dragging) {
-                            dragging = false
-                            item.background = rounded(ctx, colors.background, colors.outline)
-                            item.elevation = 0f
-                            scroll.requestDisallowInterceptTouchEvent(false)
-                        }
-                        true
-                    }
-                    else -> true
-                }
-            }
+            installDragReordering(ctx, handle, item, list, scroll, colors) { refreshNumbers() }
         }
+
         root.addView(scroll, LinearLayout.LayoutParams(
             ViewGroup.LayoutParams.MATCH_PARENT,
             minOf(dp(ctx, 460), dp(ctx, maxOf(100, orderedIds.size * 70))),
@@ -623,6 +578,98 @@ object SettingsUi {
             }
         }, "Cancel", { dialog.dismiss() })
         window(dialog, ctx)
+    }
+
+    /**
+     * Shared drag controller for both reorder screens.
+     *
+     * The ScrollView is told not to intercept the gesture from ACTION_DOWN, not after long-press.
+     * This is critical: otherwise a vertical move can be stolen by ScrollView before the long-press
+     * detector fires, which makes the grip appear unresponsive.
+     */
+    private fun installDragReordering(
+        ctx: Context,
+        handle: View,
+        item: View,
+        list: LinearLayout,
+        scroll: ScrollView,
+        colors: Palette,
+        onMoved: () -> Unit,
+    ) {
+        var dragging = false
+
+        fun finishDrag() {
+            if (dragging) {
+                dragging = false
+                item.background = rounded(ctx, colors.background, colors.outline)
+                item.elevation = 0f
+            }
+            scroll.requestDisallowInterceptTouchEvent(false)
+        }
+
+        val detector = GestureDetector(ctx, object : GestureDetector.SimpleOnGestureListener() {
+            override fun onDown(e: MotionEvent): Boolean = true
+
+            override fun onLongPress(e: MotionEvent) {
+                dragging = true
+                item.background = rounded(ctx, withAlpha(colors.accent, 28), colors.accent)
+                item.elevation = dp(ctx, 6).toFloat()
+                item.bringToFront()
+                handle.performHapticFeedback(HapticFeedbackConstants.LONG_PRESS)
+            }
+        })
+
+        handle.setOnTouchListener { _, event ->
+            when (event.actionMasked) {
+                MotionEvent.ACTION_DOWN -> {
+                    // Keep the full long-press + drag sequence; ScrollView must not steal it.
+                    scroll.requestDisallowInterceptTouchEvent(true)
+                    detector.onTouchEvent(event)
+                    true
+                }
+                MotionEvent.ACTION_MOVE -> {
+                    detector.onTouchEvent(event)
+                    if (dragging) {
+                        val centers = (0 until list.childCount).mapNotNull { index ->
+                            val child = list.getChildAt(index)
+                            if (child === item) null else {
+                                val position = IntArray(2)
+                                child.getLocationOnScreen(position)
+                                position[1] + child.height / 2f
+                            }
+                        }
+                        val destination = DragReorderMath.insertionIndex(centers, event.rawY)
+                        val current = list.indexOfChild(item)
+                        if (destination != current) {
+                            list.removeView(item)
+                            list.addView(item, destination.coerceIn(0, list.childCount))
+                            onMoved()
+                        }
+
+                        // Edge scrolling remains active while the user continues dragging.
+                        val scrollPosition = IntArray(2)
+                        scroll.getLocationOnScreen(scrollPosition)
+                        val edge = dp(ctx, 42)
+                        when {
+                            event.rawY < scrollPosition[1] + edge ->
+                                scroll.scrollBy(0, -dp(ctx, 22))
+                            event.rawY > scrollPosition[1] + scroll.height - edge ->
+                                scroll.scrollBy(0, dp(ctx, 22))
+                        }
+                    }
+                    true
+                }
+                MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL -> {
+                    detector.onTouchEvent(event)
+                    finishDrag()
+                    true
+                }
+                else -> {
+                    detector.onTouchEvent(event)
+                    true
+                }
+            }
+        }
     }
 
     private fun streamDiagnosticsMenu(ctx: Context) {
@@ -1083,6 +1130,7 @@ object SettingsUi {
     }
 
     /** A native Android drag handle reorders the same stable keys already used by the home page. */
+    /** Uses the same long-press drag controller as the Stream Formatter field sorter. */
     private fun catalogReorderDialog(ctx: Context) {
         val rows = catalogRows()
         if (rows.isEmpty()) {
@@ -1094,11 +1142,12 @@ object SettingsUi {
         val root = shell(
             ctx,
             "Reorder catalog rows",
-            "Long-press the grip on the left, drag a row into position, then tap Save. Stremio and imported extension rows can be mixed freely.",
+            "Press and hold the grip, then move a row up or down. Stremio and imported extension rows can be mixed. Tap Save when finished.",
         )
         val scroll = ScrollView(ctx).apply { clipToPadding = false }
         val list = vertical(ctx)
         val rowNames = rows.associate { it.key to it.name }
+
         fun refreshRowNumbers() {
             for (position in 0 until list.childCount) {
                 val item = list.getChildAt(position) as? LinearLayout ?: continue
@@ -1108,6 +1157,7 @@ object SettingsUi {
                 title.text = "${position + 1}. ${rowNames[key].orEmpty()}"
             }
         }
+
         scroll.addView(list, ViewGroup.LayoutParams(
             ViewGroup.LayoutParams.MATCH_PARENT,
             ViewGroup.LayoutParams.WRAP_CONTENT,
@@ -1117,6 +1167,7 @@ object SettingsUi {
             val handle = text(ctx, "☰", 22f, colors.accent, true).apply {
                 gravity = Gravity.CENTER
                 setPadding(dp(ctx, 4), 0, dp(ctx, 10), 0)
+                contentDescription = "Drag to reorder ${row.name}"
             }
             val description = vertical(ctx).apply {
                 addView(text(ctx, "${index + 1}. ${row.name}", 14f, colors.primary, true))
@@ -1132,69 +1183,14 @@ object SettingsUi {
                 setPadding(dp(ctx, 12), dp(ctx, 12), dp(ctx, 12), dp(ctx, 12))
                 background = rounded(ctx, colors.background, colors.outline)
                 tag = row.key
-                addView(handle, LinearLayout.LayoutParams(dp(ctx, 34), ViewGroup.LayoutParams.MATCH_PARENT))
+                addView(handle, LinearLayout.LayoutParams(dp(ctx, 42), dp(ctx, 48)))
                 addView(description, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
             }
             list.addView(item, LinearLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT,
                 ViewGroup.LayoutParams.WRAP_CONTENT,
             ).apply { bottomMargin = dp(ctx, 7) })
-
-            var dragging = false
-            val detector = GestureDetector(ctx, object : GestureDetector.SimpleOnGestureListener() {
-                override fun onDown(e: MotionEvent): Boolean = true
-
-                override fun onLongPress(e: MotionEvent) {
-                    dragging = true
-                    item.background = rounded(ctx, withAlpha(colors.accent, 24), colors.accent)
-                    item.elevation = dp(ctx, 6).toFloat()
-                    scroll.requestDisallowInterceptTouchEvent(true)
-                }
-            })
-            handle.setOnTouchListener { _, event ->
-                detector.onTouchEvent(event)
-                when (event.actionMasked) {
-                    MotionEvent.ACTION_DOWN -> true
-                    MotionEvent.ACTION_MOVE -> {
-                        if (dragging) {
-                            val pointerY = event.rawY
-                            var insertion = 0
-                            for (childIndex in 0 until list.childCount) {
-                                val child = list.getChildAt(childIndex)
-                                if (child === item) continue
-                                val location = IntArray(2)
-                                child.getLocationOnScreen(location)
-                                if (pointerY >= location[1] + child.height / 2f) insertion++
-                            }
-                            val current = list.indexOfChild(item)
-                            if (current != insertion) {
-                                list.removeView(item)
-                                list.addView(item, insertion.coerceIn(0, list.childCount))
-                                refreshRowNumbers()
-                            }
-
-                            val scrollLocation = IntArray(2)
-                            scroll.getLocationOnScreen(scrollLocation)
-                            val edge = dp(ctx, 36)
-                            when {
-                                pointerY < scrollLocation[1] + edge -> scroll.scrollBy(0, -dp(ctx, 20))
-                                pointerY > scrollLocation[1] + scroll.height - edge -> scroll.scrollBy(0, dp(ctx, 20))
-                            }
-                        }
-                        true
-                    }
-                    MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL -> {
-                        if (dragging) {
-                            dragging = false
-                            item.background = rounded(ctx, colors.background, colors.outline)
-                            item.elevation = 0f
-                            scroll.requestDisallowInterceptTouchEvent(false)
-                        }
-                        true
-                    }
-                    else -> true
-                }
-            }
+            installDragReordering(ctx, handle, item, list, scroll, colors) { refreshRowNumbers() }
         }
 
         root.addView(scroll, LinearLayout.LayoutParams(
@@ -1204,7 +1200,7 @@ object SettingsUi {
         val dialog = AlertDialog.Builder(ctx).setView(root).create()
         addFooter(ctx, root, "Save order", {
             val orderedKeys = (0 until list.childCount).mapNotNull { list.getChildAt(it).tag as? String }
-            if (orderedKeys.size == rows.size) {
+            if (orderedKeys.size == rows.size && orderedKeys.toSet() == rows.map { it.key }.toSet()) {
                 Config.update { catalogOrder = orderedKeys.toMutableList() }
                 dialog.dismiss()
                 toast(ctx, "Row order saved. Refresh the home page to apply.")
