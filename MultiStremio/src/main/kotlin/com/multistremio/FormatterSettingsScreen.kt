@@ -74,8 +74,17 @@ internal object FormatterSettingsScreen {
             SettingItem("Preview your design", "Example only; no addon is contacted", SettingItemType.Navigate,
                 onClick = {
                     val preview = StreamLabels.preview(format)
-                    menu(ctx, "Your stream-name preview", listOf(preview), again,
-                        "Example only. Real links show whichever information each addon provides. Missing details are automatically skipped.") { }
+                    settingMenu(
+                        ctx,
+                        "Your stream-name preview",
+                        listOf(SettingItem(
+                            title = preview,
+                            summary = "Example only; real links skip details that an addon does not provide",
+                            type = SettingItemType.Value,
+                        )),
+                        again,
+                        "Example only. Real links show whichever information each addon provides. Missing details are automatically skipped.",
+                    )
                 }, searchKeywords = listOf("preview", "example")),
             SettingItem("Reset to recommended layout", "Restore the default fields, order and spacing", SettingItemType.Value,
                 onClick = {
