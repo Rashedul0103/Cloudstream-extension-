@@ -161,6 +161,30 @@ class CoreLogicTest {
     }
 
     @Test
+    fun streamDiagnosticsRecordOnlySafeCountsAndTimings() {
+        val run = StreamDiagnostics.begin()
+        StreamDiagnostics.record(run, "Example addon", "Streams", 125L, true, 4)
+        StreamDiagnostics.record(run, "Unavailable addon", "Subtitles", 8000L, false, 0)
+        StreamDiagnostics.finish(
+            run,
+            rawStreams = 4,
+            addonSubtitles = 0,
+            playableCandidates = 3,
+            keptAfterFilters = 2,
+            emittedLinks = 2,
+        )
+
+        val snapshot = StreamDiagnostics.latest()
+        assertNotNull(snapshot)
+        assertEquals(4, snapshot!!.rawStreams)
+        assertEquals(3, snapshot.playableCandidates)
+        assertEquals(2, snapshot.keptAfterFilters)
+        assertEquals(2, snapshot.emittedLinks)
+        assertEquals(2, snapshot.requests.size)
+        assertFalse(snapshot.requests[1].responseReceived)
+    }
+
+    @Test
     fun strictLanguageModeRejectsUndetectedLanguageWithoutTargetList() {
         val raw = RawStream(name = "Example.Movie.1080p.WEB-DL")
         val (info, text) = StreamParser.parse(raw)
