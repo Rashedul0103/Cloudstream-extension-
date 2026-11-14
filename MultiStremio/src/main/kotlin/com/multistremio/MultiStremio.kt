@@ -398,11 +398,10 @@ class MultiStremio : MainAPI() {
 
     /** Canonicalize ISO codes, BCP-47 tags, display names and CloudStream language aliases. */
     private fun subtitleKey(code: String): String {
-        val normalized = Langs.normalize(code)
-        if (normalized.length <= 2 || normalized == "multi" || normalized == "und") return normalized
-        val displayName = SubtitleHelper.fromTagToLanguageName(code.trim())
-            ?: SubtitleHelper.fromTwoLettersToLanguage(code.trim())
-            ?: SubtitleHelper.fromThreeLettersToLanguage(code.trim())
-        return Langs.normalize(displayName ?: code)
+        val raw = code.trim()
+        val displayName = SubtitleHelper.fromTagToLanguageName(raw)
+            ?: SubtitleHelper.fromTwoLettersToLanguage(raw)
+            ?: SubtitleHelper.fromThreeLettersToLanguage(raw)
+        return Langs.normalize(displayName ?: raw)
     }
 }
