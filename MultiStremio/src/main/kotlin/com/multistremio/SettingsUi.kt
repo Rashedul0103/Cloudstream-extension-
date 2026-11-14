@@ -441,7 +441,7 @@ object SettingsUi {
             "Manage sources, homepage layout and playback. Search is available inside longer settings lists.",
             listOf(
                 "${s.addons.size} sources configured · ${s.addons.count { it.enabled }} active",
-                "$activeRows homepage rows currently enabled",
+                "$activeRows homepage rows configured as enabled; check Catalog rows for missing sources",
                 "Choose which streams are allowed",
                 "Control quality, language, codec and audio ranking",
                 "Build your own link layout without writing code",
@@ -868,6 +868,7 @@ object SettingsUi {
         val installed = Config.settings.addons.toList()
         if (installed.isEmpty()) {
             toast(ctx, "Add an addon before running a connection check.")
+            addonsMenu(ctx)
             return
         }
         toast(ctx, "Checking ${installed.size} addon connection(s)…")
@@ -875,7 +876,7 @@ object SettingsUi {
             val executor = Executors.newFixedThreadPool(minOf(4, installed.size))
             val results = try {
                 installed.map { addon ->
-                    executor.submit<AddonHealthResult> {
+                    addon to executor.submit<AddonHealthResult> {
                         val started = System.nanoTime()
                         val response = SimpleHttp.getDetailed(Urls.manifest(addon.url), timeoutMs = 8000)
                         val manifest = Json.parse<Manifest>(response.body)
@@ -904,9 +905,9 @@ object SettingsUi {
                         } else assessment.detail + if (cached) " · saved manifest retained" else ""
                         AddonHealthResult(addon.name, success, elapsed, detail)
                     }
-                }.map { future ->
+                }.map { (addon, future) ->
                     runCatching { future.get() }.getOrElse {
-                        AddonHealthResult("Unknown addon", false, 0L, "The connection check could not be completed")
+                        AddonHealthResult(addon.name, false, 0L, "The connection check could not be completed")
                     }
                 }
             } finally {
