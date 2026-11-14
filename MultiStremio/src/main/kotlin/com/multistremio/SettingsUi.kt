@@ -809,7 +809,6 @@ object SettingsUi {
             ).apply { bottomMargin = dp(ctx, 7) })
 
             var dragging = false
-            var moved = false
             val detector = GestureDetector(ctx, object : GestureDetector.SimpleOnGestureListener() {
                 override fun onDown(e: MotionEvent): Boolean = true
 
@@ -839,7 +838,6 @@ object SettingsUi {
                             if (current != insertion) {
                                 list.removeView(item)
                                 list.addView(item, insertion.coerceIn(0, list.childCount))
-                                moved = true
                             }
 
                             val scrollLocation = IntArray(2)
