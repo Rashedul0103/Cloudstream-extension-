@@ -184,3 +184,56 @@ data class Settings(
     var streamFormat: StreamFormatSettings = StreamFormatSettings(),
     var seeded: Boolean = false,
 )
+
+
+/**
+ * Normalizes persisted/imported preferences before they reach network and playback code.
+ * This keeps old backups and hand-edited JSON from creating invalid timeouts or filter states.
+ */
+fun Settings.sanitized(): Settings {
+    timeoutSec = timeoutSec.coerceIn(5, 180)
+
+    val validResolutions = setOf(2160, 1440, 1080, 720, 576, 480, 360, 240, 0)
+    filter.allowedResolutions = filter.allowedResolutions
+        .filter { it in validResolutions }
+        .distinct()
+        .toMutableList()
+    filter.hevcMode = filter.hevcMode.coerceIn(MODE_ANY, MODE_ONLY)
+    filter.hdrMode = filter.hdrMode.coerceIn(MODE_ANY, MODE_ONLY)
+    filter.minSizeMb = filter.minSizeMb.coerceAtLeast(0)
+    filter.maxSizeGb = filter.maxSizeGb.coerceAtLeast(0)
+    filter.minSeeders = filter.minSeeders.coerceAtLeast(0)
+    filter.maxPerAddon = filter.maxPerAddon.coerceAtLeast(0)
+    filter.maxTotal = filter.maxTotal.coerceAtLeast(0)
+    filter.excludeKeywords = filter.excludeKeywords.map { it.trim() }.filter { it.isNotEmpty() }.distinct().toMutableList()
+    filter.requireKeywords = filter.requireKeywords.map { it.trim() }.filter { it.isNotEmpty() }.distinct().toMutableList()
+    filter.requireLanguages = filter.requireLanguages.map { it.trim() }.filter { it.isNotEmpty() }.distinct().toMutableList()
+
+    sort.preset = SortPreset.from(sort.preset).name
+    sort.preferKeywords = sort.preferKeywords.map { it.trim() }.filter { it.isNotEmpty() }.distinct().toMutableList()
+    sort.preferLanguages = sort.preferLanguages.map { it.trim() }.filter { it.isNotEmpty() }.distinct().toMutableList()
+    sort.preferCodecs = sort.preferCodecs.map { it.trim() }.filter { it.isNotEmpty() }.distinct().toMutableList()
+    sort.preferAudio = sort.preferAudio.map { it.trim() }.filter { it.isNotEmpty() }.distinct().toMutableList()
+
+    val validFieldIds = StreamFormatFields.all.map { it.id }.toSet()
+    streamFormat.fields = streamFormat.fields.filter { it in validFieldIds }.distinct().toMutableList()
+    if (streamFormat.separator !in setOf(" · ", " | ", " • ", " — ", " / ", "\\n")) {
+        streamFormat.separator = " · "
+    }
+
+    addons = addons.asSequence()
+        .filter { it.url.isNotBlank() }
+        .distinctBy { it.url }
+        .onEach { addon ->
+            if (addon.id.isBlank()) addon.id = Hashing.sha256(addon.url)
+            if (addon.name.isBlank()) {
+                addon.name = runCatching { java.net.URI(addon.url).host }.getOrNull().orEmpty().ifBlank { addon.url }
+            }
+            addon.hiddenCatalogs = addon.hiddenCatalogs.filter { it.isNotBlank() }.distinct().toMutableList()
+        }
+        .toMutableList()
+    catalogOrder = catalogOrder.filter { it.isNotBlank() }.distinct().toMutableList()
+    externalRows = externalRows.filter { it.key.isNotBlank() }.distinctBy { it.key }.toMutableList()
+    subtitleLanguages = subtitleLanguages.map { it.trim() }.filter { it.isNotEmpty() }.distinct().toMutableList()
+    return this
+}
