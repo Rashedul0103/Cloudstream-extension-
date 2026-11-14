@@ -298,9 +298,13 @@ class MultiStremio : MainAPI() {
         for (p in parsed) {
             val yt = p.raw.ytId
             val ext = p.raw.externalUrl
+            // Stremio stream objects should identify one playback target. Prefer a direct URL
+            // or torrent magnet when a malformed addon supplies multiple target fields.
+            val hasPrimaryTarget = !p.raw.url.isNullOrBlank() || !p.raw.infoHash.isNullOrBlank()
             val target = when {
+                hasPrimaryTarget -> null
                 !yt.isNullOrBlank() -> "https://www.youtube.com/watch?v=$yt"
-                p.raw.url.isNullOrBlank() && p.raw.infoHash.isNullOrBlank() && !ext.isNullOrBlank() -> ext
+                !ext.isNullOrBlank() -> ext
                 else -> null
             } ?: continue
             val key = StreamDeduplication.externalKey(p)
