@@ -217,7 +217,7 @@ fun Settings.sanitized(): Settings {
 
     val validFieldIds = StreamFormatFields.all.map { it.id }.toSet()
     streamFormat.fields = streamFormat.fields.filter { it in validFieldIds }.distinct().toMutableList()
-    if (streamFormat.separator !in setOf(" · ", " | ", " • ", " — ", " / ", "\\n")) {
+    if (streamFormat.separator !in setOf(" · ", " | ", " • ", " — ", " / ", "\n")) {
         streamFormat.separator = " · "
     }
 
