@@ -10,7 +10,6 @@ import java.util.concurrent.ConcurrentHashMap
 // Pure Kotlin (no Android / CloudStream classes) so it can be unit tested on a plain JVM.
 // ---------------------------------------------------------------------------------------------
 
-const val KB = 1024L
 const val MB = 1024L * 1024L
 const val GB = 1024L * 1024L * 1024L
 
@@ -305,9 +304,10 @@ object StreamFilter {
         if (f.excludeKeywords.isNotEmpty() && anyMatch(p.text, f.excludeKeywords)) return false
         if (f.requireKeywords.isNotEmpty() && !anyMatch(p.text, f.requireKeywords)) return false
 
+        val have = i.languages
+        if (f.strictLanguage && have.isEmpty()) return false
         if (f.requireLanguages.isNotEmpty()) {
             val want = f.requireLanguages.map { Langs.normalize(it) }.toSet()
-            val have = i.languages
             val ok = when {
                 "multi" in have -> true
                 have.isEmpty() -> !f.strictLanguage
