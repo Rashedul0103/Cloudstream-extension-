@@ -48,7 +48,7 @@ class MultiStremio : MainAPI() {
     // Built from the cached manifests every time the home page loads, so settings changes show up on refresh.
     override val mainPage: List<MainPageData>
         get() {
-            val settings = Config.settings
+            val settings = Config.snapshot()
             val rows = mutableListOf<Pair<String, MainPageData>>()
             for (addon in settings.addons) {
                 if (!addon.enabled || !addon.useCatalogs) continue
@@ -90,10 +90,11 @@ class MultiStremio : MainAPI() {
         }
 
     override suspend fun getMainPage(page: Int, request: MainPageRequest): HomePageResponse? {
+        val settings = Config.snapshot()
         // External rows delegate to the provider that originally owns the selected homepage row.
         val externalRef = Json.parse<ExternalPageRef>(request.data)
         if (!externalRef?.key.isNullOrBlank()) {
-            val selected = Config.settings.externalRows.firstOrNull {
+            val selected = settings.externalRows.firstOrNull {
                 it.key == externalRef?.key && it.enabled
             } ?: return newHomePageResponse(request, emptyList(), false)
             val installed = ExternalHomeRows.resolve(selected, this)
@@ -116,7 +117,7 @@ class MultiStremio : MainAPI() {
         val type = ref?.t
         val catalogId = ref?.c
         if (ref == null || type == null || catalogId == null) throw ErrorLoadingException(noAddonsMessage)
-        val addon = Config.settings.addons.firstOrNull { it.id == ref.a && it.enabled && it.useCatalogs }
+        val addon = settings.addons.firstOrNull { it.id == ref.a && it.enabled && it.useCatalogs }
             ?: throw ErrorLoadingException("This addon was removed, disabled or no longer used for catalogs. Pull to refresh the home page.")
 
         val manifest = Config.manifestOf(addon)
@@ -141,8 +142,9 @@ class MultiStremio : MainAPI() {
 
     override suspend fun search(query: String): List<SearchResponse>? {
         val q = Urls.encodeComponent(query)
+        val settings = Config.snapshot()
         val jobs = mutableListOf<Triple<AddonConfig, String, String>>() // addon, type, catalog id
-        for (addon in Config.settings.addons) {
+        for (addon in settings.addons) {
             if (!addon.enabled || !addon.useCatalogs) continue
             val manifest = Config.manifestOf(addon) ?: continue
             for (c in manifest.catalogs.orEmpty()) {
@@ -233,7 +235,7 @@ class MultiStremio : MainAPI() {
         val ref = Json.parse<StreamRef>(data) ?: return false
         val type = ref.t ?: "movie"
         val id = ref.i ?: return false
-        val settings = Config.settings
+        val settings = Config.snapshot()
         val diagnosticRunId = StreamDiagnostics.begin()
 
         val streamAddons = settings.addons.withIndex()
@@ -382,7 +384,7 @@ class MultiStremio : MainAPI() {
 
     /** Origin addon first, then every other addon that can serve meta for this id. */
     private suspend fun findMeta(ref: ItemRef, type: String, id: String): Meta? {
-        val candidates = Config.settings.addons
+        val candidates = Config.snapshot().addons
             .filter { it.enabled && it.useMeta && Config.manifestOf(it)?.supports("meta", type, id) == true }
         val origin = candidates.firstOrNull { it.id == ref.a }
         val originMeta = origin?.let { StremioClient.meta(it, type, id) }
