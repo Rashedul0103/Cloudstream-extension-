@@ -671,6 +671,7 @@ object StreamLabels {
             .mapNotNull { it.lang?.takeIf { lang -> lang.isNotBlank() } }
             .map { Langs.normalize(it) }
             .filter { it != "und" }
+            .map { it.uppercase(Locale.ROOT) }
             .distinct()
             .sorted()
             .joinToString("/")
