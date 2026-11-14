@@ -20,6 +20,10 @@ The manifest points to the generated `plugins.json` index in the `builds` branch
 
 The GitHub Actions workflow in `.github/workflows/build.yml` runs on pushes to `main` (and can also be started manually). It builds the `.cs3` plugin and publishes it together with `plugins.json` to the `builds` branch. The first GitHub Actions run must be checked before treating the extension as installable.
 
+## Settings interface
+
+The settings use a theme-aware mobile layout with clearer section descriptions, searchable option lists, and consistent save, cancel, and navigation controls. It follows the active CloudStream theme, including light and dark appearances.
+
 ## Catalog layout
 
 Open the plugin settings and choose **Catalog rows (visibility & order)**. Select a row to show or hide it, move it up or down, send it to the top or bottom, or open its parent addon's settings. Addon-wide enable/disable and the separate “Catalogs & search” usage switch remain under **Addons**. Row order and visibility are saved locally on the device.
