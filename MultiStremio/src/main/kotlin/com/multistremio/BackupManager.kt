@@ -42,7 +42,7 @@ object SettingsBackupManager {
      * Reads current backup envelopes and the raw Settings JSON format used by older releases.
      * The old format always contains addon URLs, so it is treated as a sensitive full backup.
      */
-    fun import(text: String): SettingsBackup? {
+    fun parse(text: String): SettingsBackup? {
         val envelope = Json.parse<SettingsBackup>(text)
         if (envelope?.format == FORMAT) {
             if (envelope.version !in 1..CURRENT_VERSION || envelope.settings == null) return null
