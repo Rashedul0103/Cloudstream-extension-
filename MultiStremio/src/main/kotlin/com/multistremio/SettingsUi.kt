@@ -953,4 +953,5 @@ object SettingsUi {
                 }
             }
         }
-    }}
+    }
+}
