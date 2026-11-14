@@ -231,6 +231,7 @@ class MultiStremio : MainAPI() {
         val type = ref.t ?: "movie"
         val id = ref.i ?: return false
         val settings = Config.settings
+        val diagnosticRunId = StreamDiagnostics.begin()
 
         val streamAddons = settings.addons.withIndex()
             .filter { (_, a) -> a.enabled && a.useStreams && Config.manifestOf(a)?.supports("stream", type, id) == true }
@@ -246,12 +247,13 @@ class MultiStremio : MainAPI() {
         runAllAsync(
             {
                 parsed = streamAddons.boundedAmap(perBranchLimit) { (index, addon) ->
-                    StremioClient.streams(addon, type, id).map { StreamParser.parsed(index, addon.name, it) }
+                    StremioClient.streams(addon, type, id, diagnosticRunId)
+                        .map { StreamParser.parsed(index, addon.name, it) }
                 }.flatten()
             },
             {
                 subtitles = subAddons.boundedAmap(perBranchLimit) {
-                    StremioClient.subtitles(it, type, id)
+                    StremioClient.subtitles(it, type, id, diagnosticRunId)
                 }.flatten()
             },
         )
@@ -271,9 +273,11 @@ class MultiStremio : MainAPI() {
         val playable = parsed.filter { it.isDirect || it.isMagnet }
         val processed = StreamPipeline.process(playable, settings.filter, settings.sort)
         var emitted = false
+        var emittedLinks = 0
         for (p in processed) {
             emitStream(p, settings, sentSubs, wantedSubs, subtitleCallback, callback)
             emitted = true
+            emittedLinks++
         }
 
         // YouTube / external links are not filterable; hand them to CloudStream's extractors.
@@ -285,8 +289,19 @@ class MultiStremio : MainAPI() {
                 p.raw.url.isNullOrBlank() && p.raw.infoHash.isNullOrBlank() && !ext.isNullOrBlank() -> ext
                 else -> null
             } ?: continue
-            if (loadExtractor(target, subtitleCallback, callback)) emitted = true
+            if (loadExtractor(target, subtitleCallback, callback)) {
+                emitted = true
+                emittedLinks++
+            }
         }
+        StreamDiagnostics.finish(
+            diagnosticRunId,
+            rawStreams = parsed.size,
+            addonSubtitles = subtitles.size,
+            playableCandidates = playable.size,
+            keptAfterFilters = processed.size,
+            emittedLinks = emittedLinks,
+        )
         return emitted
     }
 

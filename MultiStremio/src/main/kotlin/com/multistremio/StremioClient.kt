@@ -27,13 +27,43 @@ object StremioClient {
         return Json.parse<MetaResponse>(text)?.meta
     }
 
-    suspend fun streams(addon: AddonConfig, type: String, id: String): List<RawStream> {
+    suspend fun streams(
+        addon: AddonConfig,
+        type: String,
+        id: String,
+        diagnosticRunId: Long? = null,
+    ): List<RawStream> {
+        val started = System.nanoTime()
         val text = fetch(Urls.resource(addon.url, "stream", type, id))
-        return Json.parseArray<RawStream>(text, "streams")
+        val result = Json.parseArray<RawStream>(text, "streams")
+        StreamDiagnostics.record(
+            diagnosticRunId,
+            addon.name,
+            "Streams",
+            (System.nanoTime() - started) / 1_000_000L,
+            text != null,
+            result.size,
+        )
+        return result
     }
 
-    suspend fun subtitles(addon: AddonConfig, type: String, id: String): List<RawSubtitle> {
+    suspend fun subtitles(
+        addon: AddonConfig,
+        type: String,
+        id: String,
+        diagnosticRunId: Long? = null,
+    ): List<RawSubtitle> {
+        val started = System.nanoTime()
         val text = fetch(Urls.resource(addon.url, "subtitles", type, id))
-        return Json.parseArray<RawSubtitle>(text, "subtitles")
+        val result = Json.parseArray<RawSubtitle>(text, "subtitles")
+        StreamDiagnostics.record(
+            diagnosticRunId,
+            addon.name,
+            "Subtitles",
+            (System.nanoTime() - started) / 1_000_000L,
+            text != null,
+            result.size,
+        )
+        return result
     }
 }

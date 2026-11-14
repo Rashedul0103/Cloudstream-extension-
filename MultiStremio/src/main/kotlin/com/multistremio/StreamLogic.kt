@@ -235,7 +235,7 @@ object StreamParser {
     private val TRUEHD = Regex("""\btruehd\b""")
     private val DTS_HD = Regex("""\bdts[ .\-_]?(hd|x)\b""")
     private val DTS = Regex("""\bdts\b""")
-    private val DD_PLUS = Regex("""\b(ddp|dd\+|e[ \-]?ac-?3)\b""")
+    private val DD_PLUS = Regex("""\b(ddp|dd\+|e[ \-]?ac-?3)(?![a-z0-9])""")
     private val DD = Regex("""\b(dd[ .\-_]?5|ac-?3|dolby digital)\b""")
     private val AAC = Regex("""\baac\b""")
     private val HDTV = Regex("""\b(hdtv|pdtv|tvrip)\b""")
@@ -419,6 +419,33 @@ object StreamSorter {
     private fun seeders() = compareByDescending<ParsedStream> { it.info.seeders ?: -1 }
     private fun addon() = compareBy<ParsedStream> { it.addonIndex }
 
+    private fun canonicalCodec(value: String?): String? = when (value?.trim()?.lowercase(Locale.ROOT)) {
+        "hevc", "h265", "h.265", "x265" -> "HEVC"
+        "av1" -> "AV1"
+        "avc", "h264", "h.264", "x264" -> "AVC"
+        else -> null
+    }
+
+    private fun canonicalAudio(value: String?): String? = when (value?.trim()?.lowercase(Locale.ROOT)) {
+        "atmos", "dolby atmos" -> "Atmos"
+        "truehd", "dolby truehd" -> "TrueHD"
+        "dts-hd", "dtshd", "dts:x", "dts-x" -> "DTS-HD"
+        "dts" -> "DTS"
+        "dd+", "ddp", "e-ac-3", "eac3", "dolby digital plus" -> "DD+"
+        "dd5.1", "ac3", "ac-3", "dolby digital" -> "DD"
+        "aac" -> "AAC"
+        else -> null
+    }
+
+    private fun <T> preferenceRank(value: T?, preferences: List<String>, canonical: (String?) -> String?): Int {
+        if (preferences.isEmpty()) return 0
+        val wanted = preferences.mapNotNull { canonical(it) }
+        val actual = canonical(value?.toString())
+        if (actual == null) return wanted.size + 2
+        val position = wanted.indexOf(actual)
+        return if (position >= 0) position else wanted.size + 1
+    }
+
     fun comparator(s: SortSettings): Comparator<ParsedStream> {
         val chain = mutableListOf<Comparator<ParsedStream>>()
 
@@ -437,6 +464,12 @@ object StreamSorter {
                     else -> 0
                 }
             }
+        }
+        if (s.preferCodecs.isNotEmpty()) {
+            chain += compareBy<ParsedStream> { preferenceRank(it.info.codec, s.preferCodecs, ::canonicalCodec) }
+        }
+        if (s.preferAudio.isNotEmpty()) {
+            chain += compareBy<ParsedStream> { preferenceRank(it.info.audio, s.preferAudio, ::canonicalAudio) }
         }
         if (s.cachedFirst) {
             chain += compareByDescending<ParsedStream> {
@@ -506,19 +539,79 @@ object StreamDeduplication {
 object StreamPipeline {
     private fun dedupeKey(p: ParsedStream): String? = StreamDeduplication.key(p)
 
+    private fun mergeText(first: String?, second: String?): String? {
+        val values = listOfNotNull(first?.takeIf { it.isNotBlank() }, second?.takeIf { it.isNotBlank() })
+            .distinct()
+        return values.takeIf { it.isNotEmpty() }?.joinToString(" · ")
+    }
+
+    private fun mergeSubtitles(first: List<RawSubtitle>?, second: List<RawSubtitle>?): List<RawSubtitle>? {
+        val values = (first.orEmpty() + second.orEmpty())
+            .filter { !it.url.isNullOrBlank() }
+            .distinctBy { it.url }
+        return values.takeIf { it.isNotEmpty() }
+    }
+
+    private fun mergeDuplicate(first: ParsedStream, second: ParsedStream): ParsedStream {
+        val a = first.raw
+        val b = second.raw
+        val firstHints = a.behaviorHints
+        val secondHints = b.behaviorHints
+        val firstProxy = firstHints?.proxyHeaders?.request.orEmpty()
+        val secondProxy = secondHints?.proxyHeaders?.request.orEmpty()
+        val proxyHeaders = (secondProxy + firstProxy).takeIf { it.isNotEmpty() }
+            ?.let { ProxyHeaders(request = it) }
+        val headers = (secondHints?.headers.orEmpty() + firstHints?.headers.orEmpty())
+            .takeIf { it.isNotEmpty() }
+        val hints = if (firstHints == null && secondHints == null) null else BehaviorHints(
+            filename = firstHints?.filename?.takeIf { it.isNotBlank() } ?: secondHints?.filename,
+            videoSize = firstHints?.videoSize ?: secondHints?.videoSize,
+            bingeGroup = firstHints?.bingeGroup ?: secondHints?.bingeGroup,
+            notWebReady = firstHints?.notWebReady ?: secondHints?.notWebReady,
+            proxyHeaders = proxyHeaders,
+            headers = headers,
+        )
+        val mergedRaw = a.copy(
+            name = mergeText(a.name, b.name),
+            title = mergeText(a.title, b.title),
+            description = mergeText(a.description, b.description),
+            url = a.url?.takeIf { it.isNotBlank() } ?: b.url,
+            ytId = a.ytId?.takeIf { it.isNotBlank() } ?: b.ytId,
+            externalUrl = a.externalUrl?.takeIf { it.isNotBlank() } ?: b.externalUrl,
+            infoHash = a.infoHash?.takeIf { it.isNotBlank() } ?: b.infoHash,
+            fileIdx = a.fileIdx ?: b.fileIdx,
+            sources = (a.sources.orEmpty() + b.sources.orEmpty()).distinct().takeIf { it.isNotEmpty() },
+            subtitles = mergeSubtitles(a.subtitles, b.subtitles),
+            behaviorHints = hints,
+        )
+        val (info, text) = StreamParser.parse(mergedRaw)
+        // Keep the first addon's identity and priority, but enrich its metadata and subtitles.
+        return ParsedStream(first.addonIndex, first.addonName, mergedRaw, text, info)
+    }
+
     fun process(items: List<ParsedStream>, filter: FilterSettings, sort: SortSettings): List<ParsedStream> {
-        // Earlier addons win when two addons return the same torrent/url.
-        val seen = HashSet<String>()
-        val wantedLanguages = filter.requireLanguages.map { Langs.normalize(it) }.toSet()
+        // Merge duplicate records before filtering so a richer copy from another addon can fill
+        // missing resolution, language, filename, headers or subtitle information.
+        val positions = HashMap<String, Int>()
         val unique = ArrayList<ParsedStream>(items.size)
         for (stream in items.sortedBy { it.addonIndex }) {
-            if (!StreamFilter.passes(stream, filter, wantedLanguages)) continue
             val key = dedupeKey(stream)
-            if (key != null && !seen.add(key)) continue
-            unique += stream
+            if (key == null) {
+                unique += stream
+                continue
+            }
+            val existingIndex = positions[key]
+            if (existingIndex == null) {
+                positions[key] = unique.size
+                unique += stream
+            } else {
+                unique[existingIndex] = mergeDuplicate(unique[existingIndex], stream)
+            }
         }
 
-        val sorted = unique.sortedWith(StreamSorter.comparator(sort))
+        val wantedLanguages = filter.requireLanguages.map { Langs.normalize(it) }.toSet()
+        val filtered = unique.filter { StreamFilter.passes(it, filter, wantedLanguages) }
+        val sorted = filtered.sortedWith(StreamSorter.comparator(sort))
         if (filter.maxPerAddon <= 0 && filter.maxTotal <= 0) return sorted
 
         // Apply both limits in one pass and stop as soon as the total cap is reached.
@@ -568,12 +661,27 @@ object StreamLabels {
             return listOf(p.addonName, n, title).filter { it.isNotBlank() }.joinToString(" ")
         }
         val i = p.info
+        val detectedLanguages = i.languages
+            .filter { it != "und" }
+            .map { if (it == "multi") "MULTI" else it.uppercase(Locale.ROOT) }
+            .distinct()
+            .sorted()
+            .joinToString("/")
+        val subtitleLanguages = p.raw.subtitles.orEmpty()
+            .mapNotNull { it.lang?.takeIf { lang -> lang.isNotBlank() } }
+            .map { Langs.normalize(it) }
+            .filter { it != "und" }
+            .distinct()
+            .sorted()
+            .joinToString("/")
         val tags = listOfNotNull(
             resolutionLabel(i.resolution).ifEmpty { null },
             i.source, i.hdr, i.codec, i.audio,
+            detectedLanguages.takeIf { it.isNotBlank() }?.let { "Lang $it" },
+            subtitleLanguages.takeIf { it.isNotBlank() }?.let { "Subs $it" },
             i.sizeBytes?.let { formatSize(it) },
             i.seeders?.let { "$EMOJI_SEEDER $it" },
-            if (i.cached == true) EMOJI_BOLT else null,
+            if (i.cached == true) "$EMOJI_BOLT Cached" else if (i.cached == false) "Uncached" else null,
             if (p.isMagnet) "magnet" else null,
         )
         val head = if (tags.isEmpty()) p.addonName else p.addonName + " · " + tags.joinToString(" · ")

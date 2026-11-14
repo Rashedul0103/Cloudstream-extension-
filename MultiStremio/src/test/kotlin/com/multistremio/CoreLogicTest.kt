@@ -86,6 +86,105 @@ class CoreLogicTest {
     }
 
     @Test
+    fun duplicateStreamsMergeSubtitlesAndMissingMetadata() {
+        val first = StreamParser.parsed(
+            0,
+            "Primary addon",
+            RawStream(
+                name = "Example.Movie.1080p.WEB-DL",
+                url = "https://example.com/watch.m3u8?token=private",
+                subtitles = listOf(RawSubtitle(url = "https://subs.example/en.vtt", lang = "eng")),
+            ),
+        )
+        val duplicate = StreamParser.parsed(
+            1,
+            "Secondary addon",
+            RawStream(
+                name = "Example.Movie.BENG",
+                url = "https://EXAMPLE.com:443/a/../watch.m3u8?token=private",
+                subtitles = listOf(RawSubtitle(url = "https://subs.example/bn.vtt", lang = "ben")),
+                behaviorHints = BehaviorHints(filename = "Example.Movie.1080p.WEB-DL.BENG.mkv"),
+            ),
+        )
+
+        val result = StreamPipeline.process(
+            listOf(first, duplicate),
+            FilterSettings(),
+            SortSettings(),
+        )
+
+        assertEquals(1, result.size)
+        assertEquals("Primary addon", result.single().addonName)
+        assertEquals(2, result.single().raw.subtitles?.size)
+        assertTrue("bn" in result.single().info.languages)
+        assertTrue(result.single().raw.behaviorHints?.filename?.contains("BENG") == true)
+    }
+
+    @Test
+    fun customCodecAndAudioPreferencesControlStreamRanking() {
+        val avc = StreamParser.parsed(0, "AVC addon", RawStream(name = "Movie.1080p.WEB-DL.x264.AAC"))
+        val hevc = StreamParser.parsed(1, "HEVC addon", RawStream(name = "Movie.1080p.WEB-DL.x265.DD+"))
+        val av1 = StreamParser.parsed(2, "AV1 addon", RawStream(name = "Movie.1080p.WEB-DL.AV1.Atmos"))
+
+        val codecOrder = StreamPipeline.process(
+            listOf(avc, hevc, av1),
+            FilterSettings(),
+            SortSettings(preferCodecs = mutableListOf("AV1", "HEVC", "AVC")),
+        )
+        assertEquals(listOf("AV1", "HEVC", "AVC"), codecOrder.map { it.info.codec })
+
+        val audioOrder = StreamPipeline.process(
+            listOf(avc, hevc, av1),
+            FilterSettings(),
+            SortSettings(preferAudio = mutableListOf("Atmos", "DD+", "AAC")),
+        )
+        assertEquals(listOf("Atmos", "DD+", "AAC"), audioOrder.map { it.info.audio })
+    }
+
+    @Test
+    fun detailedStreamLabelsShowDetectedLanguagesAndSubtitleTracks() {
+        val parsed = StreamParser.parsed(
+            0,
+            "Test addon",
+            RawStream(
+                name = "Example.Movie.1080p.WEB-DL.ENG.BENG",
+                url = "https://example.com/video.mkv",
+                subtitles = listOf(
+                    RawSubtitle(url = "https://subs.example/en.vtt", lang = "eng"),
+                    RawSubtitle(url = "https://subs.example/bn.vtt", lang = "ben"),
+                ),
+            ),
+        )
+        val label = StreamLabels.build(parsed, detailed = true)
+        assertTrue(label.contains("Lang BN/EN"))
+        assertTrue(label.contains("Subs BN/EN"))
+    }
+
+    @Test
+    fun streamDiagnosticsRecordOnlySafeCountsAndTimings() {
+        val run = StreamDiagnostics.begin()
+        StreamDiagnostics.record(run, "Example addon", "Streams", 125L, true, 4)
+        StreamDiagnostics.record(run, "Unavailable addon", "Subtitles", 8000L, false, 0)
+        StreamDiagnostics.finish(
+            run,
+            rawStreams = 4,
+            addonSubtitles = 0,
+            playableCandidates = 3,
+            keptAfterFilters = 2,
+            emittedLinks = 2,
+        )
+
+        val snapshot = StreamDiagnostics.latest()
+        assertNotNull(snapshot)
+        assertEquals(4, snapshot!!.rawStreams)
+        assertEquals(3, snapshot.playableCandidates)
+        assertEquals(2, snapshot.keptAfterFilters)
+        assertEquals(2, snapshot.emittedLinks)
+        assertEquals(2, snapshot.requests.size)
+        assertFalse(snapshot.requests[1].responseReceived)
+    }
+
+    @Test
     fun strictLanguageModeRejectsUndetectedLanguageWithoutTargetList() {
         val raw = RawStream(name = "Example.Movie.1080p.WEB-DL")
         val (info, text) = StreamParser.parse(raw)
