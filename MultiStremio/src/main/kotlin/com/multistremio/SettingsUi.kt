@@ -158,6 +158,9 @@ object SettingsUi {
 
     private fun window(dialog: AlertDialog, ctx: Context) {
         dialog.show()
+        // These settings screens have explicit Back/Cancel controls. Avoid accidental outside taps
+        // dismissing an in-progress edit or silently navigating to its parent screen.
+        dialog.setCanceledOnTouchOutside(false)
         dialog.window?.let { window ->
             window.setBackgroundDrawableResource(android.R.color.transparent)
             window.setLayout(minOf(dp(ctx, 520), ctx.resources.displayMetrics.widthPixels - dp(ctx, 36)), ViewGroup.LayoutParams.WRAP_CONTENT)
@@ -211,7 +214,7 @@ object SettingsUi {
                     pick(index)
                 }
             }
-            rowViews += row to value
+            rowViews += row to listOfNotNull(value, detail).joinToString(" ")
         }
 
         fun render(filter: String = "") {
