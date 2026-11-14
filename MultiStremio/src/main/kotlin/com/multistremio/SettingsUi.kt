@@ -517,6 +517,7 @@ object SettingsUi {
                     "Information to display",
                     fields.map { "${it.title} — ${it.description}" },
                     fields.map { it.id in selected },
+                    onCancel = { streamFormatterMenu(ctx) },
                 ) { chosen ->
                     val wanted = fields.filterIndexed { index, _ -> chosen.getOrElse(index) { false } }.map { it.id }.toSet()
                     val existingOrder = format.fields.filter { it in wanted }
@@ -525,7 +526,7 @@ object SettingsUi {
                     streamFormatterMenu(ctx)
                 }
                 2 -> streamFormatReorderDialog(ctx)
-                3 -> choose(ctx, "Separate each detail with", separatorLabels, separatorIndex) {
+                3 -> choose(ctx, "Separate each detail with", separatorLabels, separatorIndex, onCancel = { streamFormatterMenu(ctx) }) {
                     Config.update { streamFormat.separator = separators[it] }
                     streamFormatterMenu(ctx)
                 }
@@ -547,6 +548,7 @@ object SettingsUi {
                     ctx,
                     "Reset stream formatter?",
                     "This restores the recommended field order, middle-dot separator and compact labels. Your custom layout will be turned off.",
+                    onCancel = { streamFormatterMenu(ctx) },
                 ) {
                     Config.update { streamFormat = StreamFormatSettings() }
                     streamFormatterMenu(ctx)
@@ -633,7 +635,10 @@ object SettingsUi {
             } else {
                 toast(ctx, "Could not save the format order. Please try again.")
             }
-        }, "Cancel", { dialog.dismiss() })
+        }, "Cancel", {
+            dialog.dismiss()
+            streamFormatterMenu(ctx)
+        })
         window(dialog, ctx)
     }
 
@@ -967,6 +972,7 @@ object SettingsUi {
             "Paste the addon's manifest link (https://…/manifest.json or stremio://…). " +
                 "Links often contain your personal keys, so keep them private.",
             "", false,
+            onCancel = { addonsMenu(ctx) },
         ) { raw ->
             val url = Urls.normalizeAddonUrl(raw)
             if (url.isEmpty()) return@prompt
@@ -1028,6 +1034,7 @@ object SettingsUi {
                     ctx, "${a.name} is used for",
                     listOf("Catalogs & search", "Metadata (details/episodes)", "Streams", "Subtitles"),
                     listOf(a.useCatalogs, a.useMeta, a.useStreams, a.useSubtitles),
+                    onCancel = { addonMenu(ctx, a) },
                 ) { v ->
                     Config.update { a.useCatalogs = v[0]; a.useMeta = v[1]; a.useStreams = v[2]; a.useSubtitles = v[3] }
                     addonMenu(ctx, a)
@@ -1035,7 +1042,7 @@ object SettingsUi {
                 2 -> catalogPicker(ctx, a)
                 3 -> { move(a, -1); addonsMenu(ctx) }
                 4 -> { move(a, +1); addonsMenu(ctx) }
-                5 -> prompt(ctx, "Rename addon", null, a.name, false) { n ->
+                5 -> prompt(ctx, "Rename addon", null, a.name, false, onCancel = { addonMenu(ctx, a) }) { n ->
                     if (n.isNotEmpty()) Config.update { a.name = n }
                     addonMenu(ctx, a)
                 }
@@ -1090,6 +1097,7 @@ object SettingsUi {
             ctx, "Catalogs on the home page",
             cats.map { "${it.name ?: it.id} (${it.type})" },
             keys.map { it !in a.hiddenCatalogs },
+            onCancel = { addonMenu(ctx, a) },
         ) { v ->
             Config.update {
                 a.hiddenCatalogs = keys.filterIndexed { i, _ -> !v[i] }.toMutableList()
@@ -1301,6 +1309,7 @@ object SettingsUi {
                 ctx,
                 "Reset catalog row order?",
                 "Rows will return to Stremio addon order, followed by newly added extension rows.",
+                onCancel = { catalogRowsMenu(ctx) },
             ) {
                 Config.update { catalogOrder.clear() }
                 toast(ctx, "Catalog row order reset. Refresh the home page to apply.")
@@ -1315,6 +1324,7 @@ object SettingsUi {
                 ctx,
                 "Unhide every Stremio catalog row?",
                 "This clears row-level hiding. Disabled addons and disabled catalog use remain inactive. Extension rows are unchanged.",
+                onCancel = { catalogRowsMenu(ctx) },
             ) {
                 Config.update { addons.forEach { it.hiddenCatalogs.clear() } }
                 toast(ctx, "Stremio catalog rows unhidden. Refresh the home page to apply.")
@@ -1433,7 +1443,7 @@ object SettingsUi {
                 2 -> moveCatalogRow(ctx, row, 1)
                 3 -> {
                     if (external != null) {
-                        confirm(ctx, "Remove extension row?", "This only removes the row from MultiStremio. The source extension remains installed.") {
+                        confirm(ctx, "Remove extension row?", "This only removes the row from MultiStremio. The source extension remains installed.", onCancel = { catalogRowsMenu(ctx) }) {
                             Config.update {
                                 externalRows.removeAll { it.key == external.key }
                                 catalogOrder.removeAll { it == external.key }
