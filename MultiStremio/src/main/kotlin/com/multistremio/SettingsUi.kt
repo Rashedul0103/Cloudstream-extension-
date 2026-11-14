@@ -360,23 +360,23 @@ object SettingsUi {
                     toast(ctx, "Saved row visibility. Refresh the home page to apply.")
                     catalogRowsMenu(ctx)
                 }
-                1 -> { moveCatalogRow(row, position - 1); catalogRowsMenu(ctx) }
-                2 -> { moveCatalogRow(row, position + 1); catalogRowsMenu(ctx) }
-                3 -> { moveCatalogRow(row, 0); catalogRowsMenu(ctx) }
-                4 -> { moveCatalogRow(row, rows.lastIndex); catalogRowsMenu(ctx) }
+                1 -> { moveCatalogRow(ctx, row, position - 1); catalogRowsMenu(ctx) }
+                2 -> { moveCatalogRow(ctx, row, position + 1); catalogRowsMenu(ctx) }
+                3 -> { moveCatalogRow(ctx, row, 0); catalogRowsMenu(ctx) }
+                4 -> { moveCatalogRow(ctx, row, rows.lastIndex); catalogRowsMenu(ctx) }
                 5 -> addonMenu(ctx, row.addon)
             }
         }
     }
 
-    private fun moveCatalogRow(row: CatalogRow, targetIndex: Int) {
+    private fun moveCatalogRow(ctx: Context, row: CatalogRow, targetIndex: Int) {
         val keys = catalogRows().map { it.key }.toMutableList()
         val currentIndex = keys.indexOf(row.key)
         if (currentIndex < 0 || targetIndex !in keys.indices || currentIndex == targetIndex) return
         val key = keys.removeAt(currentIndex)
         keys.add(targetIndex, key)
         Config.update { catalogOrder = keys }
-        toast("Catalog row order saved. Refresh the home page to apply.")
+        toast(ctx, "Catalog row order saved. Refresh the home page to apply.")
     }
 
     // ---- filters ---------------------------------------------------------------------------
