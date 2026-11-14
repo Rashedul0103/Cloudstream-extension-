@@ -44,14 +44,20 @@ object Json {
 /** Blocking HTTP used only by settings/background threads (the provider uses CloudStream's `app`). */
 object SimpleHttp {
     fun get(url: String, timeoutMs: Int = 20000): String? {
-        val conn = URL(url).openConnection() as HttpURLConnection
+        // Invalid pasted URLs must fail as a normal null result, not crash the settings thread.
+        val conn = try {
+            URL(url).openConnection() as? HttpURLConnection
+        } catch (_: Exception) {
+            null
+        } ?: return null
+
         return try {
             conn.connectTimeout = timeoutMs
             conn.readTimeout = timeoutMs
             conn.instanceFollowRedirects = true
             conn.setRequestProperty("User-Agent", "Mozilla/5.0 (Linux; Android) CloudStream-MultiStremio")
             if (conn.responseCode in 200..299) conn.inputStream.bufferedReader().use { it.readText() } else null
-        } catch (e: Exception) {
+        } catch (_: Exception) {
             null
         } finally {
             conn.disconnect()
