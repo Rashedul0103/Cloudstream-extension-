@@ -3,7 +3,8 @@ version = 12
 
 cloudstream {
     description = "Combine any number of Stremio addons: merged catalogs, search, metadata, " +
-        "subtitles and streams, with stream filtering/sorting. Open the plugin settings to add addons."
+        "subtitles and streams, with filtering, sorting and a no-code visual stream-label designer. " +
+        "Open the plugin settings to add addons."
     authors = listOf("MultiStremio")
 
     /**
