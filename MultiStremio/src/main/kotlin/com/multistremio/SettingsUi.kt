@@ -708,8 +708,12 @@ object SettingsUi {
             appendLine("Playable before filters: ${snapshot.playableCandidates}")
             appendLine("Kept after filters/deduplication: ${snapshot.keptAfterFilters}")
             appendLine("Links handed to CloudStream: ${snapshot.emittedLinks}")
+            appendLine("Parsing work (parallel totals): ${snapshot.parseWorkMs} ms")
+            appendLine("Filter/dedup/sort: ${snapshot.pipelineMs} ms")
+            appendLine("Link emission: ${snapshot.emissionMs} ms")
             snapshot.requests.forEach { item ->
-                appendLine("${item.addonName} | ${item.resource} | ${if (item.responseReceived) "response" else "no response"} | ${item.resultCount} items | ${item.elapsedMs} ms")
+                val outcome = if (item.resultCount > 0) "${item.status} (${item.resultCount} items)" else item.status
+                appendLine("${item.addonName} | ${item.resource} | $outcome | ${item.elapsedMs} ms")
             }
         }
         addFooter(ctx, root, "Close", { dialog.dismiss() }, "Copy report", {
