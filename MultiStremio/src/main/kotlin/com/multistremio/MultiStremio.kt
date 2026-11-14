@@ -92,10 +92,10 @@ class MultiStremio : MainAPI() {
     override suspend fun getMainPage(page: Int, request: MainPageRequest): HomePageResponse? {
         val settings = Config.snapshot()
         // External rows delegate to the provider that originally owns the selected homepage row.
-        val externalRef = Json.parse<ExternalPageRef>(request.data)
-        if (!externalRef?.key.isNullOrBlank()) {
+        val externalKey = Json.parse<ExternalPageRef>(request.data)?.key
+        if (!externalKey.isNullOrBlank()) {
             val selected = settings.externalRows.firstOrNull {
-                it.key == externalRef?.key && it.enabled
+                it.key == externalKey && it.enabled
             } ?: return newHomePageResponse(request, emptyList(), false)
             val installed = ExternalHomeRows.resolve(selected, this)
                 ?: return newHomePageResponse(request, emptyList(), false)
