@@ -10,6 +10,14 @@ on:
     branches: [main, master]
     paths-ignore:
       - '*.md'
+  pull_request:
+    branches: [main]
+    paths:
+      - 'MultiStremio/**'
+      - 'build.gradle.kts'
+      - 'settings.gradle.kts'
+      - 'gradle.properties'
+      - '.github/workflows/build.yml'
 
 permissions:
   contents: write
@@ -48,6 +56,7 @@ jobs:
           gradle testDebugUnitTest make makePluginsJson
 
       - name: Verify this is still the latest main commit
+        if: github.ref == 'refs/heads/main' && github.event_name != 'pull_request'
         run: |
           REMOTE_SHA="$(git -C src ls-remote origin "refs/heads/${GITHUB_REF_NAME}" | cut -f1)"
           if [ "$REMOTE_SHA" != "$GITHUB_SHA" ]; then
@@ -56,6 +65,7 @@ jobs:
           fi
 
       - name: Publish to builds branch
+        if: github.ref == 'refs/heads/main' && github.event_name != 'pull_request'
         run: |
           mkdir builds && cd builds
           git init -q -b builds
