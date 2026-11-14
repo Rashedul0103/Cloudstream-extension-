@@ -825,7 +825,10 @@ object SettingsUi {
                 appendLine("${item.addonName} | ${item.resource} | $outcome | ${item.elapsedMs} ms")
             }
         }
-        addFooter(ctx, root, "Close", { dialog.dismiss() }, "Copy report", {
+        addFooter(ctx, root, "Back", {
+            dialog.dismiss()
+            addonsMenu(ctx)
+        }, "Copy report", {
             val clipboard = ctx.getSystemService(Context.CLIPBOARD_SERVICE) as? ClipboardManager
             clipboard?.setPrimaryClip(ClipData.newPlainText("MultiStremio streaming diagnostics", report))
             toast(ctx, "Diagnostics copied. The report contains no addon URLs.")
@@ -1670,6 +1673,7 @@ object SettingsUi {
                         "Preferences-only backup copied. Addon sources and imported extension rows were excluded."
                     },
                 )
+                main.post { backupMenu(ctx) }
             }.onFailure {
                 toast(ctx, "Could not copy the backup to the clipboard")
             }
@@ -1714,6 +1718,7 @@ object SettingsUi {
                     val restored = backup?.settings
                     if (backup == null || restored == null) {
                         toast(ctx, "That is not a supported MultiStremio backup")
+                        backupMenu(ctx)
                     } else {
                         val warning = if (backup.includesAddonUrls) {
                             "This backup contains addon source URLs and/or imported-extension references. They may expose access keys or private repository addresses. It will replace all current settings."
@@ -1724,16 +1729,19 @@ object SettingsUi {
                             restored.seeded = true
                             Config.replace(restored)
                             toast(ctx, "Backup restored. Refresh the home page.")
+                            mainMenu(ctx)
                         }
                     }
                 }
                 3 -> confirm(ctx, "Reset filters & sorting?", "Addons are kept.", onCancel = { backupMenu(ctx) }) {
                     Config.update { filter = FilterSettings(); sort = SortSettings() }
-                    toast(ctx, "Reset")
+                    toast(ctx, "Filters and sorting reset.")
+                    backupMenu(ctx)
                 }
                 4 -> confirm(ctx, "Remove everything?", "All addons and settings are deleted (Cinemeta is not re-added).", onCancel = { backupMenu(ctx) }) {
                     Config.replace(Settings(seeded = true))
-                    toast(ctx, "Cleared")
+                    toast(ctx, "All MultiStremio settings cleared.")
+                    mainMenu(ctx)
                 }
             }
         }
