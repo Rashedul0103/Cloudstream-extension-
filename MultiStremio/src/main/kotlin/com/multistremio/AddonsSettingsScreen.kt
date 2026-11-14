@@ -38,20 +38,43 @@ internal object AddonsSettingsScreen {
 
     private fun addonsMenu(ctx: Context) {
         val addons = Config.settings.addons
-        val rows = addons.mapIndexed { i, a ->
-            val caps = listOfNotNull(
-                if (a.useCatalogs) "catalogs" else null, if (a.useMeta) "meta" else null,
-                if (a.useStreams) "streams" else null, if (a.useSubtitles) "subs" else null,
-            ).joinToString("/")
-            "${i + 1}. ${if (a.enabled) "✓" else "✗"} ${a.name} (${host(a.url)}) $caps"
-        } + listOf("Check all addon connections", "+ Add addon")
-        menu(ctx, "Addons", rows, { MainMenuSettingsScreen.show(ctx) }, "Enable or disable sources, set their priority, and check whether addon manifests are reachable.") { which ->
-            when {
-                which < addons.size -> addonMenu(ctx, addons[which])
-                which == addons.size -> checkAddonConnections(ctx)
-                else -> addAddon(ctx)
-            }
-        }
+        val items = addons.mapIndexed { index, addon ->
+            val capabilities = listOfNotNull(
+                if (addon.useCatalogs) "catalogs" else null,
+                if (addon.useMeta) "meta" else null,
+                if (addon.useStreams) "streams" else null,
+                if (addon.useSubtitles) "subtitles" else null,
+            ).joinToString(" / ").ifBlank { "No capabilities enabled" }
+            SettingItem(
+                title = "${index + 1}. ${if (addon.enabled) "✓" else "✗"} ${addon.name}",
+                summary = "${host(addon.url)} · $capabilities",
+                type = SettingItemType.Switch,
+                onClick = { addonMenu(ctx, addon) },
+                searchKeywords = listOf(addon.name, host(addon.url), capabilities, "enabled", "disabled"),
+            )
+        } + listOf(
+            SettingItem(
+                "Check all addon connections",
+                "Test manifest reachability and response time",
+                SettingItemType.Value,
+                onClick = { checkAddonConnections(ctx) },
+                searchKeywords = listOf("check", "connection", "test", "manifest", "status"),
+            ),
+            SettingItem(
+                "Add addon",
+                "Enter a Stremio addon manifest URL",
+                SettingItemType.Navigate,
+                onClick = { addAddon(ctx) },
+                searchKeywords = listOf("add", "new", "URL", "manifest"),
+            ),
+        )
+        settingMenu(
+            ctx,
+            "Addons",
+            items,
+            { MainMenuSettingsScreen.show(ctx) },
+            "Enable or disable sources, set their priority, and check whether addon manifests are reachable.",
+        )
     }
 
     private data class AddonHealthResult(
@@ -254,59 +277,88 @@ internal object AddonsSettingsScreen {
     }
 
     private fun addonMenu(ctx: Context, a: AddonConfig) {
-        val addons = Config.settings.addons
-        menu(
-            ctx, a.name,
-            listOf(
-                if (a.enabled) "Disable" else "Enable",
-                "Use for: catalogs / meta / streams / subtitles",
+        val again = { addonMenu(ctx, a) }
+        val items = listOf(
+            SettingItem(
+                if (a.enabled) "Disable addon" else "Enable addon",
+                "Keep this source saved; change only whether it is used",
+                SettingItemType.Switch,
+                onClick = { updateAndReopen({ again() }) { a.enabled = !a.enabled } },
+                searchKeywords = listOf("enable", "disable", "active", "source"),
+            ),
+            SettingItem(
+                "Choose addon capabilities",
+                listOfNotNull(
+                    if (a.useCatalogs) "Catalogs" else null,
+                    if (a.useMeta) "Metadata" else null,
+                    if (a.useStreams) "Streams" else null,
+                    if (a.useSubtitles) "Subtitles" else null,
+                ).joinToString(", ").ifBlank { "None enabled" },
+                SettingItemType.Value,
+                onClick = {
+                    multi(
+                        ctx,
+                        "${a.name} is used for",
+                        listOf("Catalogs & search", "Metadata (details/episodes)", "Streams", "Subtitles"),
+                        listOf(a.useCatalogs, a.useMeta, a.useStreams, a.useSubtitles),
+                        onCancel = again,
+                    ) { selected ->
+                        updateAndReopen({ again() }) {
+                            a.useCatalogs = selected[0]
+                            a.useMeta = selected[1]
+                            a.useStreams = selected[2]
+                            a.useSubtitles = selected[3]
+                        }
+                    }
+                },
+                searchKeywords = listOf("catalogs", "search", "metadata", "streams", "subtitles", "capabilities"),
+            ),
+            SettingItem(
                 "Home catalogs to show",
-                "Move up (higher priority)",
-                "Move down",
-                "Rename",
-                "Refresh & test manifest",
-                "Remove",
+                "Select the catalog rows this addon contributes to the home page",
+                SettingItemType.Value,
+                onClick = { catalogPicker(ctx, a) },
+                searchKeywords = listOf("home", "catalog", "homepage", "rows", "visibility"),
             ),
-            { addonsMenu(ctx) },
-            "Addon priority affects source tie-breaking and metadata fallback. It does not change homepage row order; arrange homepage rows separately in Catalog rows.",
-            listOf(
-                "Enable or disable this addon without deleting its saved settings.",
-                "Choose whether it supplies catalogs, metadata, streams or subtitles.",
-                "Show or hide individual homepage catalog rows.",
-                "Give this addon higher priority when multiple sources return matching links or metadata.",
-                "Give this addon lower source priority.",
-                "Change the display name shown inside MultiStremio.",
-                "Download the manifest again and update its cached capabilities.",
-                "Remove this addon and its saved homepage catalog rows from MultiStremio.",
-            ),
-        ) { which ->
-            when (which) {
-                0 -> { Config.update { a.enabled = !a.enabled }; addonMenu(ctx, a) }
-                1 -> multi(
-                    ctx, "${a.name} is used for",
-                    listOf("Catalogs & search", "Metadata (details/episodes)", "Streams", "Subtitles"),
-                    listOf(a.useCatalogs, a.useMeta, a.useStreams, a.useSubtitles),
-                    onCancel = { addonMenu(ctx, a) },
-                ) { v ->
-                    Config.update { a.useCatalogs = v[0]; a.useMeta = v[1]; a.useStreams = v[2]; a.useSubtitles = v[3] }
-                    addonMenu(ctx, a)
-                }
-                2 -> catalogPicker(ctx, a)
-                3 -> {
+            SettingItem(
+                "Move up (higher source priority)",
+                "Give this addon higher priority for matching results",
+                SettingItemType.Value,
+                onClick = {
                     if (move(a, -1)) toast(ctx, "Addon priority increased.")
                     else toast(ctx, "This addon is already at the top of the priority list.")
                     addonsMenu(ctx)
-                }
-                4 -> {
+                },
+                searchKeywords = listOf("priority", "move up", "ranking"),
+            ),
+            SettingItem(
+                "Move down (lower source priority)",
+                "Give this addon lower priority for matching results",
+                SettingItemType.Value,
+                onClick = {
                     if (move(a, +1)) toast(ctx, "Addon priority decreased.")
                     else toast(ctx, "This addon is already at the bottom of the priority list.")
                     addonsMenu(ctx)
-                }
-                5 -> prompt(ctx, "Rename addon", null, a.name, false, onCancel = { addonMenu(ctx, a) }) { n ->
-                    if (n.isNotEmpty()) Config.update { a.name = n }
-                    addonMenu(ctx, a)
-                }
-                6 -> {
+                },
+                searchKeywords = listOf("priority", "move down", "ranking"),
+            ),
+            SettingItem(
+                "Rename addon",
+                a.name,
+                SettingItemType.Value,
+                onClick = {
+                    prompt(ctx, "Rename addon", null, a.name, false, onCancel = again) { newName ->
+                        if (newName.isNotEmpty()) updateAndReopen({ again() }) { a.name = newName }
+                        else again()
+                    }
+                },
+                searchKeywords = listOf("rename", "display name"),
+            ),
+            SettingItem(
+                "Refresh & test manifest",
+                "Download the manifest again and update cached capabilities",
+                SettingItemType.Value,
+                onClick = {
                     var hidden = false
                     val progressDialog = progress(
                         ctx,
@@ -315,8 +367,8 @@ internal object AddonsSettingsScreen {
                     ) { hidden = true }
                     thread(start = true, name = "multistremio-refresh-addon") {
                         val ok = Config.refreshManifest(a)
-                        val m = Config.manifestOf(a)
-                        val resources = m?.resources.orEmpty().mapNotNull {
+                        val manifest = Config.manifestOf(a)
+                        val resources = manifest?.resources.orEmpty().mapNotNull {
                             if (it is String) it else (it as? Map<*, *>)?.get("name") as? String
                         }.distinct()
 
@@ -324,7 +376,7 @@ internal object AddonsSettingsScreen {
                             progressDialog.dismiss()
                             toast(
                                 ctx,
-                                if (ok) "OK: ${m?.name ?: a.name} v${m?.version ?: "?"}, ${m?.catalogs.orEmpty().size} catalogs, " +
+                                if (ok) "OK: ${manifest?.name ?: a.name} v${manifest?.version ?: "?"}, ${manifest?.catalogs.orEmpty().size} catalogs, " +
                                     "provides ${resources.joinToString(", ").ifEmpty { "nothing" }}"
                                 else "Could not download the manifest",
                             )
@@ -334,17 +386,39 @@ internal object AddonsSettingsScreen {
                             }
                         }
                     }
-                }
-                7 -> confirm(ctx, "Remove ${a.name}?", "This only removes it from MultiStremio. Its catalog rows and saved row-order entries will also be removed.", onCancel = { addonMenu(ctx, a) }) {
-                    Config.update {
-                        addons.remove(a)
-                        val addonPrefix = a.id + "|"
-                        catalogOrder.removeAll { it.startsWith(addonPrefix) }
+                },
+                searchKeywords = listOf("refresh", "manifest", "test", "connection", "capabilities"),
+            ),
+            SettingItem(
+                "Remove addon",
+                "Delete this source and its saved catalog rows from MultiStremio",
+                SettingItemType.Value,
+                onClick = {
+                    confirm(
+                        ctx,
+                        "Remove ${a.name}?",
+                        "This only removes it from MultiStremio. Its catalog rows and saved row-order entries will also be removed.",
+                        onCancel = again,
+                    ) {
+                        Config.update {
+                            addons.remove(a)
+                            val addonPrefix = a.id + "|"
+                            catalogOrder.removeAll { it.startsWith(addonPrefix) }
+                        }
+                        addonsMenu(ctx)
                     }
-                    addonsMenu(ctx)
-                }
-            }
-        }
+                },
+                searchKeywords = listOf("remove", "delete", "source", "addon"),
+            ),
+        )
+        settingMenu(
+            ctx,
+            a.name,
+            items,
+            { addonsMenu(ctx) },
+            "Addon priority affects source tie-breaking and metadata fallback. It does not change homepage row order; arrange homepage rows separately in Catalog rows.",
+            screenKey = "addon:${a.id}",
+        )
     }
 
     private fun move(a: AddonConfig, delta: Int): Boolean {
