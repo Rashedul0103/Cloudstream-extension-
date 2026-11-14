@@ -158,12 +158,7 @@ class MultiStremio : MainAPI() {
         val results = jobs.boundedAmap(8) { (addon, type, id) ->
             StremioClient.catalog(addon, type, id, "search=$q").map { Triple(addon.id, type, it) }
         }
-        val seen = HashSet<String>()
-        return results.flatten()
-            .filter { (_, fallbackType, meta) ->
-                val effectiveType = meta.type?.takeIf { it.isNotBlank() } ?: fallbackType
-                seen.add("$effectiveType:${meta.id}")
-            }
+        return SearchMetaDeduplication.unique(results.flatten())
             .mapNotNull { (addonId, fallbackType, meta) ->
                 meta.toSearchResponse(addonId, fallbackType)
             }
