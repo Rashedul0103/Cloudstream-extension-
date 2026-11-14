@@ -419,7 +419,7 @@ object SettingsUi {
         val activeRows = s.addons.sumOf { addon ->
             if (!addon.enabled || !addon.useCatalogs) 0 else {
                 val manifest = Config.manifestOf(addon)
-                manifest?.catalogs.orEmpty().count { catalog ->
+                if (manifest == null) 0 else manifest.catalogs.orEmpty().count { catalog ->
                     val type = catalog.type
                     val id = catalog.id
                     type != null && id != null &&
@@ -1009,7 +1009,7 @@ object SettingsUi {
                     return@thread
                 }
                 val addon = AddonConfig(
-                    id = Config.idFor(url), url = url, name = manifest.name,
+                    id = Config.idFor(url), url = url, name = manifest.name?.takeIf { it.isNotBlank() } ?: host(url),
                     useCatalogs = manifest.hasResource("catalog") && manifest.catalogs.orEmpty().isNotEmpty(),
                     useMeta = manifest.hasResource("meta"),
                     useStreams = manifest.hasResource("stream"),
@@ -1121,12 +1121,13 @@ object SettingsUi {
 
     private fun catalogPicker(ctx: Context, a: AddonConfig) {
         val manifest = Config.manifestOf(a)
-        val cats = manifest?.catalogs.orEmpty()
-            .filter {
+        val cats = manifest?.let { current ->
+            current.catalogs.orEmpty().filter {
                 val type = it.type
                 type != null && it.id != null && it.isHomeCatalog() &&
-                    manifest.supports("catalog", type, null)
+                    current.supports("catalog", type, null)
             }
+        }.orEmpty()
         if (cats.isEmpty()) { toast(ctx, "This addon has no browsable catalogs"); addonMenu(ctx, a); return }
         val keys = cats.map { "${it.type}/${it.id}" }
         multi(
