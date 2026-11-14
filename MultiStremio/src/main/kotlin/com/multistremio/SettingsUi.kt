@@ -812,17 +812,17 @@ object SettingsUi {
                 installed.map { addon ->
                     executor.submit<AddonHealthResult> {
                         val started = System.nanoTime()
-                        val body = SimpleHttp.get(Urls.manifest(addon.url), timeoutMs = 8000)
-                        val manifest = Json.parse<Manifest>(body)
-                        val success = body != null && manifest != null &&
-                            (manifest.name != null || manifest.resources != null)
+                        val response = SimpleHttp.getDetailed(Urls.manifest(addon.url), timeoutMs = 8000)
+                        val manifest = Json.parse<Manifest>(response.body)
+                        val assessment = AddonHealthClassifier.assess(response, manifest)
+                        val success = assessment.success
                         val elapsed = (System.nanoTime() - started) / 1_000_000L
 
-                        if (success && body != null && manifest != null) {
+                        if (success && response.body != null && manifest != null) {
                             Config.update {
                                 val saved = this.addons.firstOrNull { it.id == addon.id }
                                 if (saved != null) {
-                                    saved.manifest = body
+                                    saved.manifest = response.body
                                     saved.manifestFetchedAt = System.currentTimeMillis()
                                     if (saved.name.isBlank()) saved.name = manifest.name.orEmpty()
                                 }
@@ -830,15 +830,11 @@ object SettingsUi {
                         }
 
                         val cached = Config.manifestOf(addon) != null
-                        val detail = when {
-                            success -> buildString {
-                                append(manifest?.name ?: addon.name)
-                                manifest?.version?.takeIf { it.isNotBlank() }?.let { append(" · v").append(it) }
-                                append(" · ${manifest?.catalogs.orEmpty().size} catalogs")
-                            }
-                            body == null -> "No response within 8 seconds"
-                            else -> "The server did not return a valid addon manifest"
-                        } + if (!success && cached) " · saved manifest retained" else ""
+                        val detail = if (success) buildString {
+                            append(manifest?.name?.takeIf { it.isNotBlank() } ?: addon.name)
+                            manifest?.version?.takeIf { it.isNotBlank() }?.let { append(" · v").append(it) }
+                            append(" · ${manifest?.catalogs.orEmpty().size} catalogs")
+                        } else assessment.detail + if (cached) " · saved manifest retained" else ""
                         AddonHealthResult(addon.name, success, elapsed, detail)
                     }
                 }.map { future ->
