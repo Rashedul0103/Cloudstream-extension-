@@ -69,8 +69,14 @@ data class SortSettings(
     var overrideAppQuality: Boolean = false,
 )
 
+/** Stable identity for a catalog row across app launches and addon manifest refreshes. */
+fun catalogOrderKey(addonId: String, type: String, catalogId: String): String =
+    "$addonId|$type|$catalogId"
+
 data class Settings(
     var addons: MutableList<AddonConfig> = mutableListOf(),
+    /** Stable keys defining the user's global order for home-page catalog rows. */
+    var catalogOrder: MutableList<String> = mutableListOf(),
     var filter: FilterSettings = FilterSettings(),
     var sort: SortSettings = SortSettings(),
     var timeoutSec: Int = 30,

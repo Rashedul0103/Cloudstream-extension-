@@ -35,8 +35,9 @@ class MultiStremio : MainAPI() {
     // Built from the cached manifests every time the home page loads, so settings changes show up on refresh.
     override val mainPage: List<MainPageData>
         get() {
-            val rows = mutableListOf<MainPageData>()
-            for (addon in Config.settings.addons) {
+            val settings = Config.settings
+            val rows = mutableListOf<Pair<String, MainPageData>>()
+            for (addon in settings.addons) {
                 if (!addon.enabled || !addon.useCatalogs) continue
                 val manifest = Config.manifestOf(addon) ?: continue
                 for (c in manifest.catalogs.orEmpty()) {
@@ -44,10 +45,21 @@ class MultiStremio : MainAPI() {
                     val id = c.id ?: continue
                     if (!c.isHomeCatalog() || "$type/$id" in addon.hiddenCatalogs) continue
                     val title = "${addon.name} · ${c.name ?: id} · ${typeLabel(type)}"
-                    rows += MainPageData(title, Json.toJson(CatalogRef(addon.id, type, id)), false)
+                    val key = catalogOrderKey(addon.id, type, id)
+                    rows += key to MainPageData(title, Json.toJson(CatalogRef(addon.id, type, id)), false)
                 }
             }
-            return if (rows.isEmpty()) listOf(MainPageData("MultiStremio", "{}", false)) else rows
+
+            val positions = settings.catalogOrder.withIndex().associate { it.value to it.index }
+            val orderedRows = rows.withIndex()
+                .sortedWith(
+                    compareBy<IndexedValue<Pair<String, MainPageData>>> {
+                        positions[it.value.first] ?: Int.MAX_VALUE
+                    }.thenBy { it.index },
+                )
+                .map { it.value.second }
+
+            return if (orderedRows.isEmpty()) listOf(MainPageData("MultiStremio", "{}", false)) else orderedRows
         }
 
     override suspend fun getMainPage(page: Int, request: MainPageRequest): HomePageResponse? {

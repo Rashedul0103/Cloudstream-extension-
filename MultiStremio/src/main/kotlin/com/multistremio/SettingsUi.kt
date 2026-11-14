@@ -99,22 +99,23 @@ object SettingsUi {
             ctx, "MultiStremio",
             listOf(
                 "Addons (${s.addons.count { it.enabled }}/${s.addons.size} enabled)",
+                "Catalog rows (visibility & order)",
                 "Stream filters",
                 "Stream sorting",
                 "Subtitles",
                 "General",
-
                 "Backup / restore / reset",
             ),
             null,
         ) {
             when (it) {
                 0 -> addonsMenu(ctx)
-                1 -> filtersMenu(ctx)
-                2 -> sortMenu(ctx)
-                3 -> subtitlesMenu(ctx)
-                4 -> generalMenu(ctx)
-                5 -> backupMenu(ctx)
+                1 -> catalogRowsMenu(ctx)
+                2 -> filtersMenu(ctx)
+                3 -> sortMenu(ctx)
+                4 -> subtitlesMenu(ctx)
+                5 -> generalMenu(ctx)
+                6 -> backupMenu(ctx)
             }
         }
     }
@@ -251,6 +252,131 @@ object SettingsUi {
             toast(ctx, "Saved. Refresh the home page to apply.")
             addonMenu(ctx, a)
         }
+    }
+
+    // ---- global catalog row manager ---------------------------------------------------------
+
+    private data class CatalogRow(
+        val addon: AddonConfig,
+        val type: String,
+        val id: String,
+        val name: String,
+    ) {
+        val key: String get() = catalogOrderKey(addon.id, type, id)
+        val rowEnabled: Boolean get() = "$type/$id" !in addon.hiddenCatalogs
+        val status: String get() = when {
+            !addon.enabled -> "ADDON OFF"
+            !addon.useCatalogs -> "CATALOGS OFF"
+            rowEnabled -> "ON"
+            else -> "HIDDEN"
+        }
+    }
+
+    /**
+     * Includes rows whose addon/catalog source is currently disabled so the user can switch
+     * them back on from this screen. Rows not yet in catalogOrder retain manifest/addon order.
+     */
+    private fun catalogRows(): List<CatalogRow> {
+        val rows = mutableListOf<CatalogRow>()
+        for (addon in Config.settings.addons) {
+            val manifest = Config.manifestOf(addon) ?: continue
+            for (catalog in manifest.catalogs.orEmpty()) {
+                val type = catalog.type ?: continue
+                val id = catalog.id ?: continue
+                if (!catalog.isHomeCatalog()) continue
+                rows += CatalogRow(addon, type, id, catalog.name ?: id)
+            }
+        }
+
+        val positions = Config.settings.catalogOrder.withIndex().associate { it.value to it.index }
+        return rows.withIndex()
+            .sortedWith(
+                compareBy<IndexedValue<CatalogRow>> { positions[it.value.key] ?: Int.MAX_VALUE }
+                    .thenBy { it.index },
+            )
+            .map { it.value }
+    }
+
+    private fun catalogRowsMenu(ctx: Context) {
+        val rows = catalogRows()
+        if (rows.isEmpty()) {
+            menu(ctx, "Catalog rows", listOf("No browsable catalog rows found"), { mainMenu(ctx) }) { }
+            return
+        }
+
+        val labels = rows.mapIndexed { index, row ->
+            "${index + 1}. [${row.status}] ${row.addon.name} · ${row.name} (${row.type})"
+        } + listOf("Reset row order to addon priority", "Unhide all catalog rows")
+
+        menu(ctx, "Catalog rows · tap a row to manage it", labels, { mainMenu(ctx) }) { which ->
+            when {
+                which < rows.size -> catalogRowMenu(ctx, rows[which])
+                which == rows.size -> confirm(
+                    ctx,
+                    "Reset catalog row order?",
+                    "Rows will return to addon order and each addon's manifest order.",
+                ) {
+                    Config.update { catalogOrder.clear() }
+                    toast(ctx, "Catalog row order reset. Refresh the home page to apply.")
+                    catalogRowsMenu(ctx)
+                }
+                else -> confirm(
+                    ctx,
+                    "Unhide every catalog row?",
+                    "This clears row-level hiding. Addons that are disabled or excluded from catalogs remain inactive.",
+                ) {
+                    Config.update { addons.forEach { it.hiddenCatalogs.clear() } }
+                    toast(ctx, "All catalog rows unhidden. Refresh the home page to apply.")
+                    catalogRowsMenu(ctx)
+                }
+            }
+        }
+    }
+
+    private fun catalogRowMenu(ctx: Context, row: CatalogRow) {
+        val rows = catalogRows()
+        val position = rows.indexOfFirst { it.key == row.key }
+        val labels = listOf(
+            if (row.rowEnabled) "Hide this row" else "Show this row",
+            "Move up",
+            "Move down",
+            "Move to top",
+            "Move to bottom",
+            "Manage addon settings",
+        )
+        menu(
+            ctx,
+            "${row.addon.name} · ${row.name}",
+            labels,
+            { catalogRowsMenu(ctx) },
+        ) { which ->
+            when (which) {
+                0 -> {
+                    Config.update {
+                        val localKey = "${row.type}/${row.id}"
+                        if (row.rowEnabled) row.addon.hiddenCatalogs.add(localKey)
+                        else row.addon.hiddenCatalogs.remove(localKey)
+                    }
+                    toast(ctx, "Saved row visibility. Refresh the home page to apply.")
+                    catalogRowsMenu(ctx)
+                }
+                1 -> { moveCatalogRow(row, position - 1); catalogRowsMenu(ctx) }
+                2 -> { moveCatalogRow(row, position + 1); catalogRowsMenu(ctx) }
+                3 -> { moveCatalogRow(row, 0); catalogRowsMenu(ctx) }
+                4 -> { moveCatalogRow(row, rows.lastIndex); catalogRowsMenu(ctx) }
+                5 -> addonMenu(ctx, row.addon)
+            }
+        }
+    }
+
+    private fun moveCatalogRow(row: CatalogRow, targetIndex: Int) {
+        val keys = catalogRows().map { it.key }.toMutableList()
+        val currentIndex = keys.indexOf(row.key)
+        if (currentIndex < 0 || targetIndex !in keys.indices || currentIndex == targetIndex) return
+        val key = keys.removeAt(currentIndex)
+        keys.add(targetIndex, key)
+        Config.update { catalogOrder = keys }
+        toast("Catalog row order saved. Refresh the home page to apply.")
     }
 
     // ---- filters ---------------------------------------------------------------------------
