@@ -1,7 +1,7 @@
 name: Build
 
 concurrency:
-  group: build
+  group: build-${{ github.ref }}
   cancel-in-progress: true
 
 on:
@@ -17,6 +17,7 @@ permissions:
 jobs:
   build:
     runs-on: ubuntu-latest
+    timeout-minutes: 20
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -45,6 +46,14 @@ jobs:
         run: |
           cd src
           gradle testDebugUnitTest make makePluginsJson
+
+      - name: Verify this is still the latest main commit
+        run: |
+          REMOTE_SHA="$(git -C src ls-remote origin "refs/heads/${GITHUB_REF_NAME}" | cut -f1)"
+          if [ "$REMOTE_SHA" != "$GITHUB_SHA" ]; then
+            echo "Skipping publish: a newer commit is already on ${GITHUB_REF_NAME}."
+            exit 1
+          fi
 
       - name: Publish to builds branch
         run: |
