@@ -48,10 +48,9 @@ object StreamDiagnostics {
     /** Addon names come from remote manifests or user input, so redact URL and query credentials. */
     fun safeAddonName(value: String): String = value
         .replace(Regex("""(?i)https?://[^\s]+"""), "[URL redacted]")
-        .replace(
-            Regex("""(?i)([?&](?:token|key|api[_-]?key|auth|password|secret)=)[^&\s]+"""),
-        ) { match -> match.groupValues[1] + "[redacted]" },
-        )
+        .replace(Regex("""(?i)([?&](?:token|key|api[_-]?key|auth|password|secret)=)[^&\s]+""")) {
+            match -> match.groupValues[1] + "[redacted]"
+        }
         .replace(Regex("""[\r\n]+"""), " ")
         .trim()
         .take(80)
