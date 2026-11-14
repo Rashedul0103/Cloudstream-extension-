@@ -37,20 +37,25 @@ internal object GeneralSettingsScreen {
     fun showSubtitles(ctx: Context) = subtitlesMenu(ctx)
 
     private fun subtitlesMenu(ctx: Context) {
-        val s = Config.settings
-        val rows = listOf(
-            "Fetch from subtitle addons: ${onOff(s.fetchSubtitles)}",
-            "Language filter: ${s.subtitleLanguages.takeIf { it.isNotEmpty() }?.let { csv(it) } ?: "All languages"}",
+        val settings = Config.settings
+        val again = { subtitlesMenu(ctx) }
+        val items = listOf(
+            SettingItem("Fetch from subtitle addons", onOff(settings.fetchSubtitles), SettingItemType.Switch,
+                onClick = { updateAndReopen({ again() }) { fetchSubtitles = !fetchSubtitles } },
+                searchKeywords = listOf("subtitle", "captions", "fetch", "addons")),
+            SettingItem("Language filter",
+                settings.subtitleLanguages.takeIf { it.isNotEmpty() }?.let { csv(it) } ?: "All languages",
+                SettingItemType.Value,
+                onClick = {
+                    prompt(ctx, "Subtitle languages",
+                        "Codes, regional tags or names, e.g. en, eng, en-US, pt-BR, Bengali. Leave empty for all languages.",
+                        settings.subtitleLanguages.joinToString(", "), false, onCancel = again) {
+                        updateAndReopen({ again() }) { subtitleLanguages = parseCsv(it) }
+                    }
+                }, searchKeywords = listOf("subtitle", "language", "English", "Bengali")),
         )
-        menu(ctx, "Subtitles", rows, { MainMenuSettingsScreen.show(ctx) }, "Choose whether subtitle addons are queried and which languages are preferred.") { which ->
-            when (which) {
-                0 -> { updateAndReopen({ subtitlesMenu(ctx) }) { fetchSubtitles = !fetchSubtitles } }
-                1 -> prompt(ctx, "Subtitle languages", "Codes, regional tags or names, e.g. en, eng, en-US, pt-BR, Bengali. Leave empty for all languages.",
-                    s.subtitleLanguages.joinToString(", "), false, onCancel = { subtitlesMenu(ctx) }) {
-                    updateAndReopen({ subtitlesMenu(ctx) }) { subtitleLanguages = parseCsv(it) }
-                }
-            }
-        }
+        settingMenu(ctx, "Subtitles", items, { MainMenuSettingsScreen.show(ctx) },
+            "Choose whether subtitle addons are queried and which languages are preferred.")
     }
 
     private fun generalMenu(ctx: Context) {
