@@ -1578,9 +1578,9 @@ object SettingsUi {
                         toast(ctx, "That is not a supported MultiStremio backup")
                     } else {
                         val warning = if (backup.includesAddonUrls) {
-                            "This backup includes addon URLs and may restore private access keys. It will replace all current settings."
+                            "This backup contains addon source URLs and/or imported-extension references. They may expose access keys or private repository addresses. It will replace all current settings."
                         } else {
-                            "This preferences-only backup contains no addon sources. Restoring it will remove your current addons and imported homepage rows."
+                            "This preferences-only backup contains no addon sources or imported-extension references. Restoring it will remove your current addons and imported homepage rows."
                         }
                         confirm(ctx, "Restore this backup?", warning) {
                             restored.seeded = true
