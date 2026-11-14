@@ -21,7 +21,7 @@ object StremioClient {
             throw e
         } catch (e: SocketTimeoutException) {
             FetchResult(null, "TIMEOUT")
-        } catch (_: Throwable) {
+        } catch (_: Exception) {
             // Avoid logging the exception message: HTTP failures can include private addon URLs
             // and access tokens in their request details.
             FetchResult(null, "NETWORK_ERROR")
