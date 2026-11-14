@@ -237,6 +237,7 @@ class CoreLogicTest {
             SimpleHttpStatus.TIMEOUT to "Connection timed out after 8 seconds",
             SimpleHttpStatus.DNS_ERROR to "Could not resolve the addon host",
             SimpleHttpStatus.INVALID_URL to "Addon URL is invalid",
+            SimpleHttpStatus.BODY_TOO_LARGE to "Manifest response exceeds the 2 MB safety limit",
             SimpleHttpStatus.NETWORK_ERROR to "Network connection failed",
             SimpleHttpStatus.EMPTY_BODY to "Server responded but returned an empty manifest",
         )
