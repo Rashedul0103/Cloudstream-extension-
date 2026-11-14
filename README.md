@@ -4,7 +4,7 @@ A CloudStream plugin that combines Stremio addons: merged catalogs, cross-addon 
 
 ## Homepage row integration
 
-Open **Settings → Catalog rows** and choose **Add rows from installed extensions**. Select any homepage row from another installed extension. Added rows appear in the same row manager as Stremio catalogs and can be shown, hidden, reordered, or removed independently. The source extension must remain installed; if it is removed or changes the row definition, MultiStremio marks the saved row as unavailable.
+Open **CloudStream Settings → Extensions → MultiStremio → Catalog rows** and choose **Add rows from installed extensions**. Select a homepage row from another installed extension. Added rows appear alongside Stremio catalogs and can be shown, hidden, reordered, or removed independently. The source extension must remain installed; if it is removed or changes the row definition, MultiStremio marks the saved row as unavailable.
 
 MultiStremio delegates each selected row request to its original extension provider, including pagination. It does not copy the source extension's catalog implementation or stream logic.
 
@@ -26,7 +26,7 @@ The settings use a theme-aware mobile layout with clearer section descriptions, 
 
 ## Catalog layout
 
-Open the plugin settings and choose **Catalog rows (visibility & order)**. Select a row to show or hide it, move it up or down, send it to the top or bottom, or open its parent addon's settings. Addon-wide enable/disable and the separate “Catalogs & search” usage switch remain under **Addons**. Row order and visibility are saved locally on the device.
+Open the plugin settings and choose **Catalog rows (visibility & order)**. Drag the ☰ grip beside a row to reorder it; no long-press is required. You can also tap a row's text to show or hide it, move it one position up or down, or open its parent addon's settings. Imported extension rows can be removed without uninstalling their source extension. Addon-wide enable/disable and the separate “Catalogs & search” usage switch remain under **Addons**. Row order and visibility are saved locally on the device.
 
 ## Status
 
@@ -48,4 +48,4 @@ Language filters accept common ISO 639 codes, three-letter codes, regional tags 
 
 ## Stream request handling
 
-Multi-addon requests run in batches of up to eight concurrent calls per fan-out operation (stream and subtitle branches use four each when both are active). If the original addon cannot provide named metadata, fallback metadata providers are queried concurrently. Stream parsing reuses compiled patterns and the filtering pipeline avoids several intermediate list allocations. These are workload protections and code-path optimizations; performance has not been benchmarked against a fixed addon set.
+Multi-addon requests run in batches of up to eight concurrent calls per fan-out operation (stream and subtitle branches use four each when both are active). If the original addon cannot provide named metadata, fallback metadata providers are queried concurrently. Stream parsing reuses compiled patterns and the filtering pipeline avoids several intermediate list allocations. A synthetic JVM benchmark records parse and pipeline median/p95 timings for a fixed 750-record workload. It is a repeatable regression baseline, not a comparison against real addon traffic or a measurement of playback startup time on a phone.
