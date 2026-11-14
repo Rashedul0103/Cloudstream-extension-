@@ -2,16 +2,11 @@ package com.multistremio
 
 import com.lagradost.cloudstream3.app
 import com.lagradost.cloudstream3.mvvm.logError
-import kotlinx.coroutines.sync.Semaphore
-import kotlinx.coroutines.sync.withPermit
 import kotlin.coroutines.cancellation.CancellationException
 
 /** Talks to Stremio addons over HTTP. Every call swallows its own errors so one bad addon never breaks the rest. */
 object StremioClient {
-    // Fan-out across many addons is useful, but unbounded requests can overwhelm devices and addon APIs.
-    private val requestSlots = Semaphore(permits = 8)
-
-    private suspend fun fetch(url: String): String? = requestSlots.withPermit {
+    private suspend fun fetch(url: String): String? =
         try {
             val res = app.get(url, timeout = Config.settings.timeoutSec.toLong())
             if (res.isSuccessful) res.text else null
@@ -21,7 +16,6 @@ object StremioClient {
             logError(e)
             null
         }
-    }
 
     suspend fun catalog(addon: AddonConfig, type: String, catalogId: String, extra: String?): List<Meta> {
         val text = fetch(Urls.resource(addon.url, "catalog", type, catalogId, extra))
