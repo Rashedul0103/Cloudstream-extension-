@@ -678,12 +678,53 @@ object SettingsUi {
             val item = LinearLayout(ctx).apply {
                 orientation = LinearLayout.HORIZONTAL
                 gravity = Gravity.CENTER_VERTICAL
-                setPadding(dp(ctx, 12), dp(ctx, 12), dp(ctx, 12), dp(ctx, 12))
+                setPadding(dp(ctx, 12), dp(ctx, 12), dp(ctx, 7), dp(ctx, 12))
                 background = rounded(ctx, colors.background, colors.outline)
                 tag = id
                 addView(handle, LinearLayout.LayoutParams(dp(ctx, 42), dp(ctx, 48)))
                 addView(description, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
             }
+            // Drag remains the fastest option; buttons make ordering possible without a gesture.
+            val moveControls = vertical(ctx).apply {
+                gravity = Gravity.CENTER
+                val up = text(ctx, "↑", 19f, colors.secondary, true).apply {
+                    gravity = Gravity.CENTER
+                    contentDescription = "Move ${titles[id].orEmpty()} up"
+                    minimumWidth = dp(ctx, 32)
+                    minimumHeight = dp(ctx, 30)
+                    background = ripple(ctx, colors.background, colors)
+                    setOnClickListener {
+                        val current = list.indexOfChild(item)
+                        if (current > 0) {
+                            list.removeView(item)
+                            list.addView(item, current - 1)
+                            refreshNumbers()
+                        } else {
+                            toast(ctx, "This field is already first.")
+                        }
+                    }
+                }
+                val down = text(ctx, "↓", 19f, colors.secondary, true).apply {
+                    gravity = Gravity.CENTER
+                    contentDescription = "Move ${titles[id].orEmpty()} down"
+                    minimumWidth = dp(ctx, 32)
+                    minimumHeight = dp(ctx, 30)
+                    background = ripple(ctx, colors.background, colors)
+                    setOnClickListener {
+                        val current = list.indexOfChild(item)
+                        if (current in 0 until list.childCount - 1) {
+                            list.removeView(item)
+                            list.addView(item, current + 1)
+                            refreshNumbers()
+                        } else {
+                            toast(ctx, "This field is already last.")
+                        }
+                    }
+                }
+                addView(up)
+                addView(down)
+            }
+            item.addView(moveControls, LinearLayout.LayoutParams(dp(ctx, 36), ViewGroup.LayoutParams.WRAP_CONTENT))
             list.addView(item, LinearLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT,
                 ViewGroup.LayoutParams.WRAP_CONTENT,
