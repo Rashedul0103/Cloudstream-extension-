@@ -265,6 +265,7 @@ object SettingsUi {
         ))
         val dialog = AlertDialog.Builder(ctx).setView(root).create()
         root.setTag(dialog)
+        dialog.setOnCancelListener { back?.invoke() }
         addFooter(ctx, root, if (back != null) "Back" else "Close", {
             dialog.dismiss()
             back?.invoke()
@@ -292,6 +293,7 @@ object SettingsUi {
             topMargin = dp(ctx, 6)
         })
         val dialog = AlertDialog.Builder(ctx).setView(root).create()
+        dialog.setOnCancelListener { onCancel?.invoke() }
         addFooter(ctx, root, "Save", {
             dialog.dismiss()
             onOk(input.text.toString().trim())
@@ -311,6 +313,7 @@ object SettingsUi {
     ) {
         val root = shell(ctx, title, message)
         val dialog = AlertDialog.Builder(ctx).setView(root).create()
+        dialog.setOnCancelListener { onCancel?.invoke() }
         addFooter(ctx, root, "Continue", {
             dialog.dismiss()
             onYes()
@@ -369,6 +372,7 @@ object SettingsUi {
             minOf(dp(ctx, 430), dp(ctx, maxOf(72, labels.size * 54))),
         ))
         val dialog = AlertDialog.Builder(ctx).setView(root).create()
+        dialog.setOnCancelListener { onCancel?.invoke() }
         addFooter(ctx, root, "Save", {
             dialog.dismiss()
             onSave(state.toList())
@@ -626,6 +630,7 @@ object SettingsUi {
             minOf(dp(ctx, 460), dp(ctx, maxOf(100, orderedIds.size * 70))),
         ))
         val dialog = AlertDialog.Builder(ctx).setView(root).create()
+        dialog.setOnCancelListener { streamFormatterMenu(ctx) }
         addFooter(ctx, root, "Save row order", {
             val order = (0 until list.childCount).mapNotNull { list.getChildAt(it).tag as? String }
             if (order.size == orderedIds.size && order.toSet() == orderedIds.toSet()) {
@@ -808,6 +813,7 @@ object SettingsUi {
             minOf(dp(ctx, 300), dp(ctx, maxOf(72, snapshot.requests.size * 62))),
         ).apply { topMargin = dp(ctx, 10) })
         val dialog = AlertDialog.Builder(ctx).setView(root).create()
+        dialog.setOnCancelListener { mainMenu(ctx) }
         val report = buildString {
             appendLine("MultiStremio streaming diagnostics")
             appendLine("Time: $time")
@@ -953,6 +959,7 @@ object SettingsUi {
             minOf(dp(ctx, 360), dp(ctx, maxOf(96, results.size * 76))),
         ))
         val dialog = AlertDialog.Builder(ctx).setView(root).create()
+        dialog.setOnCancelListener { addonsMenu(ctx) }
         val report = buildString {
             appendLine("MultiStremio addon health: $working/${results.size} responded")
             results.forEach {
@@ -962,7 +969,10 @@ object SettingsUi {
                 append(" · ").append(it.detail).append('\n')
             }
         }
-        addFooter(ctx, root, "Close", { dialog.dismiss() }, "Copy report", {
+        addFooter(ctx, root, "Back", {
+            dialog.dismiss()
+            addonsMenu(ctx)
+        }, "Copy report", {
             val clipboard = ctx.getSystemService(Context.CLIPBOARD_SERVICE) as? ClipboardManager
             clipboard?.setPrimaryClip(ClipData.newPlainText("MultiStremio addon health", report))
             toast(ctx, "Connection report copied")
@@ -1214,6 +1224,7 @@ object SettingsUi {
         val list = vertical(ctx)
         val rowNames = rows.associate { it.key to it.name }
         val dialog = AlertDialog.Builder(ctx).setView(root).create()
+        dialog.setOnCancelListener { mainMenu(ctx) }
 
         fun refreshRowNumbers() {
             for (position in 0 until list.childCount) {
@@ -1569,8 +1580,19 @@ object SettingsUi {
         current: Int,
         onCancel: (() -> Unit)? = null,
         onOk: (Int) -> Unit,
-    ) = prompt(ctx, title, null, current.toString(), true, onCancel) {
-        onOk(it.toIntOrNull()?.coerceAtLeast(0) ?: 0)
+    ) {
+        fun ask(initial: String) {
+            prompt(ctx, title, "Enter a whole number. Use 0 to turn this limit off.", initial, true, onCancel) { value ->
+                val parsed = value.toIntOrNull()
+                if (parsed == null && value.isNotBlank()) {
+                    toast(ctx, "That number is too large or invalid. Nothing was saved.")
+                    ask(value)
+                } else {
+                    onOk((parsed ?: 0).coerceAtLeast(0))
+                }
+            }
+        }
+        ask(current.toString())
     }
 
     // ---- sorting ---------------------------------------------------------------------------
