@@ -833,7 +833,7 @@ object SettingsUi {
         }
         addFooter(ctx, root, "Back", {
             dialog.dismiss()
-            addonsMenu(ctx)
+            mainMenu(ctx)
         }, "Copy report", {
             val clipboard = ctx.getSystemService(Context.CLIPBOARD_SERVICE) as? ClipboardManager
             clipboard?.setPrimaryClip(ClipData.newPlainText("MultiStremio streaming diagnostics", report))
