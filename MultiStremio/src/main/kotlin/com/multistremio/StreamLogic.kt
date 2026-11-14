@@ -924,7 +924,12 @@ object Urls {
         "udp://open.stealth.si:80/announce",
     )
 
-    fun magnet(infoHash: String, displayName: String?, sources: List<String>?): String {
+    fun magnet(
+        infoHash: String,
+        displayName: String?,
+        sources: List<String>?,
+        fileIdx: Int? = null,
+    ): String {
         val addonTrackers = sources.orEmpty()
             .filter { it.startsWith("tracker:") }
             .map { it.removePrefix("tracker:") }
@@ -932,7 +937,10 @@ object Urls {
         val trackers = (addonTrackers + DEFAULT_TRACKERS).distinct()
         val sb = StringBuilder("magnet:?xt=urn:btih:").append(infoHash)
         if (!displayName.isNullOrBlank()) sb.append("&dn=").append(encodeComponent(displayName))
-        for (t in trackers) sb.append("&tr=").append(encodeComponent(t))
+        for (tracker in trackers) sb.append("&tr=").append(encodeComponent(tracker))
+        // CloudStream's built-in TorrentStatus.streamUrl reads the "index" parameter from the
+        // magnet URI and passes it to TorrServer's stream endpoint. This preserves Stremio fileIdx.
+        if (fileIdx != null && fileIdx >= 0) sb.append("&index=").append(fileIdx)
         return sb.toString()
     }
 }
