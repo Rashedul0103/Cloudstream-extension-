@@ -1072,8 +1072,16 @@ object SettingsUi {
                     addonMenu(ctx, a)
                 }
                 2 -> catalogPicker(ctx, a)
-                3 -> { move(a, -1); addonsMenu(ctx) }
-                4 -> { move(a, +1); addonsMenu(ctx) }
+                3 -> {
+                    if (move(a, -1)) toast(ctx, "Addon priority increased.")
+                    else toast(ctx, "This addon is already at the top of the priority list.")
+                    addonsMenu(ctx)
+                }
+                4 -> {
+                    if (move(a, +1)) toast(ctx, "Addon priority decreased.")
+                    else toast(ctx, "This addon is already at the bottom of the priority list.")
+                    addonsMenu(ctx)
+                }
                 5 -> prompt(ctx, "Rename addon", null, a.name, false, onCancel = { addonMenu(ctx, a) }) { n ->
                     if (n.isNotEmpty()) Config.update { a.name = n }
                     addonMenu(ctx, a)
@@ -1111,12 +1119,13 @@ object SettingsUi {
         }
     }
 
-    private fun move(a: AddonConfig, delta: Int) {
+    private fun move(a: AddonConfig, delta: Int): Boolean {
         val list = Config.settings.addons
         val i = list.indexOf(a)
         val j = i + delta
-        if (i < 0 || j !in list.indices) return
+        if (i < 0 || j !in list.indices) return false
         Config.update { list[i] = list[j].also { list[j] = list[i] } }
+        return true
     }
 
     private fun catalogPicker(ctx: Context, a: AddonConfig) {
@@ -1579,11 +1588,12 @@ object SettingsUi {
         ctx: Context,
         title: String,
         current: Int,
+        description: String = "Enter a whole number. Use 0 to turn this limit off.",
         onCancel: (() -> Unit)? = null,
         onOk: (Int) -> Unit,
     ) {
         fun ask(initial: String) {
-            prompt(ctx, title, "Enter a whole number. Use 0 to turn this limit off.", initial, true, onCancel) { value ->
+            prompt(ctx, title, description, initial, true, onCancel) { value ->
                 val parsed = value.toIntOrNull()
                 if (parsed == null && value.isNotBlank()) {
                     toast(ctx, "That number is too large or invalid. Nothing was saved.")
@@ -1669,7 +1679,13 @@ object SettingsUi {
         )
         menu(ctx, "General", rows, { mainMenu(ctx) }, "Tune request limits and the amount of technical detail shown on stream links.") { which ->
             when (which) {
-                0 -> number(ctx, "Timeout per addon request (seconds)", s.timeoutSec, onCancel = { generalMenu(ctx) }) {
+                0 -> number(
+                    ctx,
+                    "Timeout per addon request (seconds)",
+                    s.timeoutSec,
+                    description = "Enter 5–180 seconds. This controls how long each addon request can wait before timing out.",
+                    onCancel = { generalMenu(ctx) },
+                ) {
                     Config.update { timeoutSec = it.coerceIn(5, 180) }; generalMenu(ctx)
                 }
                 1 -> { Config.update { detailedLabels = !detailedLabels }; generalMenu(ctx) }
