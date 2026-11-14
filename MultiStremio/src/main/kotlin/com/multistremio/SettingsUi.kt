@@ -614,7 +614,6 @@ object SettingsUi {
                 dragging = true
                 item.background = rounded(ctx, withAlpha(colors.accent, 28), colors.accent)
                 item.elevation = dp(ctx, 6).toFloat()
-                item.bringToFront()
                 handle.performHapticFeedback(HapticFeedbackConstants.LONG_PRESS)
             }
         })
