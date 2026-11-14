@@ -54,16 +54,7 @@ internal inline fun updateAndReopen(
 }
 
 internal fun toast(ctx: Context, message: String) =
-        main.post { Toast.makeText(ctx, message, Toast.LENGTH_LONG).show() }
-
-internal data class Palette(
-        val background: Int,
-        val primary: Int,
-        val secondary: Int,
-        val accent: Int,
-        val outline: Int,
-        val ripple: Int,
-    )
+        settingsMainHandler.post { Toast.makeText(ctx, message, Toast.LENGTH_LONG).show() }
 
 internal fun dp(ctx: Context, value: Int) =
         (value * ctx.resources.displayMetrics.density + 0.5f).toInt()
@@ -75,14 +66,6 @@ internal fun color(ctx: Context, attribute: Int, fallback: Int): Int {
         return if (value.resourceId != 0) {
             try { ctx.resources.getColor(value.resourceId) } catch (_: Exception) { fallback }
         } else fallback
-    }
-
-internal fun palette(ctx: Context): Palette {
-        val background = color(ctx, android.R.attr.colorBackground, Color.rgb(250, 250, 250))
-        val primary = color(ctx, android.R.attr.textColorPrimary, Color.rgb(28, 28, 30))
-        val secondary = color(ctx, android.R.attr.textColorSecondary, Color.rgb(112, 112, 118))
-        val accent = color(ctx, android.R.attr.colorAccent, Color.rgb(70, 110, 230))
-        return Palette(background, primary, secondary, accent, withAlpha(secondary, 54), withAlpha(accent, 42))
     }
 
 internal fun withAlpha(color: Int, alpha: Int): Int =
@@ -308,11 +291,10 @@ internal object SettingsDialogHost {
         hostDialog.setCancelable(false)
         hostDialog.setCanceledOnTouchOutside(false)
         hostDialog.setOnKeyListener { _, keyCode, event ->
-            if (keyCode == KeyEvent.KEYCODE_BACK && event.action == KeyEvent.ACTION_UP) {
-                back()
+            if (keyCode != KeyEvent.KEYCODE_BACK) false
+            else {
+                if (event.action == KeyEvent.ACTION_UP) back()
                 true
-            } else {
-                keyCode == KeyEvent.KEYCODE_BACK
             }
         }
         dialog = hostDialog
@@ -340,9 +322,6 @@ internal object SettingsDialogHost {
         ))
         findSearch(entry.root)?.let { search ->
             if (search.text.toString() != entry.searchText) search.setText(entry.searchText)
-        }
-        findScroll(entry.root)?.post {
-            it@post
         }
         findScroll(entry.root)?.let { scroll ->
             scroll.post { scroll.scrollTo(0, entry.scrollY.coerceAtLeast(0)) }
@@ -374,7 +353,7 @@ internal object SettingsDialogHost {
             stack.removeAt(stack.lastIndex)
             val previous = stack.last()
             // A screen's context is stable for one plugin settings session.
-            val ctx = dialog?.context ?: return
+            val ctx = container?.context ?: return
             render(ctx)
             return
         }
