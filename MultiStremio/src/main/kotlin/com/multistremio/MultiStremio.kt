@@ -176,7 +176,7 @@ class MultiStremio : MainAPI() {
         if (tvType == TvType.Live) {
             return newLiveStreamLoadResponse(title, url, Json.toJson(StreamRef(type, metaId, metaId))) { decorate() }
         }
-        if (type == "movie") {
+        if (type == "movie" || (type != "series" && videos.isEmpty())) {
             val movieType = if (tvType == TvType.Anime) TvType.AnimeMovie else tvType
             return newMovieLoadResponse(title, url, movieType, Json.toJson(StreamRef(type, metaId, metaId))) { decorate() }
         }
