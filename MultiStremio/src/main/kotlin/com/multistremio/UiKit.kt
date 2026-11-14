@@ -617,5 +617,3 @@ internal fun limit(n: Int, unit: String) = if (n <= 0) "off" else if (unit.isEmp
 internal fun modeLabel(m: Int) = when (m) { MODE_HIDE -> "hide"; MODE_ONLY -> "only"; else -> "any" }
 
 internal fun host(url: String) = try { URL(url).host } catch (e: Exception) { url }
-
-\n
