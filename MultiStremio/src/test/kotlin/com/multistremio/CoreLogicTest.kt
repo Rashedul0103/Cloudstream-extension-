@@ -583,6 +583,17 @@ class CoreLogicTest {
     }
 
     @Test
+    fun catalogOrderOnlyBackupIsStillClassifiedAsSourceSensitive() {
+        val forgedEnvelope = SettingsBackup(
+            includesAddonUrls = false,
+            settings = Settings(catalogOrder = mutableListOf("hashed-addon|movie|top")),
+        )
+        val parsed = SettingsBackupManager.parse(Json.toJson(forgedEnvelope))
+        assertNotNull(parsed)
+        assertTrue(parsed!!.includesAddonUrls)
+    }
+
+    @Test
     fun backupPrivacyFlagCannotHideEmbeddedAddonOrExtensionSources() {
         val forgedEnvelope = SettingsBackup(
             includesAddonUrls = false,
