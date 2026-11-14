@@ -61,6 +61,10 @@ data class SortSettings(
     var cachedFirst: Boolean = false,
     var preferKeywords: MutableList<String> = mutableListOf(),
     var preferLanguages: MutableList<String> = mutableListOf(),
+    /** Preferred codec order, e.g. HEVC, AV1, AVC. Empty means do not apply an extra codec preference. */
+    var preferCodecs: MutableList<String> = mutableListOf(),
+    /** Preferred audio format order, e.g. Atmos, TrueHD, DTS-HD, DD+, AAC. */
+    var preferAudio: MutableList<String> = mutableListOf(),
     /**
      * CloudStream orders links by its own quality profile first and only keeps arrival order for
      * ties. Turning this on reports every link as "unknown quality" so OUR order wins; the
