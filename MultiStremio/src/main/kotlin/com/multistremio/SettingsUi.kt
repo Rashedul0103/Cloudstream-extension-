@@ -779,7 +779,7 @@ object SettingsUi {
         val rowNames = rows.associate { it.key to it.name }
         fun refreshRowNumbers() {
             for (position in 0 until list.childCount) {
-                val item = list.getChildAt(position)
+                val item = list.getChildAt(position) as? LinearLayout ?: continue
                 val key = item.tag as? String ?: continue
                 val description = item.getChildAt(1) as? LinearLayout ?: continue
                 val title = description.getChildAt(0) as? TextView ?: continue
