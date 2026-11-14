@@ -290,23 +290,46 @@ internal object CatalogRowsSettingsScreen {
             } else {
                 "All available extension homepage rows have already been added."
             }
-            menu(ctx, "Add rows from installed extensions", listOf(message), { catalogRowsMenu(ctx) }) { }
+            settingMenu(
+                ctx,
+                "Add rows from installed extensions",
+                listOf(SettingItem(
+                    message,
+                    "Return to Catalog rows to manage your existing rows",
+                    SettingItemType.Navigate,
+                    onClick = { catalogRowsMenu(ctx) },
+                )),
+                { catalogRowsMenu(ctx) },
+            )
             return
         }
 
-        val labels = candidates.map { "${it.config.providerName} · ${it.row.name}" }
-        menu(ctx, "Choose an installed extension homepage row", labels, { catalogRowsMenu(ctx) }) { which ->
-            val chosen = candidates[which].config
-            // Capture the current effective order before writing a new key. Appending only the
-            // imported key to an empty order list would sort it ahead of every unsaved catalog.
-            val currentOrder = catalogRows(installed).map { it.key }
-            Config.update {
-                if (externalRows.none { it.key == chosen.key }) externalRows.add(chosen)
-                catalogOrder = CatalogOrderMath.append(currentOrder, chosen.key).toMutableList()
-            }
-            toast(ctx, "Added ${chosen.rowName} at the end of your rows. Refresh the home page to apply.")
-            catalogRowsMenu(ctx)
+        val items = candidates.map { candidate ->
+            SettingItem(
+                title = "${candidate.config.providerName} · ${candidate.row.name}",
+                summary = "Add this installed extension row to your MultiStremio homepage",
+                type = SettingItemType.Navigate,
+                onClick = {
+                    val chosen = candidate.config
+                    // Preserve the effective order, including rows that were not previously persisted.
+                    val currentOrder = catalogRows(installed).map { it.key }
+                    Config.update {
+                        if (externalRows.none { it.key == chosen.key }) externalRows.add(chosen)
+                        catalogOrder = CatalogOrderMath.append(currentOrder, chosen.key).toMutableList()
+                    }
+                    toast(ctx, "Added ${chosen.rowName} at the end of your rows. Refresh the home page to apply.")
+                    catalogRowsMenu(ctx)
+                },
+                searchKeywords = listOf(candidate.config.providerName, candidate.row.name, candidate.config.sourcePlugin),
+            )
         }
+        settingMenu(
+            ctx,
+            "Choose an installed extension homepage row",
+            items,
+            { catalogRowsMenu(ctx) },
+            "Select a row to add it. The original extension remains unchanged.",
+        )
     }
 
     private fun moveCatalogRow(ctx: Context, row: CatalogRow, delta: Int) {
