@@ -389,14 +389,11 @@ object SettingsUi {
 
     private fun mainMenu(ctx: Context) {
         val s = Config.settings
-        val activeStremioRows = s.addons.sumOf { addon ->
+        val activeRows = s.addons.sumOf { addon ->
             Config.manifestOf(addon)?.catalogs.orEmpty().count {
                 it.isHomeCatalog() && "${it.type}/${it.id}" !in addon.hiddenCatalogs && addon.enabled && addon.useCatalogs
             }
-        }
-        val installedRows = if (s.externalRows.any { it.enabled }) ExternalHomeRows.installedRows() else emptyList()
-        val activeExternalRows = s.externalRows.count { it.enabled && ExternalHomeRows.resolve(it, installedRows) != null }
-        val activeRows = activeStremioRows + activeExternalRows
+        } + s.externalRows.count { it.enabled }
         menu(
             ctx, "MultiStremio",
             listOf(
@@ -665,9 +662,9 @@ object SettingsUi {
             val edge = dp(ctx, 42)
             when {
                 pointerY < scrollPosition[1] + edge ->
-                    scroll.scrollBy(0, -dp(ctx, 22))
+                    scroll.scrollBy(0, -dp(ctx, 5))
                 pointerY > scrollPosition[1] + scroll.height - edge ->
-                    scroll.scrollBy(0, dp(ctx, 22))
+                    scroll.scrollBy(0, dp(ctx, 5))
             }
         }
 
@@ -1501,8 +1498,12 @@ object SettingsUi {
                     Config.update { s.preset = SortPreset.values()[it].name }; again()
                 }
                 1 -> { Config.update { s.cachedFirst = !s.cachedFirst }; again() }
-                2 -> prompt(ctx, "Prefer keywords", "Streams containing any of these go first. Comma separated.",
-                    s.preferKeywords.joinToString(", "), false) { Config.update { s.preferKeywords = parseCsv(it) }; again() }
+                2 -> keywordList(
+                    ctx,
+                    "Prefer keywords",
+                    "Streams containing any of these go first. Comma separated. Wrap regular expressions in slashes, e.g. /x26[45]/.",
+                    s.preferKeywords.joinToString(", "),
+                ) { values -> Config.update { s.preferKeywords = values }; again() }
                 3 -> prompt(ctx, "Prefer languages", "e.g. bn, en, hi. Streams matching an earlier language go first.",
                     s.preferLanguages.joinToString(", "), false) { Config.update { s.preferLanguages = parseCsv(it) }; again() }
                 4 -> prompt(ctx, "Prefer video codecs", "Enter a priority order, comma separated. Example: HEVC, AV1, AVC. Unlisted and unknown codecs go after listed codecs. This does not filter streams.",
