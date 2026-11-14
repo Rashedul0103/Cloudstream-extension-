@@ -9,7 +9,7 @@ import android.text.InputType
 import android.widget.EditText
 import android.widget.FrameLayout
 import android.widget.Toast
-import androidx.appcompat.app.AlertDialog
+import android.app.AlertDialog
 import java.net.URL
 import kotlin.concurrent.thread
 
