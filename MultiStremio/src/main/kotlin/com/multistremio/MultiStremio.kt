@@ -238,19 +238,18 @@ class MultiStremio : MainAPI() {
 
         // Subtitles from subtitle addons (optionally limited to chosen languages)
         val wantedSubs = settings.subtitleLanguages.map { subtitleKey(it) }.toSet()
-        val sentSubsEarly = HashSet<String>()
+        val sentSubs = HashSet<String>()
         for (s in subtitles) {
             val url = s.url ?: continue
             val code = s.lang ?: "und"
             if (wantedSubs.isNotEmpty() && subtitleKey(code) !in wantedSubs) continue
-            if (!sentSubsEarly.add(url)) continue
+            if (!sentSubs.add(url)) continue
             subtitleCallback(newSubtitleFile(subtitleName(code), url))
         }
 
         // YouTube/external-only entries are handled below and must not use up filter/limit slots.
         val playable = parsed.filter { it.isDirect || it.isMagnet }
         val processed = StreamPipeline.process(playable, settings.filter, settings.sort)
-        val sentSubs = HashSet<String>()
         var emitted = false
         for (p in processed) {
             emitStream(p, settings, sentSubs, subtitleCallback, callback)
