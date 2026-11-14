@@ -374,28 +374,6 @@ internal object SettingsDialogHost {
         dialog?.isShowing == true && stack.lastOrNull()?.key == key
 }
 
-internal fun menu(
-    ctx: Context,
-    title: String,
-    items: List<String>,
-    back: (() -> Unit)?,
-    description: String? = null,
-    itemDetails: List<String>? = null,
-    pick: (Int) -> Unit,
-) {
-    val settingItems = items.mapIndexed { index, value ->
-        val summary = itemDetails?.getOrNull(index)
-        SettingItem(
-            title = value,
-            summary = summary,
-            type = SettingItemType.Navigate,
-            onClick = { pick(index) },
-            searchKeywords = listOfNotNull(value, summary),
-        )
-    }
-    settingMenu(ctx, title, settingItems, back, description)
-}
-
 /** Preferred typed menu API. Existing screens can migrate without changing the shared renderer. */
 internal fun settingMenu(
     ctx: Context,
@@ -542,10 +520,15 @@ internal fun choose(
     onCancel: (() -> Unit)? = null,
     onPick: (Int) -> Unit,
 ) {
-    val rows = labels.mapIndexed { index, label ->
-        if (index == checked) "✓  $label  ·  SELECTED" else label
+    val items = labels.mapIndexed { index, label ->
+        SettingItem(
+            title = if (index == checked) "✓  $label  ·  SELECTED" else label,
+            type = SettingItemType.Value,
+            onClick = { onPick(index) },
+            searchKeywords = listOf(label),
+        )
     }
-    menu(ctx, title, rows, onCancel, "Select one option. Your choice is saved immediately.") { onPick(it) }
+    settingMenu(ctx, title, items, onCancel, "Select one option. Your choice is saved immediately.")
 }
 
 internal fun multi(
