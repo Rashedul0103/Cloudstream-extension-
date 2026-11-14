@@ -1493,6 +1493,7 @@ object SettingsUi {
                     RES_OPTIONS.map { it.second },
                     RES_OPTIONS.map { it.first in f.allowedResolutions },
                     description = "Select which resolutions to allow. Leave every box unchecked to allow any resolution.",
+                    onCancel = again,
                 ) { v ->
                     Config.update { f.allowedResolutions = RES_OPTIONS.filterIndexed { i, _ -> v[i] }.map { it.first }.toMutableList() }
                     again()
@@ -1500,15 +1501,15 @@ object SettingsUi {
                 1 -> { Config.update { f.hideCam = !f.hideCam }; again() }
                 2 -> { Config.update { f.hideMagnets = !f.hideMagnets }; again() }
                 3 -> { Config.update { f.hideUncachedDebrid = !f.hideUncachedDebrid }; again() }
-                4 -> choose(ctx, "HEVC / x265", listOf("Show any", "Hide HEVC", "Only HEVC"), f.hevcMode) {
+                4 -> choose(ctx, "HEVC / x265", listOf("Show any", "Hide HEVC", "Only HEVC"), f.hevcMode, onCancel = again) {
                     Config.update { f.hevcMode = it }; again()
                 }
-                5 -> choose(ctx, "HDR / Dolby Vision", listOf("Show any", "Hide HDR/DV", "Only HDR/DV"), f.hdrMode) {
+                5 -> choose(ctx, "HDR / Dolby Vision", listOf("Show any", "Hide HDR/DV", "Only HDR/DV"), f.hdrMode, onCancel = again) {
                     Config.update { f.hdrMode = it }; again()
                 }
-                6 -> number(ctx, "Min size (MB, 0 = off)", f.minSizeMb) { Config.update { f.minSizeMb = it }; again() }
-                7 -> number(ctx, "Max size (GB, 0 = off)", f.maxSizeGb) { Config.update { f.maxSizeGb = it }; again() }
-                8 -> number(ctx, "Min seeders (0 = off). Streams without seeder info are kept.", f.minSeeders) {
+                6 -> number(ctx, "Min size (MB, 0 = off)", f.minSizeMb, onCancel = again) { Config.update { f.minSizeMb = it }; again() }
+                7 -> number(ctx, "Max size (GB, 0 = off)", f.maxSizeGb, onCancel = again) { Config.update { f.maxSizeGb = it }; again() }
+                8 -> number(ctx, "Min seeders (0 = off). Streams without seeder info are kept.", f.minSeeders, onCancel = again) {
                     Config.update { f.minSeeders = it }; again()
                 }
                 9 -> keywordList(
@@ -1516,26 +1517,35 @@ object SettingsUi {
                     "Exclude keywords",
                     "Comma separated, case-insensitive. Wrap in slashes for a regex, e.g. /x26[45]/. Invalid regex patterns are rejected.",
                     f.excludeKeywords.joinToString(", "),
+                    onCancel = again,
                 ) { values -> Config.update { f.excludeKeywords = values }; again() }
                 10 -> keywordList(
                     ctx,
                     "Require keywords",
                     "A stream must contain at least one of these. Leave empty to disable. Wrap regex patterns in slashes, e.g. /x26[45]/.",
                     f.requireKeywords.joinToString(", "),
+                    onCancel = again,
                 ) { values -> Config.update { f.requireKeywords = values }; again() }
                 11 -> prompt(ctx, "Required languages",
                     "Codes, regional tags or names, e.g. en, eng, en-US, pt-BR, Bengali. Streams with no detectable language are kept unless strict mode is on. Leave empty to disable.",
-                    f.requireLanguages.joinToString(", "), false) { Config.update { f.requireLanguages = parseCsv(it) }; again() }
+                    f.requireLanguages.joinToString(", "), false, onCancel = again) { Config.update { f.requireLanguages = parseCsv(it) }; again() }
                 12 -> { Config.update { f.strictLanguage = !f.strictLanguage }; again() }
-                13 -> number(ctx, "Max results per addon (0 = off)", f.maxPerAddon) { Config.update { f.maxPerAddon = it }; again() }
-                14 -> number(ctx, "Max results total (0 = off)", f.maxTotal) { Config.update { f.maxTotal = it }; again() }
+                13 -> number(ctx, "Max results per addon (0 = off)", f.maxPerAddon, onCancel = again) { Config.update { f.maxPerAddon = it }; again() }
+                14 -> number(ctx, "Max results total (0 = off)", f.maxTotal, onCancel = again) { Config.update { f.maxTotal = it }; again() }
             }
         }
     }
 
 
-    private fun number(ctx: Context, title: String, current: Int, onOk: (Int) -> Unit) =
-        prompt(ctx, title, null, current.toString(), true) { onOk(it.toIntOrNull()?.coerceAtLeast(0) ?: 0) }
+    private fun number(
+        ctx: Context,
+        title: String,
+        current: Int,
+        onCancel: (() -> Unit)? = null,
+        onOk: (Int) -> Unit,
+    ) = prompt(ctx, title, null, current.toString(), true, onCancel) {
+        onOk(it.toIntOrNull()?.coerceAtLeast(0) ?: 0)
+    }
 
     // ---- sorting ---------------------------------------------------------------------------
 
@@ -1554,7 +1564,7 @@ object SettingsUi {
         val again = { sortMenu(ctx) }
         menu(ctx, "Stream sorting", rows, { mainMenu(ctx) }, "Choose how available streams are ranked. The first item in each preference list has the highest priority; leave a list empty to disable that preference.") { which ->
             when (which) {
-                0 -> choose(ctx, "Sort order", SortPreset.values().map { it.label }, preset.ordinal) {
+                0 -> choose(ctx, "Sort order", SortPreset.values().map { it.label }, preset.ordinal, onCancel = again) {
                     Config.update { s.preset = SortPreset.values()[it].name }; again()
                 }
                 1 -> { Config.update { s.cachedFirst = !s.cachedFirst }; again() }
@@ -1563,13 +1573,14 @@ object SettingsUi {
                     "Prefer keywords",
                     "Streams containing any of these go first. Comma separated. Wrap regular expressions in slashes, e.g. /x26[45]/.",
                     s.preferKeywords.joinToString(", "),
+                    onCancel = again,
                 ) { values -> Config.update { s.preferKeywords = values }; again() }
                 3 -> prompt(ctx, "Prefer languages", "e.g. bn, en, hi. Streams matching an earlier language go first.",
-                    s.preferLanguages.joinToString(", "), false) { Config.update { s.preferLanguages = parseCsv(it) }; again() }
+                    s.preferLanguages.joinToString(", "), false, onCancel = again) { Config.update { s.preferLanguages = parseCsv(it) }; again() }
                 4 -> prompt(ctx, "Prefer video codecs", "Enter a priority order, comma separated. Example: HEVC, AV1, AVC. Unlisted and unknown codecs go after listed codecs. This does not filter streams.",
-                    s.preferCodecs.joinToString(", "), false) { Config.update { s.preferCodecs = parseCsv(it) }; again() }
+                    s.preferCodecs.joinToString(", "), false, onCancel = again) { Config.update { s.preferCodecs = parseCsv(it) }; again() }
                 5 -> prompt(ctx, "Prefer audio formats", "Enter a priority order, comma separated. Example: Atmos, TrueHD, DTS-HD, DD+, AAC. Unlisted and unknown formats go after listed formats.",
-                    s.preferAudio.joinToString(", "), false) { Config.update { s.preferAudio = parseCsv(it) }; again() }
+                    s.preferAudio.joinToString(", "), false, onCancel = again) { Config.update { s.preferAudio = parseCsv(it) }; again() }
                 6 -> confirm(
                     ctx, "Use my order across resolutions?",
                     "CloudStream normally ranks links by its own quality profile first and only keeps this plugin's " +
@@ -1593,7 +1604,7 @@ object SettingsUi {
             when (which) {
                 0 -> { Config.update { fetchSubtitles = !fetchSubtitles }; subtitlesMenu(ctx) }
                 1 -> prompt(ctx, "Subtitle languages", "Codes, regional tags or names, e.g. en, eng, en-US, pt-BR, Bengali. Leave empty for all languages.",
-                    s.subtitleLanguages.joinToString(", "), false) {
+                    s.subtitleLanguages.joinToString(", "), false, onCancel = { subtitlesMenu(ctx) }) {
                     Config.update { subtitleLanguages = parseCsv(it) }; subtitlesMenu(ctx)
                 }
             }
@@ -1608,7 +1619,7 @@ object SettingsUi {
         )
         menu(ctx, "General", rows, { mainMenu(ctx) }, "Tune request limits and the amount of technical detail shown on stream links.") { which ->
             when (which) {
-                0 -> number(ctx, "Timeout per addon request (seconds)", s.timeoutSec) {
+                0 -> number(ctx, "Timeout per addon request (seconds)", s.timeoutSec, onCancel = { generalMenu(ctx) }) {
                     Config.update { timeoutSec = it.coerceIn(5, 180) }; generalMenu(ctx)
                 }
                 1 -> { Config.update { detailedLabels = !detailedLabels }; generalMenu(ctx) }
