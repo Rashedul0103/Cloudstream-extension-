@@ -142,6 +142,16 @@ class CoreLogicTest {
     }
 
     @Test
+    fun magnetPreservesAnExplicitTorrentFileIndex() {
+        val selected = Urls.magnet("abcdef123456", "Episode 2.mkv", emptyList(), 3)
+        assertTrue(selected.contains("&index=3"))
+        assertTrue(selected.startsWith("magnet:?xt=urn:btih:abcdef123456"))
+        val defaultSelection = Urls.magnet("abcdef123456", null, emptyList())
+        assertFalse(defaultSelection.contains("&index="))
+        assertFalse(Urls.magnet("abcdef123456", null, emptyList(), -1).contains("&index="))
+    }
+
+    @Test
     fun externalOnlyTargetsDeduplicateWithoutLosingSignedUrlDifferences() {
         val firstYoutube = StreamParser.parsed(0, "First addon", RawStream(ytId = "AbC123"))
         val duplicateYoutube = StreamParser.parsed(1, "Second addon", RawStream(ytId = "AbC123"))
