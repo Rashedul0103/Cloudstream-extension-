@@ -714,6 +714,67 @@ class CoreLogicTest {
     }
 
     @Test
+    fun importedSettingsAreSanitizedBeforeUse() {
+        val settings = Settings(
+            addons = mutableListOf(
+                AddonConfig(url = "https://example.com/addon"),
+                AddonConfig(url = "https://example.com/addon"),
+                AddonConfig(url = ""),
+            ),
+            filter = FilterSettings(
+                allowedResolutions = mutableListOf(999, 1080, 1080, -1),
+                hevcMode = 99,
+                hdrMode = -1,
+                minSizeMb = -10,
+                maxSizeGb = -5,
+                minSeeders = -1,
+                maxPerAddon = -2,
+                maxTotal = -3,
+            ),
+            sort = SortSettings(preset = "REMOVED_PRESET"),
+            timeoutSec = 999,
+            streamFormat = StreamFormatSettings(
+                fields = mutableListOf("unknown-field", "quality", "quality"),
+                separator = "invalid separator",
+            ),
+        ).sanitized()
+
+        assertEquals(180, settings.timeoutSec)
+        assertEquals(listOf(1080), settings.filter.allowedResolutions)
+        assertEquals(MODE_ONLY, settings.filter.hevcMode)
+        assertEquals(MODE_ANY, settings.filter.hdrMode)
+        assertEquals(0, settings.filter.minSizeMb)
+        assertEquals(0, settings.filter.maxSizeGb)
+        assertEquals(0, settings.filter.minSeeders)
+        assertEquals(0, settings.filter.maxPerAddon)
+        assertEquals(0, settings.filter.maxTotal)
+        assertEquals(SortPreset.BEST_QUALITY.name, settings.sort.preset)
+        assertEquals(listOf("quality"), settings.streamFormat.fields)
+        assertEquals(" · ", settings.streamFormat.separator)
+        assertEquals(1, settings.addons.size)
+        assertFalse(settings.addons.single().id.isBlank())
+    }
+
+    @Test
+    fun malformedBackupNestedSettingsAreRejectedWithoutThrowing() {
+        val malformedEnvelope = """{"format":"multistremio-backup","version":1,"settings":{"addons":[],"filter":null}}"""
+        val malformedLegacy = """{"addons":[],"sort":null}"""
+        assertEquals(null, SettingsBackupManager.parse(malformedEnvelope))
+        assertEquals(null, SettingsBackupManager.parse(malformedLegacy))
+    }
+
+    @Test
+    fun validBackupValuesAreNormalizedDuringRestoreParsing() {
+        val backup = SettingsBackup(
+            settings = Settings(timeoutSec = 1, filter = FilterSettings(minSeeders = -1)),
+        )
+        val parsed = SettingsBackupManager.parse(Json.toJson(backup))
+        assertNotNull(parsed)
+        assertEquals(5, parsed!!.settings!!.timeoutSec)
+        assertEquals(0, parsed.settings!!.filter.minSeeders)
+    }
+
+    @Test
     fun addonUrlsRetainQueryCredentialsAfterPathConstruction() {
         val base = Urls.normalizeAddonUrl(
             "stremio://EXAMPLE.com/addons/manifest.json?token=secret-api-key",
