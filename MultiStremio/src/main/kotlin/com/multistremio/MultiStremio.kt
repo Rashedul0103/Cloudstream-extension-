@@ -336,9 +336,9 @@ class MultiStremio : MainAPI() {
                 if (newLinks.isEmpty()) return
                 val emissionStarted = System.nanoTime()
                 for (stream in newLinks) {
-                    val isFirst = emittedLinks == 0
-                    emitStream(stream, settings, sentSubs, wantedSubs, subtitleCallback, callback)
-                    if (isFirst) StreamDiagnostics.markFirstPlayableLink(diagnosticRunId)
+                    emitStream(
+                        stream, settings, sentSubs, wantedSubs, subtitleCallback, callback, diagnosticRunId,
+                    )
                     emitted = true
                     emittedLinks++
                 }
@@ -486,6 +486,7 @@ class MultiStremio : MainAPI() {
         wantedSubs: Set<String>,
         subtitleCallback: (SubtitleFile) -> Unit,
         callback: (ExtractorLink) -> Unit,
+        diagnosticRunId: Long,
     ) {
         val label = StreamLabels.build(p, settings.detailedLabels, settings.streamFormat)
         val quality = StreamLabels.linkQuality(p.info.resolution, settings.sort.overrideAppQuality)
@@ -516,6 +517,8 @@ class MultiStremio : MainAPI() {
                 },
             )
         }
+        // Timestamp immediately after the playable callback, before any inline subtitle work.
+        StreamDiagnostics.markFirstPlayableLink(diagnosticRunId)
         for (s in p.raw.subtitles.orEmpty()) {
             val su = s.url?.takeIf { it.isNotBlank() } ?: continue
             val language = s.lang ?: "und"
