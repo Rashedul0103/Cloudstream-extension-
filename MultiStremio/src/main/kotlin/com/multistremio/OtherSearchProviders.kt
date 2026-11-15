@@ -83,6 +83,7 @@ internal object OtherSearchRows {
 private class OtherSearchMainAPI(
     private val catalogKey: String,
     displayName: String,
+    type: String,
 ) : MainAPI() {
     override var name: String = displayName
     override var mainUrl: String =
@@ -96,10 +97,7 @@ private class OtherSearchMainAPI(
     override val hasQuickSearch: Boolean = false
     // Keep the slot discoverable in CloudStream's default search-provider list even while Other
     // is off. The inactive search returns null, so it creates no empty result section.
-    private val eligibleTypes = OtherSearchRows.searchProviderTypes(
-        OtherSearchRows.candidates(Config.snapshot()).firstOrNull { it.key == catalogKey }?.type ?: "movie",
-    )
-    override var supportedTypes: Set<TvType> = eligibleTypes
+    override val supportedTypes: Set<TvType> = OtherSearchRows.searchProviderTypes(type)
 
     private val currentRow = AtomicReference<OtherSearchRow?>(null)
     private val delegate = MultiStremio()
@@ -108,10 +106,10 @@ private class OtherSearchMainAPI(
      * its registered name are unchanged. The host reads supportedTypes from the live API object.
      */
     fun configure(row: OtherSearchRow?) {
-        currentRow.set(row)
         // supportedTypes stays fixed for this provider's lifetime. CloudStream snapshots the
-        // default provider-selection list; removing these types while Other is off would prevent
+        // default provider-selection list; hiding these types while Other is off would prevent
         // a later toggle from participating automatically.
+        currentRow.set(row)
     }
 
     override suspend fun search(query: String): List<SearchResponse>? {
@@ -175,7 +173,7 @@ internal object OtherSearchProviders {
         for (row in candidates) {
             val displayName = uniqueName(row.title, row.addonName, occupiedNames)
             occupiedNames.add(displayName)
-            val provider = OtherSearchMainAPI(row.key, displayName)
+            val provider = OtherSearchMainAPI(row.key, displayName, row.type)
             providers[row.key] = provider
             register(provider)
         }
