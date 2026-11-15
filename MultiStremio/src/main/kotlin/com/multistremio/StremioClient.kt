@@ -46,18 +46,36 @@ object StremioClient {
             }
         } catch (e: CancellationException) {
             throw e
-        } catch (e: InterruptedIOException) {
-            FetchResult(null, "TIMEOUT", errorType = e.javaClass.simpleName)
-        } catch (e: UnknownHostException) {
-            FetchResult(null, "DNS_ERROR", errorType = e.javaClass.simpleName)
-        } catch (e: SSLException) {
-            FetchResult(null, "TLS_ERROR", errorType = e.javaClass.simpleName)
-        } catch (e: ConnectException) {
-            FetchResult(null, "CONNECTION_ERROR", errorType = e.javaClass.simpleName)
         } catch (e: Exception) {
-            // Record only the exception class. Messages and URLs may contain private addon keys.
-            FetchResult(null, "NETWORK_ERROR", errorType = e.javaClass.simpleName)
+            classifyFailure(e)
         }
+
+    /**
+     * HTTP wrappers sometimes nest the actual socket/TLS error inside a generic IOException.
+     * Inspect a bounded cause chain so diagnostics identify the root transport failure without
+     * recording exception messages, request URLs or credentials.
+     */
+    private fun classifyFailure(error: Exception): FetchResult {
+        val causes = generateSequence(error as Throwable?) { it.cause }.take(8).toList()
+        val cause = causes.firstOrNull {
+            it is InterruptedIOException ||
+                it is UnknownHostException ||
+                it is SSLException ||
+                it is ConnectException
+        }
+        val status = when (cause) {
+            is InterruptedIOException -> "TIMEOUT"
+            is UnknownHostException -> "DNS_ERROR"
+            is SSLException -> "TLS_ERROR"
+            is ConnectException -> "CONNECTION_ERROR"
+            else -> "NETWORK_ERROR"
+        }
+        return FetchResult(
+            null,
+            status,
+            errorType = (cause ?: error).javaClass.simpleName,
+        )
+    }
 
     suspend fun catalog(addon: AddonConfig, type: String, catalogId: String, extra: String?): List<Meta> {
         val response = fetch(Urls.resource(addon.url, "catalog", type, catalogId, extra))
