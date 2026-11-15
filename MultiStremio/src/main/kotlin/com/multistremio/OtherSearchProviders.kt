@@ -79,7 +79,6 @@ internal object OtherSearchRows {
 private class OtherSearchMainAPI(
     private val catalogKey: String,
     displayName: String,
-    type: String,
 ) : MainAPI() {
     override var name: String = displayName
     override var mainUrl: String =
@@ -161,7 +160,7 @@ internal object OtherSearchProviders {
         for (row in candidates) {
             val displayName = uniqueName(row.title, row.addonName, occupiedNames)
             occupiedNames.add(displayName)
-            val provider = OtherSearchMainAPI(row.key, displayName, row.type)
+            val provider = OtherSearchMainAPI(row.key, displayName)
             providers[row.key] = provider
             register(provider)
         }
