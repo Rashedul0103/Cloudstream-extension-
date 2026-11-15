@@ -38,7 +38,7 @@ Imported homepage rows are matched using the source plugin, provider class, row 
 
 ## Stream filter edge cases
 
-Leaving every box unchecked under **Allowed resolutions** means no resolution restriction is applied; it does not hide every stream. The settings summary displays this as **Any (no restriction)**. Keyword filters accept plain comma-separated text or slash-delimited regular expressions. Invalid regular expressions are rejected before saving so a typo cannot silently produce an always-false rule.
+Leaving every box unchecked under **Allowed resolutions** means no resolution restriction is applied; it does not hide every stream. The settings summary displays this as **Any (no restriction)**. Keyword filters accept plain comma-separated text or slash-delimited regular expressions. Invalid or unsupported regular expressions are rejected before saving. Regex filters use a linear-time engine and a bounded cache; lookarounds, backreferences, oversized expressions and nested counted repetitions are not supported. Plain keyword matching is unchanged.
 
 ## Language matching
 
