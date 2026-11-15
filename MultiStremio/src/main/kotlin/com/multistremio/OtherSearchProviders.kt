@@ -1,6 +1,7 @@
 package com.multistremio
 
 import com.lagradost.cloudstream3.*
+import com.lagradost.cloudstream3.utils.ExtractorLink
 import java.util.concurrent.atomic.AtomicReference
 
 /** A Stremio homepage catalog exposed as its own CloudStream search row. */
