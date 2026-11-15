@@ -97,9 +97,7 @@ internal object DiagnosticsSettingsScreen {
         } else {
             snapshot.requests.sortedWith(compareBy<StreamRequestDiagnostic> { it.status == "OK" }.thenByDescending { it.elapsedMs })
                 .forEach { item ->
-                    val status = if (item.resultCount > 0) {
-                        "${item.status} · ${item.resultCount} items"
-                    } else item.status
+                    val status = item.displayStatus()
                     val card = vertical(ctx, dp(ctx, 10)).apply {
                         background = rounded(ctx, colors.background, colors.outline)
                         addView(text(
@@ -161,8 +159,7 @@ internal object DiagnosticsSettingsScreen {
             appendLine("Subtitle requests started after lookup start: ${snapshot.timeToSubtitleRequestsStartedMs?.let { "$it ms" } ?: "not recorded"}")
             appendLine("Subtitle completion after lookup start: ${snapshot.timeToSubtitleCompletionMs?.let { "$it ms" } ?: "not recorded"}")
             snapshot.requests.forEach { item ->
-                val outcome = if (item.resultCount > 0) "${item.status} (${item.resultCount} items)" else item.status
-                appendLine("${item.addonName} | ${item.resource} | $outcome | ${item.elapsedMs} ms | queue wait ${item.queueWaitMs} ms")
+                appendLine("${item.addonName} | ${item.resource} | ${item.displayStatus()} | ${item.elapsedMs} ms | queue wait ${item.queueWaitMs} ms")
             }
         }
         addFooter(ctx, root, "Back", {
