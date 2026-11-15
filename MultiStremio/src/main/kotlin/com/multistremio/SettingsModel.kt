@@ -84,15 +84,33 @@ object DragReorderMath {
 
 /** Stable list operations shared by the catalog-row UI and its JVM regression tests. */
 object CatalogOrderMath {
-    fun move(keys: List<String>, key: String, delta: Int): List<String> {
-        if (delta == 0) return keys.toList()
-        val from = keys.indexOf(key)
-        if (from < 0) return keys.toList()
-        val to = (from + delta).coerceIn(0, keys.lastIndex)
-        if (from == to) return keys.toList()
-        return keys.toMutableList().apply {
-            val moved = removeAt(from)
-            add(to, moved)
+    /**
+     * Applies serial numbers to one addon section without moving rows across other sections.
+     *
+     * Every row must have exactly one unique positive position. Gaps are allowed, so users can
+     * reorder by entering (for example) 10, 20 and 30; ties and blank/zero values are rejected.
+     * The original slots occupied by this group are retained in [currentOrder].
+     */
+    fun reorderGroup(
+        currentOrder: List<String>,
+        groupKeys: List<String>,
+        positions: Map<String, Int>,
+    ): List<String>? {
+        if (groupKeys.isEmpty()) return currentOrder.toList()
+        val groupKeySet = groupKeys.toSet()
+        if (groupKeySet.size != groupKeys.size || positions.keys != groupKeySet) return null
+
+        val requested = groupKeys.map { key -> positions[key] ?: return null }
+        if (requested.any { it <= 0 } || requested.distinct().size != groupKeys.size) return null
+
+        val groupIndexes = currentOrder.indices.filter { currentOrder[it] in groupKeySet }
+        if (groupIndexes.size != groupKeys.size) return null
+
+        val sortedGroup = groupKeys.sortedBy { positions.getValue(it) }
+        return currentOrder.toMutableList().apply {
+            groupIndexes.forEachIndexed { index, currentIndex ->
+                this[currentIndex] = sortedGroup[index]
+            }
         }
     }
 
