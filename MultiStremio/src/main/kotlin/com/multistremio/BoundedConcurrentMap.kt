@@ -1,6 +1,7 @@
 package com.multistremio
 
-import com.lagradost.cloudstream3.amap
+import kotlinx.coroutines.async
+import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.sync.Semaphore
 import kotlinx.coroutines.sync.withPermit
 
