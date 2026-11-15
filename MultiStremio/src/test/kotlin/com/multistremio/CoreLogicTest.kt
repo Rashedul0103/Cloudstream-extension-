@@ -1351,7 +1351,7 @@ class CoreLogicTest {
         StreamDiagnostics.finish(run, 0, 0, 0, 0, 0)
 
         val requests = StreamDiagnostics.latest()!!.requests
-        assertEquals(403, requests.first().httpCode)
+        assertEquals(403, requests.first().httpCode ?: -1)
         assertEquals("HTTP_ERROR (HTTP 403)", requests.first().displayStatus())
         assertEquals("SocketTimeoutException", requests.last().errorType)
         assertTrue(requests.first().addonName.contains("[URL redacted]"))
