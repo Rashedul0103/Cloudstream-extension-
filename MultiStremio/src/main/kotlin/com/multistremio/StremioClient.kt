@@ -83,6 +83,7 @@ object StremioClient {
         type: String,
         id: String,
         diagnosticRunId: Long? = null,
+        queueWaitMs: Long = 0L,
     ): List<RawSubtitle> {
         val started = System.nanoTime()
         val response = fetch(Urls.resource(addon.url, "subtitles", type, id))
@@ -91,6 +92,7 @@ object StremioClient {
         StreamDiagnostics.record(
             diagnosticRunId, addon.name, "Subtitles",
             (System.nanoTime() - started) / 1_000_000L, parsed.status, parsed.items.size,
+            queueWaitMs = queueWaitMs,
         )
         return parsed.items
     }
