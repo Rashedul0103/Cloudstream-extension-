@@ -65,11 +65,14 @@ internal object OtherSearchRows {
      * it does not filter individual returned cards. Keep cross-media Other rows eligible under
      * the default Movie/Series chips while each SearchResponse retains its catalog's real type.
      */
-    fun searchProviderTypes(type: String): Set<TvType> = setOf(
-        TvType.Movie,
-        TvType.TvSeries,
-        StremioMediaTypes.toCloudStream(type),
+    fun searchProviderTypeNames(type: String): Set<String> = setOf(
+        "movie",
+        "series",
+        StremioMediaTypes.canonicalType(type),
     )
+
+    fun searchProviderTypes(type: String): Set<TvType> =
+        searchProviderTypeNames(type).mapTo(LinkedHashSet()) { StremioMediaTypes.toCloudStream(it) }
 }
 
 /**
