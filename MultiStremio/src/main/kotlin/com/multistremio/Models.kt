@@ -177,14 +177,24 @@ data class CatalogRef(
  * when the provider does not advertise that concrete type.
  */
 object StremioMediaTypes {
-    fun toCloudStream(type: String?): TvType = when (
+    /** Canonical Stremio content type, kept independent of the CloudStream API for testing. */
+    fun canonicalType(type: String?): String = when (
         type?.trim()?.lowercase()?.replace('-', '_')?.replace(' ', '_')
     ) {
+        "movie" -> "movie"
+        "series" -> "series"
+        "anime" -> "anime"
+        "tv", "channel" -> "tv"
+        "audiobook", "audio_book", "book", "books" -> "audiobook"
+        else -> "other"
+    }
+
+    fun toCloudStream(type: String?): TvType = when (canonicalType(type)) {
         "movie" -> TvType.Movie
         "series" -> TvType.TvSeries
         "anime" -> TvType.Anime
-        "tv", "channel" -> TvType.Live
-        "audiobook", "audio_book", "book", "books" -> TvType.AudioBook
+        "tv" -> TvType.Live
+        "audiobook" -> TvType.AudioBook
         else -> TvType.Others
     }
 }
