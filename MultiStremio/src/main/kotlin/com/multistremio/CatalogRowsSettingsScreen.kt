@@ -106,7 +106,7 @@ internal object CatalogRowsSettingsScreen {
                     setSelectAllOnFocus(true)
                     setPadding(dp(ctx, 3), 0, dp(ctx, 3), 0)
                     background = rounded(ctx, colors.background, colors.outline)
-                    contentDescription = "Global position of \${row.displayName}"
+                    contentDescription = "Global position of ${row.displayName}"
                     isFocusable = true
                     isFocusableInTouchMode = true
                 }
@@ -117,7 +117,7 @@ internal object CatalogRowsSettingsScreen {
                     setOnClickListener { catalogRowMenu(ctx, row) }
                     isClickable = true
                 }
-                val source = text(ctx, "From \${row.sourceLabel}", 11f, colors.secondary).apply {
+                val source = text(ctx, "From ${row.sourceLabel}", 11f, colors.secondary).apply {
                     setPadding(dp(ctx, 2), dp(ctx, 2), 0, 0)
                 }
                 val details = vertical(ctx, dp(ctx, 1)).apply {
@@ -128,7 +128,7 @@ internal object CatalogRowsSettingsScreen {
                 val manageImported = if (row.external != null) {
                     text(ctx, "⋮", 20f, colors.secondary, true).apply {
                         gravity = Gravity.CENTER
-                        contentDescription = "Manage or remove imported row \${row.displayName}"
+                        contentDescription = "Manage or remove imported row ${row.displayName}"
                         setOnClickListener { catalogRowMenu(ctx, row) }
                     }
                 } else null
@@ -139,9 +139,9 @@ internal object CatalogRowsSettingsScreen {
                         if (isChecked) colors.accent else colors.secondary,
                     )
                     contentDescription = if (row.rowEnabled) {
-                        "Hide homepage row \${row.displayName}"
+                        "Hide homepage row ${row.displayName}"
                     } else {
-                        "Show homepage row \${row.displayName}"
+                        "Show homepage row ${row.displayName}"
                     }
                     setOnCheckedChangeListener { _, checked ->
                         setRowVisibility(ctx, row, checked)
@@ -149,9 +149,9 @@ internal object CatalogRowsSettingsScreen {
                             if (checked) colors.accent else colors.secondary,
                         )
                         contentDescription = if (checked) {
-                            "Hide homepage row \${row.displayName}"
+                            "Hide homepage row ${row.displayName}"
                         } else {
-                            "Show homepage row \${row.displayName}"
+                            "Show homepage row ${row.displayName}"
                         }
                     }
                 }
