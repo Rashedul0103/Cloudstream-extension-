@@ -62,7 +62,7 @@ internal object DiagnosticsSettingsScreen {
         val root = shell(
             ctx,
             "Streaming diagnostics",
-            "Latest lookup · $time · ${snapshot.durationMs} ms total. This report contains addon names and counts only, never stream URLs or addon access keys.",
+            "Latest lookup · $time · ${snapshot.durationMs} ms until lookup completion. First-playable timing ends when a link is handed to CloudStream, not when the video displays its first frame. No stream URLs or addon access keys are stored.",
         )
         val summary = vertical(ctx, dp(ctx, 12)).apply {
             background = rounded(ctx, withAlpha(colors.accent, 12), colors.outline)
@@ -71,11 +71,20 @@ internal object DiagnosticsSettingsScreen {
                 "Addon subtitle tracks: ${snapshot.addonSubtitles}",
                 "Playable candidates before filters: ${snapshot.playableCandidates}",
                 "Streams kept after filters and deduplication: ${snapshot.keptAfterFilters}",
-                "Links handed to CloudStream: ${snapshot.emittedLinks}",
+                "First stream request completed: ${snapshot.timeToFirstStreamRequestCompletedMs?.let { "$it ms" } ?: "—"}",
+                "First playable result parsed: ${snapshot.timeToFirstPlayableResultMs?.let { "$it ms" } ?: "—"}",
+                "First playable link sent to CloudStream: ${snapshot.timeToFirstPlayableLinkMs?.let { "$it ms" } ?: "—"}",
+                "First batch links: ${snapshot.firstBatchLinks}",
+                "Stream addons completed: ${snapshot.completedStreamAddons}/${snapshot.expectedStreamAddons}",
+                "All stream addons completed: ${snapshot.timeToAllStreamAddonsCompletedMs?.let { "$it ms" } ?: "—"}",
+                "All playable links emitted: ${snapshot.timeToAllPlayableLinksEmittedMs?.let { "$it ms" } ?: "—"}",
                 "Addon requests recorded: ${snapshot.requests.size}",
                 "Parsing work (parallel totals): ${snapshot.parseWorkMs} ms",
-                "Filtering, merging & sorting: ${snapshot.pipelineMs} ms",
-                "Link emission & subtitle callbacks: ${snapshot.emissionMs} ms",
+                "Filtering, merging & sorting work: ${snapshot.pipelineMs} ms",
+                "Link callback emission work: ${snapshot.emissionMs} ms",
+                "External extractor resolution: ${snapshot.extractorResolutionMs} ms",
+                "Additional subtitle wait: ${snapshot.subtitleWaitMs} ms",
+                "Subtitle addons completed: ${snapshot.timeToSubtitleCompletionMs?.let { "$it ms after lookup start" } ?: "—"}",
             ).forEach { addView(text(ctx, it, 13f, colors.primary).apply {
                 setPadding(0, dp(ctx, 3), 0, dp(ctx, 3))
             }) }
@@ -99,7 +108,7 @@ internal object DiagnosticsSettingsScreen {
                             colors.primary,
                             true,
                         ))
-                        addView(text(ctx, "$status · ${item.elapsedMs} ms", 12f, colors.secondary).apply {
+                        addView(text(ctx, "$status · ${item.elapsedMs} ms · ${item.queueWaitMs} ms queued", 12f, colors.secondary).apply {
                             setPadding(0, dp(ctx, 3), 0, 0)
                         })
                     }
@@ -124,13 +133,23 @@ internal object DiagnosticsSettingsScreen {
             appendLine("Addon subtitles: ${snapshot.addonSubtitles}")
             appendLine("Playable before filters: ${snapshot.playableCandidates}")
             appendLine("Kept after filters/deduplication: ${snapshot.keptAfterFilters}")
+            appendLine("First stream request completed: ${snapshot.timeToFirstStreamRequestCompletedMs?.let { "$it ms" } ?: "not recorded"}")
+            appendLine("First playable result parsed: ${snapshot.timeToFirstPlayableResultMs?.let { "$it ms" } ?: "not recorded"}")
+            appendLine("First playable link handed to CloudStream: ${snapshot.timeToFirstPlayableLinkMs?.let { "$it ms" } ?: "not recorded"}")
+            appendLine("First batch links: ${snapshot.firstBatchLinks}")
+            appendLine("Stream addons completed: ${snapshot.completedStreamAddons}/${snapshot.expectedStreamAddons}")
+            appendLine("All stream addons completed: ${snapshot.timeToAllStreamAddonsCompletedMs?.let { "$it ms" } ?: "not recorded"}")
+            appendLine("All playable links emitted: ${snapshot.timeToAllPlayableLinksEmittedMs?.let { "$it ms" } ?: "not recorded"}")
             appendLine("Links handed to CloudStream: ${snapshot.emittedLinks}")
             appendLine("Parsing work (parallel totals): ${snapshot.parseWorkMs} ms")
-            appendLine("Filter/dedup/sort: ${snapshot.pipelineMs} ms")
-            appendLine("Link emission: ${snapshot.emissionMs} ms")
+            appendLine("Filter/dedup/sort work: ${snapshot.pipelineMs} ms")
+            appendLine("Callback emission work: ${snapshot.emissionMs} ms")
+            appendLine("External extractor resolution: ${snapshot.extractorResolutionMs} ms")
+            appendLine("Additional subtitle wait: ${snapshot.subtitleWaitMs} ms")
+            appendLine("Subtitle completion after lookup start: ${snapshot.timeToSubtitleCompletionMs?.let { "$it ms" } ?: "not recorded"}")
             snapshot.requests.forEach { item ->
                 val outcome = if (item.resultCount > 0) "${item.status} (${item.resultCount} items)" else item.status
-                appendLine("${item.addonName} | ${item.resource} | $outcome | ${item.elapsedMs} ms")
+                appendLine("${item.addonName} | ${item.resource} | $outcome | ${item.elapsedMs} ms | queue wait ${item.queueWaitMs} ms")
             }
         }
         addFooter(ctx, root, "Back", {
