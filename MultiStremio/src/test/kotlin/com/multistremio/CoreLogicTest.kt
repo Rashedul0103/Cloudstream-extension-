@@ -356,6 +356,17 @@ class CoreLogicTest {
     }
 
     @Test
+    fun stremioAudiobookTypesMapToCloudStreamAudioBook() {
+        listOf("audiobook", "AudioBook", "audio_book", "audio-book", "book", "books").forEach { type ->
+            assertEquals(TvType.AudioBook, StremioMediaTypes.toCloudStream(type))
+        }
+
+        assertEquals(TvType.Movie, StremioMediaTypes.toCloudStream("movie"))
+        assertEquals(TvType.TvSeries, StremioMediaTypes.toCloudStream("series"))
+        assertEquals(TvType.Others, StremioMediaTypes.toCloudStream("unrecognized-type"))
+    }
+
+    @Test
     fun catalogResourceDeclarationsGateHomepageAndSearchTypes() {
         val stringResource = Manifest(
             resources = listOf("catalog"),
