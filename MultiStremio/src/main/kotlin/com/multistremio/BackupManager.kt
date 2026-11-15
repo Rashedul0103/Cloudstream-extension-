@@ -44,7 +44,7 @@ object SettingsBackupManager {
      * The old format always contains addon URLs, so it is treated as a sensitive full backup.
      */
     fun parse(text: String): SettingsBackup? =
-        runCatching { parseUnchecked(text) }.getOrNull()
+        runCatching { parseUnchecked(text.removePrefix("\uFEFF")) }.getOrNull()
 
     private fun parseUnchecked(text: String): SettingsBackup? {
         if (text.isBlank()) return null

@@ -763,6 +763,16 @@ class CoreLogicTest {
     }
 
     @Test
+    fun backupImportAcceptsUtf8BomFromTextEditors() {
+        val payload = SettingsBackupManager.export(sampleSettings(), includeAddonUrls = true)
+        val parsed = SettingsBackupManager.parse("\uFEFF$payload")
+
+        assertNotNull(parsed)
+        assertTrue(parsed!!.includesAddonUrls)
+        assertEquals("Private addon", parsed.settings!!.addons.single().name)
+    }
+
+    @Test
     fun arbitraryJsonCannotBeImportedAsAnEmptyLegacyBackup() {
         assertEquals(null, SettingsBackupManager.parse("{}"))
         assertEquals(null, SettingsBackupManager.parse("""{"unrelated":"value"}"""))
