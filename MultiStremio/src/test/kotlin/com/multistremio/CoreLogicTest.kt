@@ -1075,6 +1075,23 @@ class CoreLogicTest {
     }
 
     @Test
+    fun addonEnabledStateUpdatesTheTargetSettingsInstance() {
+        val settings = Settings(
+            addons = mutableListOf(
+                AddonConfig(id = "first", enabled = true),
+                AddonConfig(id = "second", enabled = true),
+            ),
+        )
+        val menuSnapshot = settings.snapshot()
+
+        assertTrue(settings.setAddonEnabled("first", false))
+        assertFalse(settings.addons.first { it.id == "first" }.enabled)
+        assertTrue(settings.addons.first { it.id == "second" }.enabled)
+        assertTrue(menuSnapshot.addons.first { it.id == "first" }.enabled)
+        assertFalse(settings.setAddonEnabled("missing", false))
+    }
+
+    @Test
     fun settingsSnapshotsDoNotShareMutableNestedCollections() {
         val original = Settings(
             addons = mutableListOf(AddonConfig(

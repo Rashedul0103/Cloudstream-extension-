@@ -43,7 +43,7 @@ internal data class SettingItem(
     val checked: Boolean? = null,
     val valueLabel: String? = null,
     val section: String? = null,
-    val onToggle: (() -> Unit)? = null,
+    val onToggle: ((Boolean) -> Unit)? = null,
     val danger: Boolean = false,
 )
 
@@ -478,13 +478,19 @@ internal fun settingMenu(
                         thumbTintList = ColorStateList.valueOf(if (isChecked) colors.accent else colors.secondary)
                         trackTintList = ColorStateList.valueOf(withAlpha(if (isChecked) colors.accent else colors.secondary, 90))
                         contentDescription = item.title
-                        setOnCheckedChangeListener { _, _ -> (item.onToggle ?: item.onClick)?.invoke() }
+                        setOnCheckedChangeListener { _, checked ->
+                            val toggle = item.onToggle
+                            if (toggle != null) toggle(checked) else item.onClick?.invoke()
+                        }
                     }
                     addView(toggle, LinearLayout.LayoutParams(
                         ViewGroup.LayoutParams.WRAP_CONTENT,
                         ViewGroup.LayoutParams.WRAP_CONTENT,
                     ))
-                    setOnClickListener { (item.onToggle ?: item.onClick)?.invoke() }
+                    setOnClickListener {
+                        val toggle = item.onToggle
+                        if (toggle != null) toggle(!(item.checked ?: false)) else item.onClick?.invoke()
+                    }
                 }
                 SettingItemType.Value -> {
                     if (!item.valueLabel.isNullOrBlank()) {

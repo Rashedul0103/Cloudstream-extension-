@@ -37,6 +37,13 @@ data class AddonConfig(
     var manifestFetchedAt: Long = 0L,
 )
 
+/** Updates an addon's persisted enabled state without mutating a menu snapshot. */
+internal fun Settings.setAddonEnabled(addonId: String, enabled: Boolean): Boolean {
+    val addon = this.addons.firstOrNull { it.id == addonId } ?: return false
+    addon.enabled = enabled
+    return true
+}
+
 data class FilterSettings(
     /** Allowed resolution buckets; 0 means "unknown resolution". */
     var allowedResolutions: MutableList<Int> = mutableListOf(2160, 1440, 1080, 720, 576, 480, 360, 240, 0),

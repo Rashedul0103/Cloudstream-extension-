@@ -30,8 +30,8 @@ internal object AddonsSettingsScreen {
                 summary = capabilities,
                 type = SettingItemType.Switch,
                 onClick = { addonMenu(ctx, Config.snapshot().addons.firstOrNull { it.id == addon.id } ?: addon) },
-                onToggle = {
-                    Config.update { addons.firstOrNull { it.id == addon.id }?.let { it.enabled = !it.enabled } }
+                onToggle = { enabled ->
+                    Config.update { this.setAddonEnabled(addon.id, enabled) }
                     HomeRefreshNotice.mark()
                     addonsMenu(ctx)
                 },
@@ -389,10 +389,11 @@ internal object AddonsSettingsScreen {
                 if (a.enabled) "Disable addon" else "Enable addon",
                 "Keep this addon saved; change only whether it is used",
                 SettingItemType.Switch,
-                onClick = {
-                    Config.update { addons.firstOrNull { it.id == a.id }?.let { it.enabled = !it.enabled } }
+                onToggle = { enabled ->
+                    Config.update { this.setAddonEnabled(a.id, enabled) }
                     HomeRefreshNotice.mark()
-                    again()
+                    val updated = Config.snapshot().addons.firstOrNull { it.id == a.id }
+                    if (updated != null) addonMenu(ctx, updated) else addonsMenu(ctx)
                 },
                 checked = a.enabled,
                 searchKeywords = listOf("enable", "disable", "active", "addon"),
