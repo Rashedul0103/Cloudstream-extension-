@@ -44,6 +44,23 @@ internal fun Settings.setAddonEnabled(addonId: String, enabled: Boolean): Boolea
     return true
 }
 
+/** Removes an addon and only the homepage configuration owned by that addon. */
+internal fun Settings.removeAddon(addonId: String): Boolean {
+    if (!addons.removeAll { it.id == addonId }) return false
+    val prefix = "$addonId|"
+    catalogOrder.removeAll { it.startsWith(prefix) }
+    customCatalogNames.keys.removeAll { it.startsWith(prefix) }
+    return true
+}
+
+/** Removes an imported row from MultiStremio without touching its source extension. */
+internal fun Settings.removeExternalHomeRow(key: String): Boolean {
+    if (!externalRows.removeAll { it.key == key }) return false
+    catalogOrder.removeAll { it == key }
+    customCatalogNames.remove(key)
+    return true
+}
+
 data class FilterSettings(
     /** Allowed resolution buckets; 0 means "unknown resolution". */
     var allowedResolutions: MutableList<Int> = mutableListOf(2160, 1440, 1080, 720, 576, 480, 360, 240, 0),

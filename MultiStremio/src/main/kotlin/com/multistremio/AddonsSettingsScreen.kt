@@ -27,7 +27,7 @@ internal object AddonsSettingsScreen {
             ).joinToString(" / ").ifBlank { "No capabilities enabled" }
             SettingItem(
                 title = addon.name,
-                summary = capabilities,
+                summary = "$capabilities · Tap name for options and removal",
                 type = SettingItemType.Switch,
                 onClick = { addonMenu(ctx, Config.snapshot().addons.firstOrNull { it.id == addon.id } ?: addon) },
                 onToggle = { enabled ->
@@ -530,13 +530,9 @@ internal object AddonsSettingsScreen {
                         "This only removes it from MultiStremio. Its catalog rows and saved row-order entries will also be removed.",
                         onCancel = again,
                     ) {
-                        Config.update {
-                            addons.removeAll { it.id == a.id }
-                            val addonPrefix = a.id + "|"
-                            catalogOrder.removeAll { it.startsWith(addonPrefix) }
-                            customCatalogNames.keys.removeAll { it.startsWith(addonPrefix) }
-                        }
+                        Config.update { removeAddon(a.id) }
                         HomeRefreshNotice.mark()
+                        toast(ctx, "${a.name} removed from MultiStremio.")
                         addonsMenu(ctx)
                     }
                 },

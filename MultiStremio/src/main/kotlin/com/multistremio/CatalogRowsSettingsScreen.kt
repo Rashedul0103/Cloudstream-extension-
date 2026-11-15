@@ -71,7 +71,7 @@ internal object CatalogRowsSettingsScreen {
         val root = shell(
             ctx,
             "Homepage rows",
-            "Drag a source handle to reorder whole addon sections. To reorder rows inside a section, edit their position numbers and apply. Repeated numbers keep the current row order. Use each checkbox to show or hide a row.",
+            "Drag a source handle to reorder addon sections. Edit position numbers to reorder rows. Use checkboxes to show or hide rows. Tap a row name to rename/manage it; use ⋮ on imported rows to remove them.",
         )
         HomeRefreshNotice.addTo(ctx, root)
         val scroll = ScrollView(ctx).apply { clipToPadding = false }
@@ -127,6 +127,14 @@ internal object CatalogRowsSettingsScreen {
                 setOnClickListener { catalogRowMenu(ctx, row) }
                 isClickable = true
             }
+            val manageImported = if (row.external != null) {
+                text(ctx, "⋮", 20f, colors.secondary, true).apply {
+                    gravity = Gravity.CENTER
+                    contentDescription = "Manage or remove imported row ${row.displayName}"
+                    setOnClickListener { catalogRowMenu(ctx, row) }
+                }
+            } else null
+
             val visibility = CheckBox(ctx).apply {
                 isChecked = row.rowEnabled
                 buttonTintList = android.content.res.ColorStateList.valueOf(
@@ -164,6 +172,9 @@ internal object CatalogRowsSettingsScreen {
                     ViewGroup.LayoutParams.WRAP_CONTENT,
                     1f,
                 ))
+                manageImported?.let {
+                    addView(it, LinearLayout.LayoutParams(dp(ctx, 30), dp(ctx, 40)))
+                }
                 addView(visibility, LinearLayout.LayoutParams(dp(ctx, 40), dp(ctx, 40)))
             }
             rowViewsByGroup.getValue(group).add(item)
@@ -580,13 +591,9 @@ internal object CatalogRowsSettingsScreen {
                             "This only removes the row from MultiStremio. The source extension remains installed.",
                             onCancel = { catalogRowsMenu(ctx) },
                         ) {
-                            Config.update {
-                                externalRows.removeAll { it.key == external.key }
-                                catalogOrder.removeAll { it == external.key }
-                                customCatalogNames.remove(external.key)
-                            }
+                            Config.update { removeExternalHomeRow(external.key) }
                             HomeRefreshNotice.mark()
-                            toast(ctx, "Homepage row removed.")
+                            toast(ctx, "Homepage row removed from MultiStremio. The source extension is unchanged.")
                             catalogRowsMenu(ctx)
                         }
                     } else {
@@ -601,7 +608,7 @@ internal object CatalogRowsSettingsScreen {
             row.sourceLabel + " · " + row.displayName,
             items,
             { catalogRowsMenu(ctx) },
-            "Rename or manage this homepage row. Use its checkbox and position number in the row list for visibility and ordering.",
+            "Rename this row or remove it from MultiStremio. Its source extension remains installed.",
             screenKey = "catalog-row:${row.key}",
             showRefreshNotice = true,
         )

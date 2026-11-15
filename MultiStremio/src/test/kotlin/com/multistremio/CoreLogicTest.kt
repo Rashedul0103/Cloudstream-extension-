@@ -1092,6 +1092,57 @@ class CoreLogicTest {
     }
 
     @Test
+    fun removingAddonAlsoRemovesOnlyItsHomepageOrderAndCustomNames() {
+        val settings = Settings(
+            addons = mutableListOf(
+                AddonConfig(id = "addon-a"),
+                AddonConfig(id = "addon-b"),
+            ),
+            catalogOrder = mutableListOf(
+                "addon-a|movie|top",
+                "addon-a|series|popular",
+                "addon-b|movie|top",
+                "external:row-1",
+            ),
+            externalRows = mutableListOf(ExternalRowConfig(key = "external:row-1")),
+            customCatalogNames = mutableMapOf(
+                "addon-a|movie|top" to "A custom title",
+                "addon-b|movie|top" to "B custom title",
+                "external:row-1" to "Imported title",
+            ),
+        )
+
+        assertTrue(settings.removeAddon("addon-a"))
+        assertEquals(listOf("addon-b"), settings.addons.map { it.id })
+        assertEquals(listOf("addon-b|movie|top", "external:row-1"), settings.catalogOrder)
+        assertEquals(setOf("addon-b|movie|top", "external:row-1"), settings.customCatalogNames.keys)
+        assertEquals(listOf("external:row-1"), settings.externalRows.map { it.key })
+        assertFalse(settings.removeAddon("missing"))
+    }
+
+    @Test
+    fun removingImportedHomepageRowDoesNotRemoveItsSourceExtensionOrOtherRows() {
+        val settings = Settings(
+            externalRows = mutableListOf(
+                ExternalRowConfig(key = "external:one"),
+                ExternalRowConfig(key = "external:two"),
+            ),
+            catalogOrder = mutableListOf("external:one", "external:two", "addon|movie|top"),
+            customCatalogNames = mutableMapOf(
+                "external:one" to "First row",
+                "external:two" to "Second row",
+                "addon|movie|top" to "Catalog title",
+            ),
+        )
+
+        assertTrue(settings.removeExternalHomeRow("external:one"))
+        assertEquals(listOf("external:two"), settings.externalRows.map { it.key })
+        assertEquals(listOf("external:two", "addon|movie|top"), settings.catalogOrder)
+        assertEquals(setOf("external:two", "addon|movie|top"), settings.customCatalogNames.keys)
+        assertFalse(settings.removeExternalHomeRow("missing"))
+    }
+
+    @Test
     fun settingsSnapshotsDoNotShareMutableNestedCollections() {
         val original = Settings(
             addons = mutableListOf(AddonConfig(

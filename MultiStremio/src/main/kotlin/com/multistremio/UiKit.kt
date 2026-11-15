@@ -483,6 +483,13 @@ internal fun settingMenu(
                             if (toggle != null) toggle(checked) else item.onClick?.invoke()
                         }
                     }
+                    if (item.onClick != null && item.onToggle != null) {
+                        addView(text(ctx, "›", 22f, colors.secondary).apply {
+                            gravity = Gravity.CENTER
+                            contentDescription = "Open ${item.title} options"
+                            setOnClickListener { item.onClick.invoke() }
+                        }, LinearLayout.LayoutParams(dp(ctx, 20), ViewGroup.LayoutParams.MATCH_PARENT))
+                    }
                     addView(toggle, LinearLayout.LayoutParams(
                         ViewGroup.LayoutParams.WRAP_CONTENT,
                         ViewGroup.LayoutParams.WRAP_CONTENT,
