@@ -74,8 +74,4 @@ object ExternalHomeRowsCache {
         }
     }
 
-    /** Force the next read to refresh without discarding the last usable snapshot. */
-    fun invalidate() {
-        loadedAtMs = 0L
-    }
 }

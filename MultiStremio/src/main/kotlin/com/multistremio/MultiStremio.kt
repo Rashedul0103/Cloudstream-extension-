@@ -31,12 +31,6 @@ private suspend fun <T, R> List<T>.boundedAmap(
     transform: suspend (T) -> R,
 ): List<R> = boundedConcurrentMap(Semaphore(maxConcurrent.coerceAtLeast(1)), transform)
 
-/** Share one gate across related branches so unused slots can be taken by other addon requests. */
-private suspend fun <T, R> List<T>.boundedAmap(
-    semaphore: Semaphore,
-    transform: suspend (T) -> R,
-): List<R> = boundedConcurrentMap(semaphore, transform)
-
 /**
  * One CloudStream provider that fronts any number of Stremio addons.
  * Addons, filters and sorting are configured in the plugin settings (see SettingsUi).
@@ -440,8 +434,6 @@ class MultiStremio : MainAPI() {
             // addons. All stream requests are complete, so starting subtitles cannot delay
             // discovery of a playable link.
             startSubtitleRequestsIfReady()
-            StreamDiagnostics.markAllPlayableLinksEmitted(diagnosticRunId)
-
             val parsed = allParsed.toList()
             val playable = parsed.filter { it.isDirect || it.isMagnet }
             val finalPipelineStarted = System.nanoTime()
@@ -470,7 +462,15 @@ class MultiStremio : MainAPI() {
                 } ?: continue
                 val key = StreamDeduplication.externalKey(stream)
                 if (key != null && !seenExternalTargets.add(key)) continue
-                if (loadExtractor(target, subtitleCallback, callback)) {
+                val extractorLoaded = try {
+                    loadExtractor(target, subtitleCallback, callback)
+                } catch (e: CancellationException) {
+                    throw e
+                } catch (_: Exception) {
+                    // A broken external target must not discard direct links or other addons' results.
+                    false
+                }
+                if (extractorLoaded) {
                     emitted = true
                     emittedLinks++
                 }
@@ -479,6 +479,8 @@ class MultiStremio : MainAPI() {
                 diagnosticRunId, "extractors",
                 (System.nanoTime() - extractorStarted) / 1_000_000L,
             )
+            // Includes external/YouTube extractor links as well as direct and magnet links.
+            StreamDiagnostics.markAllPlayableLinksEmitted(diagnosticRunId)
 
             // Keep the previous completion contract for subtitle callbacks, but measure this
             // final wait separately from time-to-first-playable-link.
@@ -488,7 +490,7 @@ class MultiStremio : MainAPI() {
                 diagnosticRunId, "subtitle_wait",
                 (System.nanoTime() - subtitleWaitStarted) / 1_000_000L,
             )
-            StreamDiagnostics.markSubtitleCompletion(diagnosticRunId)
+            StreamDiagnostics.markSubtitleCompletion(diagnosticRunId, subAddons.size)
             for (subtitle in subtitles) {
                 val url = subtitle.url?.takeIf { it.isNotBlank() } ?: continue
                 val code = subtitle.lang ?: "und"

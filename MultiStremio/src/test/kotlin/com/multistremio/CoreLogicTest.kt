@@ -4,6 +4,7 @@ import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotEquals
 import org.junit.Assert.assertNotNull
+import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
@@ -611,6 +612,24 @@ class CoreLogicTest {
         assertEquals(7L, snapshot.parseWorkMs)
         assertEquals(3L, snapshot.pipelineMs)
         assertEquals(2L, snapshot.emissionMs)
+    }
+
+    @Test
+    fun subtitleCompletionIsNotRecordedWhenNoSubtitleAddonWasQueried() {
+        val run = StreamDiagnostics.begin()
+        StreamDiagnostics.markSubtitleCompletion(run, addonCount = 0)
+        StreamDiagnostics.finish(run, 0, 0, 0, 0, 0)
+
+        assertNull(StreamDiagnostics.latest()!!.timeToSubtitleCompletionMs)
+    }
+
+    @Test
+    fun subtitleCompletionIsRecordedWhenSubtitleAddonsWereQueried() {
+        val run = StreamDiagnostics.begin()
+        StreamDiagnostics.markSubtitleCompletion(run, addonCount = 1)
+        StreamDiagnostics.finish(run, 0, 1, 0, 0, 0)
+
+        assertNotNull(StreamDiagnostics.latest()!!.timeToSubtitleCompletionMs)
     }
 
     @Test

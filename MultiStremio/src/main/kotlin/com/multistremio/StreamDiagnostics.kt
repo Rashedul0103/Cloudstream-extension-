@@ -172,7 +172,8 @@ object StreamDiagnostics {
         }
     }
 
-    fun markSubtitleCompletion(runId: Long) {
+    fun markSubtitleCompletion(runId: Long, addonCount: Int) {
+        if (addonCount <= 0) return
         val run = active[runId] ?: return
         synchronized(run) {
             if (run.timeToSubtitleCompletionMs == null) {
