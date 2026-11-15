@@ -6,28 +6,20 @@ import org.junit.Test
 
 class SubtitleRequestStartGateTest {
     @Test
-    fun waitsForFirstPlayableLinkWhileStreamAddonsAreStillWorking() {
+    fun waitsUntilAPlayableLinkHasBeenHandedToCloudStream() {
         val gate = SubtitleRequestStartGate()
 
-        assertFalse(gate.tryStart(firstPlayableLinkEmitted = false, allStreamAddonsCompleted = false))
-        assertTrue(gate.tryStart(firstPlayableLinkEmitted = true, allStreamAddonsCompleted = false))
-        assertFalse(gate.tryStart(firstPlayableLinkEmitted = true, allStreamAddonsCompleted = false))
+        assertFalse(gate.tryStart(firstPlayableLinkEmitted = false))
+        assertTrue(gate.tryStart(firstPlayableLinkEmitted = true))
+        assertFalse(gate.tryStart(firstPlayableLinkEmitted = true))
     }
 
     @Test
-    fun startsAfterAllStreamAddonsCompleteWhenNoPlayableLinkWasEmitted() {
+    fun doesNotStartSubtitleRequestsWhenAllStreamAddonsReturnNoPlayableLink() {
         val gate = SubtitleRequestStartGate()
 
-        assertFalse(gate.tryStart(firstPlayableLinkEmitted = false, allStreamAddonsCompleted = false))
-        assertTrue(gate.tryStart(firstPlayableLinkEmitted = false, allStreamAddonsCompleted = true))
-        assertFalse(gate.tryStart(firstPlayableLinkEmitted = true, allStreamAddonsCompleted = true))
-    }
-
-    @Test
-    fun doesNotStartTwiceWhenBothConditionsBecomeTrue() {
-        val gate = SubtitleRequestStartGate()
-
-        assertTrue(gate.tryStart(firstPlayableLinkEmitted = true, allStreamAddonsCompleted = true))
-        assertFalse(gate.tryStart(firstPlayableLinkEmitted = true, allStreamAddonsCompleted = true))
+        // Stream completion alone is not enough: subtitles cannot make an unplayable item play.
+        assertFalse(gate.tryStart(firstPlayableLinkEmitted = false))
+        assertFalse(gate.tryStart(firstPlayableLinkEmitted = false))
     }
 }
