@@ -87,7 +87,7 @@ private class OtherSearchMainAPI(
     override var lang: String = "en"
     override val hasMainPage: Boolean = false
     override val hasQuickSearch: Boolean = false
-    override var supportedTypes: Set<TvType> = OtherSearchRows.searchProviderTypes(type)
+    override var supportedTypes: Set<TvType> = emptySet()
 
     private val currentRow = AtomicReference<OtherSearchRow?>(null)
     private val delegate = MultiStremio()
