@@ -1,7 +1,7 @@
 // Use an integer for version numbers; bump it on every release so CloudStream offers the update.
-version = 35
+version = 36
 cloudstream {
-    description = "Combine any number of Stremio addons: merged catalogs, search, metadata, " +
+    description = "Combine any number of Stremio addons: merged catalogs, separate search rows, metadata, " +
         "subtitles and streams, with filtering, sorting and a no-code visual stream-label designer. " +
         "Open the plugin settings to add addons."
     authors = listOf("MultiStremio")
@@ -15,7 +15,7 @@ cloudstream {
      **/
     status = 3
 
-    tvTypes = listOf("Movie", "TvSeries", "Anime", "Live", "Others")
+    tvTypes = listOf("Movie", "TvSeries", "Anime", "Live", "AudioBook", "Others")
 
     requiresResources = false
     language = "en"
