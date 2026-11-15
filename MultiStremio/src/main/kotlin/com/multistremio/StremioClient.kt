@@ -61,14 +61,17 @@ object StremioClient {
         type: String,
         id: String,
         diagnosticRunId: Long? = null,
+        queueWaitMs: Long = 0L,
     ): List<RawStream> {
         val started = System.nanoTime()
         val response = fetch(Urls.resource(addon.url, "stream", type, id))
+        diagnosticRunId?.let(StreamDiagnostics::markFirstStreamRequestCompleted)
         val parsed = if (response.body == null) ArrayParseResult<RawStream>(emptyList(), response.status)
             else Json.parseArrayDetailed<RawStream>(response.body, "streams")
         StreamDiagnostics.record(
             diagnosticRunId, addon.name, "Streams",
             (System.nanoTime() - started) / 1_000_000L, parsed.status, parsed.items.size,
+            queueWaitMs = queueWaitMs,
         )
         return parsed.items
     }
