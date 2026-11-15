@@ -318,7 +318,6 @@ class MultiStremio : MainAPI() {
                         allStreamAddonsCompleted = completedAddons >= streamJobs.size,
                     )
                 ) {
-                    StreamDiagnostics.markSubtitleRequestsStarted(diagnosticRunId)
                     subtitleDeferred = async {
                         subAddons.map { addon ->
                             async {
@@ -326,6 +325,7 @@ class MultiStremio : MainAPI() {
                                 try {
                                     requestLimiter.withPermit {
                                         val queueWaitMs = (System.nanoTime() - queuedAt) / 1_000_000L
+                                        StreamDiagnostics.markSubtitleRequestsStarted(diagnosticRunId)
                                         StremioClient.subtitles(
                                             addon, type, id, diagnosticRunId, queueWaitMs,
                                         )
