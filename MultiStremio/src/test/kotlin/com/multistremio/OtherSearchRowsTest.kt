@@ -40,7 +40,7 @@ class OtherSearchRowsTest {
         assertEquals(addon.id, rows.single().addonId)
         assertEquals("audiobook", rows.single().type)
         assertEquals("latest", rows.single().catalogId)
-        assertEquals("Latest Audiobooks - Audiobook", rows.single().title)
+        assertEquals("Latest Audiobooks - Audiobooks", rows.single().title)
     }
 
     @Test
