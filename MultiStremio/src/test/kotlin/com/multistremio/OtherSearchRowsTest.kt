@@ -1,6 +1,5 @@
 package com.multistremio
 
-import com.lagradost.cloudstream3.TvType
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
@@ -120,16 +119,16 @@ class OtherSearchRowsTest {
         val row = OtherSearchRows.resolve(Settings(addons = mutableListOf(addon))) { fixture }.single()
 
         assertEquals("movie", row.type)
-        assertEquals(TvType.Movie, StremioMediaTypes.toCloudStream(row.type))
+        assertEquals("movie", StremioMediaTypes.canonicalType(row.type))
     }
 
     @Test
     fun audiobookOtherProviderRemainsEligibleWithDefaultMovieAndSeriesSearchChips() {
-        val types = OtherSearchRows.searchProviderTypes("audiobook")
+        val types = OtherSearchRows.searchProviderTypeNames("audiobook")
 
-        assertTrue(TvType.AudioBook in types)
-        assertTrue(TvType.Movie in types)
-        assertTrue(TvType.TvSeries in types)
+        assertTrue("audiobook" in types)
+        assertTrue("movie" in types)
+        assertTrue("series" in types)
     }
 
     @Test
