@@ -243,9 +243,37 @@ class MultiStremio : MainAPI() {
         // fixed-size batch hostage, and an idle branch can lend capacity to the busy branch.
         val requestLimiter = Semaphore(8)
         return coroutineScope {
-            // Run subtitle requests alongside streams, but do not wait for them before emitting
-            // playable links. CloudStream accepts progressive callbacks and updates the link list
-            // as each callback arrives, so slow subtitle addons no longer delay first-link display.
+            // Start stream work first so it gets first access to the shared permits. This
+            // prevents a large subtitle-addon list from occupying every connection before any
+            // playable stream request has started.
+            val streamDeferred = async {
+                streamAddons.boundedAmap(requestLimiter) { (index, addon) ->
+                    try {
+                        val raw = StremioClient.streams(addon, type, id, diagnosticRunId)
+                        val parseStarted = System.nanoTime()
+                        val converted = raw.mapNotNull { stream ->
+                            try {
+                                StreamParser.parsed(index, addon.name, stream)
+                            } catch (_: Exception) {
+                                null
+                            }
+                        }
+                        StreamDiagnostics.recordStage(
+                            diagnosticRunId, "parse",
+                            (System.nanoTime() - parseStarted) / 1_000_000L,
+                        )
+                        converted
+                    } catch (e: CancellationException) {
+                        throw e
+                    } catch (_: Exception) {
+                        // One malformed addon must not discard valid results from other addons.
+                        emptyList()
+                    }
+                }.flatten()
+            }
+
+            // Run subtitle requests concurrently, but don't let them delay playable callbacks.
+            // CloudStream updates the link list progressively as each callback arrives.
             val subtitleDeferred = async {
                 subAddons.boundedAmap(requestLimiter) { addon ->
                     try {
@@ -258,29 +286,7 @@ class MultiStremio : MainAPI() {
                 }.flatten()
             }
 
-            val parsed = streamAddons.boundedAmap(requestLimiter) { (index, addon) ->
-                try {
-                    val raw = StremioClient.streams(addon, type, id, diagnosticRunId)
-                    val parseStarted = System.nanoTime()
-                    val converted = raw.mapNotNull { stream ->
-                        try {
-                            StreamParser.parsed(index, addon.name, stream)
-                        } catch (_: Exception) {
-                            null
-                        }
-                    }
-                    StreamDiagnostics.recordStage(
-                        diagnosticRunId, "parse",
-                        (System.nanoTime() - parseStarted) / 1_000_000L,
-                    )
-                    converted
-                } catch (e: CancellationException) {
-                    throw e
-                } catch (_: Exception) {
-                    // One malformed addon must not discard valid results from other addons.
-                    emptyList()
-                }
-            }.flatten()
+            val parsed = streamDeferred.await()
 
             // YouTube/external-only entries do not use the playable filter or its limits.
             val playable = parsed.filter { it.isDirect || it.isMagnet }
