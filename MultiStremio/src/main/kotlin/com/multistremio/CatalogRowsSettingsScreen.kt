@@ -71,7 +71,7 @@ internal object CatalogRowsSettingsScreen {
         val root = shell(
             ctx,
             "Homepage rows",
-            "Each addon has its own section. Enter a unique position number beside each row, then tap Apply row order. Use the checkbox on the right to show or hide a row. Addon priority is managed separately in Addons.",
+            "Enter a position number beside each row, then tap Apply row order. Rows with the same number keep their current relative order. Use the checkbox to show or hide a row. Addon priority is managed separately in Addons.",
         )
         HomeRefreshNotice.addTo(ctx, root)
         val scroll = ScrollView(ctx).apply { clipToPadding = false }
@@ -111,12 +111,7 @@ internal object CatalogRowsSettingsScreen {
             }
             orderInputsByKey[row.key] = serialNumber
 
-            val statusLabel = text(ctx, row.status, 11f, colors.secondary).apply {
-                setPadding(0, dp(ctx, 3), 0, 0)
-            }
-            val description = vertical(ctx).apply {
-                addView(text(ctx, row.displayName, 14f, colors.primary, true))
-                addView(statusLabel)
+            val description = text(ctx, row.displayName, 14f, colors.primary, true).apply {
                 setPadding(dp(ctx, 8), dp(ctx, 2), dp(ctx, 2), dp(ctx, 2))
                 setOnClickListener { catalogRowMenu(ctx, row) }
                 isClickable = true
@@ -136,15 +131,6 @@ internal object CatalogRowsSettingsScreen {
                     buttonTintList = android.content.res.ColorStateList.valueOf(
                         if (checked) colors.accent else colors.secondary,
                     )
-                    statusLabel.text = when {
-                        row.status == "Extension not installed" -> row.status
-                        row.external != null -> if (checked) "Visible" else "Hidden"
-                        row.addon?.enabled == false -> "Addon is off"
-                        row.addon?.useCatalogs == false -> "Catalog use is off"
-                        row.status == "Addon doesn't provide this" -> row.status
-                        checked -> "Visible"
-                        else -> "Hidden"
-                    }
                     contentDescription = if (checked) {
                         "Hide homepage row ${row.displayName}"
                     } else {
@@ -257,7 +243,7 @@ internal object CatalogRowsSettingsScreen {
 
         addAction(
             "Apply row order",
-            "Save the position numbers entered beside each row. Numbers are applied within each addon section.",
+            "Save the position numbers entered beside each row. Duplicate numbers are allowed; tied rows keep their current relative order within that addon section.",
         ) {
             var orderedKeys = rows.map { it.key }
             for ((groupName, groupKeys) in rowKeysByGroup) {
