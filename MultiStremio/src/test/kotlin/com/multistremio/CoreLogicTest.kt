@@ -806,7 +806,7 @@ class CoreLogicTest {
 
         samples.forEachIndexed { index, raw ->
             val parsed = StreamParser.parsed(0, addonNames[index], raw)
-            assertEquals("Provider: \${expected[index]}", StreamLabels.build(parsed, format))
+            assertEquals("Provider: " + expected[index], StreamLabels.build(parsed, format))
         }
     }
 
