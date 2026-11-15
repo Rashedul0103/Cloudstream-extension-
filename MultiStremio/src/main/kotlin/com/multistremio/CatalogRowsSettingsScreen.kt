@@ -111,11 +111,12 @@ internal object CatalogRowsSettingsScreen {
             }
             orderInputsByKey[row.key] = serialNumber
 
+            val statusLabel = text(ctx, row.status, 11f, colors.secondary).apply {
+                setPadding(0, dp(ctx, 3), 0, 0)
+            }
             val description = vertical(ctx).apply {
                 addView(text(ctx, row.displayName, 14f, colors.primary, true))
-                addView(text(ctx, row.status, 11f, colors.secondary).apply {
-                    setPadding(0, dp(ctx, 3), 0, 0)
-                })
+                addView(statusLabel)
                 setPadding(dp(ctx, 8), dp(ctx, 2), dp(ctx, 2), dp(ctx, 2))
                 setOnClickListener { catalogRowMenu(ctx, row) }
                 isClickable = true
@@ -132,6 +133,19 @@ internal object CatalogRowsSettingsScreen {
                 }
                 setOnCheckedChangeListener { _, checked ->
                     setRowVisibility(ctx, row, checked)
+                    statusLabel.text = when {
+                        row.external != null -> if (checked) "Visible" else "Hidden"
+                        row.addon?.enabled == false -> "Addon is off"
+                        row.addon?.useCatalogs == false -> "Catalog use is off"
+                        row.status == "Addon doesn't provide this" -> row.status
+                        checked -> "Visible"
+                        else -> "Hidden"
+                    }
+                    contentDescription = if (checked) {
+                        "Hide homepage row ${row.displayName}"
+                    } else {
+                        "Show homepage row ${row.displayName}"
+                    }
                 }
             }
             val item = LinearLayout(ctx).apply {
@@ -371,7 +385,6 @@ internal object CatalogRowsSettingsScreen {
             }
         }
         HomeRefreshNotice.mark()
-        catalogRowsMenu(ctx)
     }
 
     private fun addExternalRowsMenu(ctx: Context) {
@@ -483,7 +496,6 @@ internal object CatalogRowsSettingsScreen {
                             Config.update {
                                 externalRows.removeAll { it.key == external.key }
                                 catalogOrder.removeAll { it == external.key }
-                                customCatalogNames.remove(external.key)
                                 customCatalogNames.remove(external.key)
                             }
                             HomeRefreshNotice.mark()
