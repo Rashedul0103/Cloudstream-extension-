@@ -84,6 +84,7 @@ internal object DiagnosticsSettingsScreen {
                 "Link callback emission work: ${snapshot.emissionMs} ms",
                 "External extractor resolution: ${snapshot.extractorResolutionMs} ms",
                 "Additional subtitle wait: ${snapshot.subtitleWaitMs} ms",
+                "Subtitle requests started: ${snapshot.timeToSubtitleRequestsStartedMs?.let { "$it ms after lookup start" } ?: "—"}",
                 "Subtitle addons completed: ${snapshot.timeToSubtitleCompletionMs?.let { "$it ms after lookup start" } ?: "—"}",
             ).forEach { addView(text(ctx, it, 13f, colors.primary).apply {
                 setPadding(0, dp(ctx, 3), 0, dp(ctx, 3))
@@ -157,6 +158,7 @@ internal object DiagnosticsSettingsScreen {
             appendLine("Callback emission work: ${snapshot.emissionMs} ms")
             appendLine("External extractor resolution: ${snapshot.extractorResolutionMs} ms")
             appendLine("Additional subtitle wait: ${snapshot.subtitleWaitMs} ms")
+            appendLine("Subtitle requests started after lookup start: ${snapshot.timeToSubtitleRequestsStartedMs?.let { "$it ms" } ?: "not recorded"}")
             appendLine("Subtitle completion after lookup start: ${snapshot.timeToSubtitleCompletionMs?.let { "$it ms" } ?: "not recorded"}")
             snapshot.requests.forEach { item ->
                 val outcome = if (item.resultCount > 0) "${item.status} (${item.resultCount} items)" else item.status
