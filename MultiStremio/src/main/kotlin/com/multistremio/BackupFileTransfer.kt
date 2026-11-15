@@ -13,6 +13,7 @@ import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
 import java.util.UUID
+import kotlin.concurrent.thread
 
 /**
  * Android's Storage Access Framework is used so users can save backups to Downloads, external
@@ -33,17 +34,23 @@ internal object BackupFileTransfer {
             putExtra(Intent.EXTRA_TITLE, "MultiStremio-backup-$timestamp.txt")
         }
         launchPicker(ctx, intent) { activity, uri ->
-            runCatching {
-                val output = activity.contentResolver.openOutputStream(uri, "wt")
-                    ?: throw IOException("Could not open the selected file")
-                output.bufferedWriter(Charsets.UTF_8).use { writer ->
-                    writer.write(contents)
+            thread(start = true, name = "multistremio-backup-export") {
+                val result = runCatching {
+                    val output = activity.contentResolver.openOutputStream(uri, "wt")
+                        ?: throw IOException("Could not open the selected file")
+                    output.bufferedWriter(Charsets.UTF_8).use { writer ->
+                        writer.write(contents)
+                    }
                 }
-            }.onSuccess {
-                toast(activity, "Backup exported as a TXT file.")
-                onSaved()
-            }.onFailure {
-                toast(activity, "Could not write the backup file. Choose another location and try again.")
+                settingsMainHandler.post {
+                    if (activity.isFinishing || activity.isDestroyed) return@post
+                    result.onSuccess {
+                        toast(activity, "Backup exported as a TXT file.")
+                        onSaved()
+                    }.onFailure {
+                        toast(activity, "Could not write the backup file. Choose another location and try again.")
+                    }
+                }
             }
         }
     }
@@ -59,20 +66,25 @@ internal object BackupFileTransfer {
             addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
         }
         launchPicker(ctx, intent) { activity, uri ->
-            val contents = runCatching { readText(activity, uri) }
-                .getOrElse {
-                    toast(
-                        activity,
-                        it.message?.takeIf { message -> message.contains("10 MB") }
-                            ?: "Could not read that file. Select a readable TXT backup.",
-                    )
-                    return@launchPicker
+            thread(start = true, name = "multistremio-backup-import") {
+                val result = runCatching { readText(activity, uri) }
+                settingsMainHandler.post {
+                    if (activity.isFinishing || activity.isDestroyed) return@post
+                    val contents = result.getOrElse {
+                        toast(
+                            activity,
+                            it.message?.takeIf { message -> message.contains("25 MB") }
+                                ?: "Could not read that file. Select a readable TXT backup.",
+                        )
+                        return@post
+                    }
+                    if (contents.isBlank()) {
+                        toast(activity, "The selected file is empty.")
+                        return@post
+                    }
+                    onLoaded(contents)
                 }
-            if (contents.isBlank()) {
-                toast(activity, "The selected file is empty.")
-                return@launchPicker
             }
-            onLoaded(contents)
         }
     }
 
