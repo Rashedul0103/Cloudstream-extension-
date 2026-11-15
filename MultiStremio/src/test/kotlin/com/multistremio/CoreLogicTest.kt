@@ -26,6 +26,15 @@ class CoreLogicTest {
     }
 
     @Test
+    fun normalizedLanguageDetectionMatchesThePublicDetector() {
+        val release = "Example.Movie.1080p.WEB-DL.BENG.ENG.🇧🇩"
+        assertEquals(
+            Langs.detect(release),
+            Langs.detectNormalized(release, release.lowercase(java.util.Locale.ROOT)),
+        )
+    }
+
+    @Test
     fun detectionDoesNotTreatOrdinaryTwoLetterWordsAsLanguages() {
         val detected = Langs.detect("It Is In No Way a Language Marker")
         assertFalse("it" in detected)
