@@ -2,6 +2,7 @@ package com.multistremio
 
 import com.fasterxml.jackson.annotation.JsonIgnoreProperties
 import com.fasterxml.jackson.annotation.JsonProperty
+import com.lagradost.cloudstream3.TvType
 
 // ---------------------------------------------------------------------------------------------
 // Stremio addon protocol models (https://github.com/Stremio/stremio-addon-sdk)
@@ -167,6 +168,26 @@ data class CatalogRef(
     @JsonProperty("t") val t: String? = null,
     @JsonProperty("c") val c: String? = null,
 )
+
+/**
+ * Maps Stremio's free-form media types to CloudStream's concrete content types.
+ *
+ * Stremio addons can define custom media types such as "audiobook". Leaving those as generic
+ * Others makes CloudStream treat them as an unrelated media category and can hide the results
+ * when the provider does not advertise that concrete type.
+ */
+object StremioMediaTypes {
+    fun toCloudStream(type: String?): TvType = when (
+        type?.trim()?.lowercase()?.replace('-', '_')?.replace(' ', '_')
+    ) {
+        "movie" -> TvType.Movie
+        "series" -> TvType.TvSeries
+        "anime" -> TvType.Anime
+        "tv", "channel" -> TvType.Live
+        "audiobook", "audio_book", "book", "books" -> TvType.AudioBook
+        else -> TvType.Others
+    }
+}
 
 // ---------------------------------------------------------------------------------------------
 // Manifest helpers (extension functions so Jackson never sees them)
