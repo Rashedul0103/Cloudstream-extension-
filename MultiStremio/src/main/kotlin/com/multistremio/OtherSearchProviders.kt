@@ -1,6 +1,5 @@
 package com.multistremio
 
-import com.lagradost.cloudstream3.APIHolder
 import com.lagradost.cloudstream3.*
 import java.util.concurrent.atomic.AtomicReference
 
@@ -17,7 +16,7 @@ internal data class OtherSearchRow(
 internal object OtherSearchRows {
     /**
      * All eligible catalog rows, including add-ons where Other is currently off.
-     * These are used to reserve provider instances before CloudStream creates its search view model.
+     * Provider instances and their names must exist before CloudStream creates SearchViewModel.
      */
     fun candidates(
         settings: Settings,
@@ -62,42 +61,32 @@ internal object OtherSearchRows {
 }
 
 /**
- * A provider slot is registered once when the plugin loads. Its row/name/type are reassigned
- * in-place as settings change. CloudStream keeps an activity-scoped SearchViewModel with a cached
- * APIRepository list, so adding/removing provider instances after startup would leave that list
- * stale. Reserving slots avoids that lifecycle bug.
+ * One fixed provider per searchable homepage catalog. CloudStream snapshots both provider names
+ * and repositories inside its activity-scoped SearchViewModel. The name therefore stays immutable
+ * for this provider's lifetime; settings refresh only changes supportedTypes and the active row.
  */
 private class OtherSearchMainAPI(
-    private val slotIndex: Int,
+    private val catalogKey: String,
+    displayName: String,
+    type: String,
 ) : MainAPI() {
-    private val inactiveName = "MultiStremio · Other slot ${slotIndex + 1}"
-    private val currentRow = AtomicReference<OtherSearchRow?>(null)
-
-    override var name: String = inactiveName
-    override var mainUrl: String = "https://other-search-${slotIndex + 1}.multistremio.invalid"
+    override var name: String = displayName
+    override var mainUrl: String =
+        "https://other-search-${Hashing.sha256(catalogKey).take(24)}.multistremio.invalid"
     override var lang: String = "en"
     override val hasMainPage: Boolean = false
     override val hasQuickSearch: Boolean = false
-    // An unused slot must not appear in CloudStream's provider filter or preferred-media list.
     override var supportedTypes: Set<TvType> = emptySet()
 
+    private val currentRow = AtomicReference<OtherSearchRow?>(null)
     private val delegate = MultiStremio()
 
-    fun inactiveDisplayName(): String = inactiveName
-
-    @Synchronized
-    fun configure(row: OtherSearchRow?, displayName: String) {
-        val oldName = name
+    /** Activation/deactivation is safe after SearchViewModel creation because the API object and
+     * its registered name are unchanged. The host reads supportedTypes from the live API object.
+     */
+    fun configure(row: OtherSearchRow?) {
         currentRow.set(row)
         supportedTypes = row?.let { setOf(StremioMediaTypes.toCloudStream(it.type)) } ?: emptySet()
-
-        if (oldName != displayName) {
-            // Keep APIHolder's name -> provider lookup in sync without replacing the provider
-            // object referenced by CloudStream's already-created SearchViewModel.
-            APIHolder.removePluginMapping(this)
-            name = displayName
-            APIHolder.addPluginMapping(this)
-        }
     }
 
     override suspend fun search(query: String): List<SearchResponse>? {
@@ -144,58 +133,42 @@ private class OtherSearchMainAPI(
 }
 
 internal object OtherSearchProviders {
-    private const val RESERVED_NEW_ROW_SLOTS = 32
-    private val slots = mutableListOf<OtherSearchMainAPI>()
-    @Volatile private var capacityExceeded: Int = 0
+    private val providers = linkedMapOf<String, OtherSearchMainAPI>()
 
     /**
-     * Register all slots exactly once during plugin load, before CloudStream builds search repos.
-     * Existing configured catalogs plus spare slots support toggles/additions without late APIs.
+     * Register every current searchable homepage catalog once at plugin load. The provider's
+     * display name is fixed here because CloudStream copies APIRepository.name on first creation.
      */
     @Synchronized
     fun attach(settings: Settings, register: (MainAPI) -> Unit) {
-        if (slots.isNotEmpty()) return
-        val initialCandidates = OtherSearchRows.candidates(settings).size
-        val slotCount = initialCandidates + RESERVED_NEW_ROW_SLOTS
-        repeat(slotCount) { index ->
-            val provider = OtherSearchMainAPI(index)
-            slots += provider
+        if (providers.isNotEmpty()) return
+
+        val occupiedNames = linkedSetOf("MultiStremio")
+        val candidates = OtherSearchRows.candidates(settings)
+        for (row in candidates) {
+            val displayName = uniqueName(row.title, row.addonName, occupiedNames)
+            occupiedNames.add(displayName)
+            val provider = OtherSearchMainAPI(row.key, displayName, row.type)
+            providers[row.key] = provider
             register(provider)
         }
         refresh()
     }
 
+    /** Called after settings changes. It never adds, removes or renames providers at runtime. */
     @Synchronized
     fun refresh() {
-        if (slots.isEmpty()) return
+        if (providers.isEmpty()) return
         val settings = Config.snapshot()
-        val desiredRows = OtherSearchRows.resolve(settings)
-        val slotSet = slots.toSet()
-        val usedNames = APIHolder.apis.withLock { APIHolder.apis.toList() }
-            .filterNot { it in slotSet }
-            .mapTo(HashSet()) { it.name }
-
-        capacityExceeded = (desiredRows.size - slots.size).coerceAtLeast(0)
-        val assignedNames = mutableSetOf<String>()
-        val assignments = desiredRows.take(slots.size).map { row ->
-            val name = uniqueName(row.title, row.addonName, usedNames + assignedNames)
-            assignedNames.add(name)
-            row to name
-        }
-
-        slots.forEachIndexed { index, provider ->
-            val assignment = assignments.getOrNull(index)
-            provider.configure(
-                row = assignment?.first,
-                displayName = assignment?.second ?: provider.inactiveDisplayName(),
-            )
+        val activeRows = OtherSearchRows.resolve(settings).associateBy { it.key }
+        providers.forEach { (key, provider) ->
+            provider.configure(activeRows[key])
         }
     }
 
     @Synchronized
     fun detach() {
-        slots.clear()
-        capacityExceeded = 0
+        providers.clear()
     }
 
     private fun uniqueName(base: String, addonName: String, used: Set<String>): String {
