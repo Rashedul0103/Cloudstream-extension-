@@ -7,7 +7,6 @@ import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
-import com.lagradost.cloudstream3.TvType
 
 class CoreLogicTest {
     @Test
@@ -357,14 +356,14 @@ class CoreLogicTest {
     }
 
     @Test
-    fun stremioAudiobookTypesMapToCloudStreamAudioBook() {
+    fun stremioAudiobookTypesNormalizeToTheAudiobookMediaType() {
         listOf("audiobook", "AudioBook", "audio_book", "audio-book", "book", "books").forEach { type ->
-            assertEquals(TvType.AudioBook, StremioMediaTypes.toCloudStream(type))
+            assertEquals("audiobook", StremioMediaTypes.canonicalType(type))
         }
 
-        assertEquals(TvType.Movie, StremioMediaTypes.toCloudStream("movie"))
-        assertEquals(TvType.TvSeries, StremioMediaTypes.toCloudStream("series"))
-        assertEquals(TvType.Others, StremioMediaTypes.toCloudStream("unrecognized-type"))
+        assertEquals("movie", StremioMediaTypes.canonicalType("movie"))
+        assertEquals("series", StremioMediaTypes.canonicalType("series"))
+        assertEquals("other", StremioMediaTypes.canonicalType("unrecognized-type"))
     }
 
     @Test
