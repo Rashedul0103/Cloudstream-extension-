@@ -21,6 +21,7 @@ internal object AddonsSettingsScreen {
         val items = addons.map { addon ->
             val capabilities = listOfNotNull(
                 if (addon.useCatalogs) "catalogs" else null,
+                if (addon.useOther) "other" else null,
                 if (addon.useMeta) "meta" else null,
                 if (addon.useStreams) "streams" else null,
                 if (addon.useSubtitles) "subs" else null,
@@ -36,7 +37,7 @@ internal object AddonsSettingsScreen {
                     addonsMenu(ctx)
                 },
                 checked = addon.enabled,
-                searchKeywords = listOf(addon.name, capabilities, "enabled", "disabled", "catalogs", "metadata", "streams", "subtitles"),
+                searchKeywords = listOf(addon.name, capabilities, "enabled", "disabled", "catalogs", "other", "separate search", "metadata", "streams", "subtitles"),
             )
         } + listOf(
             SettingItem(
@@ -402,6 +403,7 @@ internal object AddonsSettingsScreen {
                 "Choose addon capabilities",
                 listOfNotNull(
                     if (a.useCatalogs) "Catalogs" else null,
+                    if (a.useOther) "Other" else null,
                     if (a.useMeta) "Metadata" else null,
                     if (a.useStreams) "Streams" else null,
                     if (a.useSubtitles) "Subtitles" else null,
@@ -409,6 +411,7 @@ internal object AddonsSettingsScreen {
                 SettingItemType.Value,
                 valueLabel = listOfNotNull(
                     if (a.useCatalogs) "Catalogs" else null,
+                    if (a.useOther) "Other" else null,
                     if (a.useMeta) "Meta" else null,
                     if (a.useStreams) "Streams" else null,
                     if (a.useSubtitles) "Subs" else null,
@@ -417,27 +420,28 @@ internal object AddonsSettingsScreen {
                     multi(
                         ctx,
                         "${a.name} is used for",
-                        listOf("Catalogs & search", "Metadata (details/episodes)", "Streams", "Subtitles"),
-                        listOf(a.useCatalogs, a.useMeta, a.useStreams, a.useSubtitles),
+                        listOf("Catalogs & search", "Other (separate search rows)", "Metadata (details/episodes)", "Streams", "Subtitles"),
+                        listOf(a.useCatalogs, a.useOther, a.useMeta, a.useStreams, a.useSubtitles),
                         onCancel = again,
                     ) { selected ->
                         Config.update {
                             addons.firstOrNull { it.id == a.id }?.let { saved ->
                                 saved.useCatalogs = selected[0]
-                                saved.useMeta = selected[1]
-                                saved.useStreams = selected[2]
-                                saved.useSubtitles = selected[3]
+                                saved.useOther = selected[1]
+                                saved.useMeta = selected[2]
+                                saved.useStreams = selected[3]
+                                saved.useSubtitles = selected[4]
                             }
                         }
                         HomeRefreshNotice.mark()
                         again()
                     }
                 },
-                searchKeywords = listOf("catalogs", "search", "metadata", "streams", "subtitles", "capabilities"),
+                searchKeywords = listOf("catalogs", "search", "other", "separate rows", "metadata", "streams", "subtitles", "capabilities"),
             ),
             SettingItem(
                 "Home catalogs to show",
-                "Select the catalog rows this addon contributes to the home page",
+                "Select the catalog rows this addon contributes to the home page. Other creates separate search sections for searchable catalogs, even when Catalogs is off.",
                 SettingItemType.Value,
                 valueLabel = "${HomeRows.resolve(Config.snapshot()).count { it.addon?.id == a.id && it.visibleOnHome }} visible",
                 onClick = { catalogPicker(ctx, a) },
