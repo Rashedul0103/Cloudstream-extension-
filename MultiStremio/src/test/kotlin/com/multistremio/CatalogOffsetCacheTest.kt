@@ -8,7 +8,7 @@ import org.junit.Test
 class CatalogOffsetCacheTest {
     @Test
     fun cacheEvictsLeastRecentlyUsedCatalogsAtItsCapacity() {
-        val cache = CatalogOffsetCache(capacity = 2, ttlNanos = 1_000L)
+        val cache = CatalogOffsetCache(capacity = 2, ttlNanos = 1_000L, nowNanos = { 0L })
         cache.put("a", 10)
         cache.put("b", 20)
 
@@ -39,7 +39,7 @@ class CatalogOffsetCacheTest {
 
     @Test
     fun cacheAcceptsOnlyPositiveCapacityAndKeepsTheMostRecentOffset() {
-        val cache = CatalogOffsetCache(capacity = 0, ttlNanos = 1_000L)
+        val cache = CatalogOffsetCache(capacity = 0, ttlNanos = 1_000L, nowNanos = { 0L })
         cache.put("catalog", 7)
         assertEquals(7, cache.get("catalog"))
         assertEquals(1, cache.sizeForTests())
