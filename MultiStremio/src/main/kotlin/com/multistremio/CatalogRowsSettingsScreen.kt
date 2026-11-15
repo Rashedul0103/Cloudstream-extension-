@@ -2,6 +2,7 @@ package com.multistremio
 
 import android.content.Context
 import android.view.Gravity
+import android.view.View
 import android.view.ViewGroup
 import android.widget.LinearLayout
 import android.widget.ScrollView
@@ -110,7 +111,7 @@ internal object CatalogRowsSettingsScreen {
                 trackTintList = android.content.res.ColorStateList.valueOf(withAlpha(if (isChecked) colors.accent else colors.secondary, 90))
                 contentDescription = "Show homepage row ${row.displayName}"
                 setOnCheckedChangeListener { _, checked ->
-                    setRowVisibility(ctx, row, checked, installedRows)
+                    setRowVisibility(ctx, row, checked)
                 }
             }
             val handle = text(ctx, "☰", 22f, colors.accent, true).apply {

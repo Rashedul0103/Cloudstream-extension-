@@ -1,6 +1,7 @@
 package com.multistremio
 
 import android.content.Context
+import com.lagradost.cloudstream3.utils.SubtitleHelper
 import android.view.Gravity
 import android.view.ViewGroup
 import android.widget.CheckBox
