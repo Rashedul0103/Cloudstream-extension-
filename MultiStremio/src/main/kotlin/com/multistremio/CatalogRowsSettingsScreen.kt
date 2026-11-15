@@ -246,7 +246,7 @@ internal object CatalogRowsSettingsScreen {
             "Save the position numbers entered beside each row. Duplicate numbers are allowed; tied rows keep their current relative order within that addon section.",
         ) {
             var orderedKeys = rows.map { it.key }
-            for ((groupName, groupKeys) in rowKeysByGroup) {
+            for (groupKeys in rowKeysByGroup.values) {
                 val requestedPositions = groupKeys.associateWith { key ->
                     orderInputsByKey[key]?.text?.toString()?.trim()?.toIntOrNull() ?: 0
                 }
@@ -256,7 +256,7 @@ internal object CatalogRowsSettingsScreen {
                     requestedPositions,
                 )
                 if (reordered == null) {
-                    toast(ctx, "Use a unique positive position number for every row in each addon section.")
+                    toast(ctx, "Enter a positive whole number for every row. Repeated numbers are allowed.")
                     return@addAction
                 }
                 orderedKeys = reordered
