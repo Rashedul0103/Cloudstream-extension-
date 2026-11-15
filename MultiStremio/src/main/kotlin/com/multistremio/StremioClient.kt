@@ -3,7 +3,10 @@ package com.multistremio
 import com.lagradost.cloudstream3.app
 import java.io.ByteArrayOutputStream
 import java.io.InputStream
-import java.net.SocketTimeoutException
+import java.io.InterruptedIOException
+import java.net.ConnectException
+import java.net.UnknownHostException
+import javax.net.ssl.SSLException
 import kotlin.coroutines.cancellation.CancellationException
 
 /** Talks to Stremio addons over HTTP. Every call isolates failures so one bad addon never breaks the rest. */
@@ -11,15 +14,21 @@ object StremioClient {
     // Enforce the cap from Content-Length when available and again while streaming the body.
     private const val MAX_RESPONSE_BYTES = 2L * 1024L * 1024L
 
-    private data class FetchResult(val body: String?, val status: String)
+    private data class FetchResult(
+        val body: String?,
+        val status: String,
+        val httpCode: Int? = null,
+        val errorType: String? = null,
+    )
 
     private suspend fun fetch(url: String): FetchResult =
         try {
             val res = app.get(url, timeout = Config.settings.timeoutSec.toLong())
             try {
                 val contentLength = res.size
+                val httpCode = res.okhttpResponse.code
                 when {
-                    !res.isSuccessful -> FetchResult(null, "HTTP_ERROR")
+                    !res.isSuccessful -> FetchResult(null, "HTTP_ERROR", httpCode = httpCode)
                     // NiceHttp exposes Content-Length without consuming the response body. Avoid
                     // materializing large payloads when the server provides this header.
                     contentLength != null && contentLength > MAX_RESPONSE_BYTES -> FetchResult(null, "BODY_TOO_LARGE")
@@ -37,12 +46,17 @@ object StremioClient {
             }
         } catch (e: CancellationException) {
             throw e
-        } catch (e: SocketTimeoutException) {
-            FetchResult(null, "TIMEOUT")
-        } catch (_: Exception) {
-            // Avoid logging the exception message: HTTP failures can include private addon URLs
-            // and access tokens in their request details.
-            FetchResult(null, "NETWORK_ERROR")
+        } catch (e: InterruptedIOException) {
+            FetchResult(null, "TIMEOUT", errorType = e.javaClass.simpleName)
+        } catch (e: UnknownHostException) {
+            FetchResult(null, "DNS_ERROR", errorType = e.javaClass.simpleName)
+        } catch (e: SSLException) {
+            FetchResult(null, "TLS_ERROR", errorType = e.javaClass.simpleName)
+        } catch (e: ConnectException) {
+            FetchResult(null, "CONNECTION_ERROR", errorType = e.javaClass.simpleName)
+        } catch (e: Exception) {
+            // Record only the exception class. Messages and URLs may contain private addon keys.
+            FetchResult(null, "NETWORK_ERROR", errorType = e.javaClass.simpleName)
         }
 
     suspend fun catalog(addon: AddonConfig, type: String, catalogId: String, extra: String?): List<Meta> {
@@ -73,6 +87,8 @@ object StremioClient {
             diagnosticRunId, addon.name, "Streams",
             (System.nanoTime() - started) / 1_000_000L, parsed.status, parsed.items.size,
             queueWaitMs = queueWaitMs,
+            httpCode = response.httpCode,
+            errorType = response.errorType,
         )
         return parsed.items
     }
@@ -92,6 +108,8 @@ object StremioClient {
             diagnosticRunId, addon.name, "Subtitles",
             (System.nanoTime() - started) / 1_000_000L, parsed.status, parsed.items.size,
             queueWaitMs = queueWaitMs,
+            httpCode = response.httpCode,
+            errorType = response.errorType,
         )
         return parsed.items
     }
