@@ -880,33 +880,78 @@ object StreamLabels {
 
     // Aggregator addons such as CNCVerse put their inner provider in a formatted
     // "Source: Provider • Host" description. The outer addon name is different.
-    private val providerMarker = Regex("""(?i)(?:provider|source)\s*:\s*([^•·|\r\n]+)""")
-    private val aggregatorMarker = Regex("""(?i)\b(?:cnc\s*verse|pengu\s*play)\b""")
-    private val providerSeparator = Regex("""\s*[•·|]\s*""")
-    private val technicalStreamName = Regex(
-        """(?i)^(?:auto|[0-9]{3,4}p|4k|uhd|fhd|hd|sd|web[ -]?dl|web[ -]?rip|blu[ -]?ray|remux|hdtv|cam|hdr10?\+?|dv|hevc|avc|av1|x26[45])$""",
+    private val providerMarker = Regex(
+        """(?i)(?:provider(?:\s*name)?|source(?:\s*name)?|indexer|website|site)\s*(?::|=|[-–—])\s*([^•·|;\r\n]+)""",
+    )
+    private val providerSeparators = Regex("""\s*[•·|]\s*""")
+    private val resolutionInRelease = Regex(
+        """(?i)(?<![\p{L}\p{N}])(?:2160|1440|1080|720|576|480|360|240)[pi](?![\p{L}\p{N}])|(?<![\p{L}\p{N}])(?:4k|uhd|fhd)(?![\p{L}\p{N}])""",
+    )
+    private val technicalContext = Regex(
+        """(?i)\b(?:2160[pi]|1440p|1080[pi]|720[pi]|576p|480[pi]|360p|240p|4k|uhd|fhd|web[ ._-]?dl|web[ ._-]?rip|blu[ ._-]?ray|remux|hdtv|hdr10?\+?|dolby[ ._-]?vision|hevc|h\.?265|x265|avc|h\.?264|x264|av1)\b""",
+    )
+    private val technicalProviderTokens = setOf(
+        "auto", "2160p", "2160i", "1440p", "1080p", "1080i", "720p", "720i",
+        "576p", "480p", "480i", "360p", "240p", "4k", "uhd", "fhd", "hd", "sd",
+        "web", "dl", "webrip", "rip", "blu", "ray", "bluray", "remux", "hdtv",
+        "hdr", "hdr10", "hdr10+", "dv", "dolby", "vision", "hevc", "h265", "x265",
+        "avc", "h264", "x264", "av1", "aac", "atmos", "truehd", "dts", "ddp",
+        "dd", "eac3", "ac3", "mkv", "mp4", "m3u8", "cached", "uncached", "magnet",
+        "torrent", "direct", "p2p", "debrid", "http", "https", "stream", "source",
+        "provider", "indexer",
     )
 
     private fun cleanProviderCandidate(value: String?, addonName: String): String? {
-        val candidate = value?.trim()?.replace(Regex("""\s+"""), " ") ?: return null
-        return candidate.takeIf {
-            it.isNotBlank() &&
-                it.length <= 64 &&
-                !it.equals(addonName, ignoreCase = true) &&
-                !technicalStreamName.matches(it)
-        }
+        val candidate = value
+            ?.trim()
+            ?.replace(Regex("""^[^\p{L}\p{N}]+"""), "")
+            ?.replace(Regex("""[^\p{L}\p{N}+#]+$"""), "")
+            ?.replace(Regex("""\s+"""), " ")
+            ?.trim()
+            ?: return null
+        if (
+            candidate.isBlank() ||
+            candidate.length > 64 ||
+            candidate.equals(addonName.trim(), ignoreCase = true) ||
+            candidate.contains("://")
+        ) return null
+
+        val tokens = Regex("""[\p{L}\p{N}+#]+""")
+            .findAll(candidate.lowercase(Locale.ROOT))
+            .map { it.value }
+            .toList()
+        // A field explicitly labelled "Source" can still contain a release source (WEB-DL),
+        // codec, resolution, or transport type. Those are not provider names.
+        if (tokens.isNotEmpty() && tokens.all { it in technicalProviderTokens }) return null
+        if (candidate.length < 2 || candidate.count { it.isLetterOrDigit() } < 2) return null
+        return candidate
     }
+
+    private fun looksLikeProviderIdentifier(value: String): Boolean {
+        val compact = value.trim()
+        if (compact.isBlank() || compact.any { it.isWhitespace() }) return false
+        val hasInternalCapital = compact.drop(1).any { it.isUpperCase() }
+        val hasLowercase = compact.any { it.isLowerCase() }
+        val hasProviderSuffix = compact.endsWith("Provider", ignoreCase = true) ||
+            compact.endsWith("Indexer", ignoreCase = true) ||
+            compact.endsWith("Source", ignoreCase = true)
+        return (hasInternalCapital && hasLowercase) || hasProviderSuffix
+    }
+
+    private fun hasAddonContext(prefix: String, addonName: String): Boolean =
+        addonName.isNotBlank() && prefix.contains(addonName.trim(), ignoreCase = true)
 
     /** Provider/source inside an aggregator addon, not the outer addon or release source (WEB-DL). */
     private fun providerName(p: ParsedStream): String? {
-        // Check all stream metadata fields. PenguPlay and some CNCVerse configurations put the
-        // source marker in the stream name rather than the description/title.
-        for (text in listOfNotNull(
+        // Stremio standardizes only name/title/description and filename hints; addons commonly put
+        // their own provider/indexer marker in any of these fields.
+        val metadata = listOfNotNull(
             p.raw.description,
             p.raw.title,
             p.raw.name,
             p.raw.behaviorHints?.filename,
-        )) {
+        )
+        for (text in metadata) {
             val explicit = providerMarker.findAll(text)
                 .mapNotNull { match -> cleanProviderCandidate(match.groupValues[1], p.addonName) }
                 .firstOrNull()
@@ -914,28 +959,59 @@ object StreamLabels {
         }
 
         val streamName = p.raw.name?.trim()?.replace(Regex("""\s+"""), " ") ?: return null
-        // Both CNCVerse and PenguPlay can append the inner provider to the stream name:
-        // "🌀 CNCVerse ❄️ 4K • MovieBoxIN" / "🐧 PenguPlay 1080p • MovieBox".
-        // Restrict suffix parsing to these known aggregator formats to avoid guessing on
-        // ordinary addon titles.
-        if (aggregatorMarker.containsMatchIn(p.addonName) || aggregatorMarker.containsMatchIn(streamName)) {
-            val candidate = streamName.split(providerSeparator).lastOrNull()
-            cleanProviderCandidate(candidate, p.addonName)?.let { return it }
+        val segments = streamName.split(providerSeparators)
+            .map { it.trim() }
+            .filter { it.isNotBlank() }
+
+        if (segments.size >= 2) {
+            // Common aggregator template: "Addon / 1080p • Provider" or "4K • Provider".
+            // This works across addon brands when the prefix identifies the addon or carries
+            // clear stream-quality metadata; it does not guess from arbitrary movie titles.
+            val tail = cleanProviderCandidate(segments.last(), p.addonName)
+            val prefix = segments.dropLast(1).joinToString(" ")
+            if (
+                tail != null &&
+                (hasAddonContext(prefix, p.addonName) || technicalContext.containsMatchIn(prefix))
+            ) return tail
+
+            // Also accept "Provider • 4K • WEB-DL" when the first segment looks like a provider
+            // identifier and every following segment is technical metadata.
+            val head = cleanProviderCandidate(segments.first(), p.addonName)
+            val suffixIsTechnical = segments.drop(1).all { segment ->
+                val tokens = Regex("""[\p{L}\p{N}+#]+""")
+                    .findAll(segment.lowercase(Locale.ROOT))
+                    .map { it.value }
+                    .toList()
+                tokens.isNotEmpty() && tokens.all { it in technicalProviderTokens }
+            }
+            if (head != null && suffixIsTechnical && looksLikeProviderIdentifier(head)) return head
         }
 
-        // Some addons expose their provider directly in a simple stream-level name. Do not mistake
-        // common quality labels (1080p, WEB-DL, HDR, etc.) for provider names.
-        if (streamName.none { it == '\n' || it == '|' || it == '•' || it == '·' }) {
-            return cleanProviderCandidate(streamName, p.addonName)
+        // Some addons provide only a single provider token, e.g. "VegaMoviesProvider".
+        // Avoid treating ordinary titles ("The Batman", "A Movie") as providers.
+        if (segments.size == 1) {
+            val candidate = cleanProviderCandidate(segments.single(), p.addonName)
+            if (candidate != null && looksLikeProviderIdentifier(candidate)) return candidate
         }
         return null
     }
 
-    private fun releaseName(p: ParsedStream): String =
-        (p.raw.behaviorHints?.filename?.takeIf { it.isNotBlank() }
+    private fun releaseName(p: ParsedStream, suppressResolution: Boolean = false): String {
+        val original = p.raw.behaviorHints?.filename?.takeIf { it.isNotBlank() }
             ?: firstLine(p.raw.title)
             ?: firstLine(p.raw.description)
-            ?: "").take(90)
+            ?: ""
+        if (!suppressResolution || original.isBlank()) return original.take(90)
+
+        // Quality is already displayed as its own field. Remove only the resolution token,
+        // preserving the remaining release name (codec, source, language, file extension, etc.).
+        return original
+            .replace(resolutionInRelease, " ")
+            .replace(Regex("""[._-]+(?:\s+[._-]+)+"""), ".")
+            .replace(Regex("""\s{2,}"""), " ")
+            .trim(' ', '.', '_', '-')
+            .take(90)
+    }
 
     fun build(p: ParsedStream, detailed: Boolean): String {
         if (!detailed) {
@@ -969,7 +1045,7 @@ object StreamLabels {
             if (p.isMagnet) "magnet" else null,
         )
         val head = if (tags.isEmpty()) p.addonName else p.addonName + " · " + tags.joinToString(" · ")
-        val title = releaseName(p)
+        val title = releaseName(p, suppressResolution = i.resolution > 0)
         return if (title.isBlank()) head else "$head | $title"
     }
 
@@ -989,7 +1065,11 @@ object StreamLabels {
         .sorted()
         .joinToString("/")
 
-    private fun valueFor(p: ParsedStream, field: String): String? {
+    private fun valueFor(
+        p: ParsedStream,
+        field: String,
+        suppressResolutionInRelease: Boolean = false,
+    ): String? {
         val info = p.info
         return when (field) {
             "addon" -> p.addonName
@@ -1005,7 +1085,7 @@ object StreamLabels {
             "seeders" -> info.seeders?.let { "$it seeders" }
             "cache" -> when (info.cached) { true -> "Cached"; false -> "Uncached"; else -> null }
             "link_type" -> when { p.isMagnet -> "Magnet"; p.isDirect -> "Direct"; else -> null }
-            "release" -> releaseName(p).ifBlank { null }
+            "release" -> releaseName(p, suppressResolution = suppressResolutionInRelease).ifBlank { null }
             else -> null
         }?.takeIf { it.isNotBlank() }
     }
@@ -1036,7 +1116,11 @@ object StreamLabels {
         val pieces = format.fields.asSequence()
             .distinct()
             .mapNotNull { field ->
-                val value = valueFor(p, field) ?: return@mapNotNull null
+                val value = valueFor(
+                    p,
+                    field,
+                    suppressResolutionInRelease = "quality" in format.fields,
+                ) ?: return@mapNotNull null
                 if (format.showLabels) "${labelFor(field)}: $value"
                 else when (field) {
                     "language" -> "Lang $value"
