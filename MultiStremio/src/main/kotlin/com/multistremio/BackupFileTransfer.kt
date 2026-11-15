@@ -22,6 +22,10 @@ internal object BackupFileTransfer {
     private const val MAX_BACKUP_BYTES = 25 * 1024 * 1024
 
     fun exportText(ctx: Context, contents: String, onSaved: () -> Unit) {
+        if (contents.toByteArray(Charsets.UTF_8).size > MAX_BACKUP_BYTES) {
+            toast(ctx, "This backup is larger than 25 MB. Try exporting preferences only or removing unused addons.")
+            return
+        }
         val timestamp = SimpleDateFormat("yyyyMMdd-HHmmss", Locale.US).format(Date())
         val intent = Intent(Intent.ACTION_CREATE_DOCUMENT).apply {
             addCategory(Intent.CATEGORY_OPENABLE)
