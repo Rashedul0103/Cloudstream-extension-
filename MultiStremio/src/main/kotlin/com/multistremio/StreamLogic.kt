@@ -1054,7 +1054,7 @@ object StreamLabels {
             "Example Addon",
             RawStream(
                 name = "🌀 CNCVerse 4K • MovieBoxIN",
-                title = "Example.Movie.2026.2160p.WEB-DL.HDR10.HEVC.Atmos.BENG.ENG\\n🛰️ Source: MovieBoxIN • HubCloud",
+                title = "Example.Movie.2026.2160p.WEB-DL.HDR10.HEVC.Atmos.BENG.ENG\n🛰️ Source: MovieBoxIN • HubCloud",
                 url = "https://example.invalid/movie.mkv",
                 subtitles = listOf(
                     RawSubtitle(url = "https://example.invalid/en.vtt", lang = "eng"),
