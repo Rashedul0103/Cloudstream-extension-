@@ -32,6 +32,7 @@ data class StreamDiagnosticSnapshot(
     val emissionMs: Long,
     val extractorResolutionMs: Long,
     val subtitleWaitMs: Long,
+    val timeToSubtitleRequestsStartedMs: Long?,
     val timeToSubtitleCompletionMs: Long?,
     val rawStreams: Int,
     val addonSubtitles: Int,
@@ -54,6 +55,7 @@ object StreamDiagnostics {
         var allStreamAddonsCompletedMs: Long? = null,
         var allPlayableLinksEmittedMs: Long? = null,
         var firstBatchLinks: Int? = null,
+        var timeToSubtitleRequestsStartedMs: Long? = null,
         var timeToSubtitleCompletionMs: Long? = null,
         var parseWorkMs: Long = 0,
         var pipelineMs: Long = 0,
@@ -161,6 +163,15 @@ object StreamDiagnostics {
         }
     }
 
+    fun markSubtitleRequestsStarted(runId: Long) {
+        val run = active[runId] ?: return
+        synchronized(run) {
+            if (run.timeToSubtitleRequestsStartedMs == null) {
+                run.timeToSubtitleRequestsStartedMs = elapsedMs(run)
+            }
+        }
+    }
+
     fun markSubtitleCompletion(runId: Long) {
         val run = active[runId] ?: return
         synchronized(run) {
@@ -231,6 +242,7 @@ object StreamDiagnostics {
                 emissionMs = run.emissionMs,
                 extractorResolutionMs = run.extractorResolutionMs,
                 subtitleWaitMs = run.subtitleWaitMs,
+                timeToSubtitleRequestsStartedMs = run.timeToSubtitleRequestsStartedMs,
                 timeToSubtitleCompletionMs = run.timeToSubtitleCompletionMs,
                 rawStreams = rawStreams.coerceAtLeast(0),
                 addonSubtitles = addonSubtitles.coerceAtLeast(0),
