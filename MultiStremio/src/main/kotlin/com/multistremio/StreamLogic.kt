@@ -878,6 +878,59 @@ object StreamLabels {
     private fun firstLine(s: String?): String? =
         s?.lineSequence()?.map { it.trim() }?.firstOrNull { it.isNotEmpty() }
 
+    // Aggregator addons such as CNCVerse put their inner provider in a formatted
+    // "Source: Provider • Host" description. The outer addon name is different.
+    private val providerMarker = Regex("""(?i)(?:provider|source)\\s*:\\s*([^•·|\\r\\n]+)""")
+    private val cncVerseMarker = Regex("""(?i)\\bcncverse\\b""")
+    private val providerSeparators = listOf(" • ", " · ", " | ")
+    private val technicalStreamName = Regex(
+        """(?i)^(?:auto|[0-9]{3,4}p|4k|uhd|fhd|hd|sd|web[ -]?dl|web[ -]?rip|blu[ -]?ray|remux|hdtv|cam|hdr10?\\+?|dv|hevc|avc|av1|x26[45])$""",
+    )
+
+    private fun cleanProviderCandidate(value: String?, addonName: String): String? {
+        val candidate = value?.trim()?.replace(Regex("""\\s+"""), " ") ?: return null
+        return candidate.takeIf {
+            it.isNotBlank() &&
+                it.length <= 64 &&
+                !it.equals(addonName, ignoreCase = true) &&
+                !technicalStreamName.matches(it)
+        }
+    }
+
+    /** Provider/source inside an aggregator addon, not the outer addon or release source (WEB-DL). */
+    private fun providerName(p: ParsedStream): String? {
+        // CNCVerse's default formatter exposes the provider before the next bullet, e.g.
+        // "🛰️ Source: MovieBoxIN • HubCloud". Check descriptions before display-name fallbacks.
+        for (text in listOfNotNull(p.raw.description, p.raw.title)) {
+            val explicit = providerMarker.findAll(text)
+                .mapNotNull { match -> cleanProviderCandidate(match.groupValues[1], p.addonName) }
+                .firstOrNull()
+            if (explicit != null) return explicit
+        }
+
+        val streamName = p.raw.name?.trim()?.replace(Regex("""\\s+"""), " ") ?: return null
+        // The CNCVerse name template ends with the inner addon name, usually after a bullet.
+        if (cncVerseMarker.containsMatchIn(streamName)) {
+            val separator = providerSeparators
+                .map { it to streamName.lastIndexOf(it) }
+                .filter { it.second >= 0 }
+                .maxByOrNull { it.second }
+            if (separator != null) {
+                cleanProviderCandidate(
+                    streamName.substring(separator.second + separator.first.length),
+                    p.addonName,
+                )?.let { return it }
+            }
+        }
+
+        // Some addons expose their provider directly in the stream-level name. Do not mistake
+        // common quality labels (1080p, WEB-DL, HDR, etc.) for provider names.
+        if (streamName.none { it == '\\n' || it == '|' || it == '•' || it == '·' }) {
+            return cleanProviderCandidate(streamName, p.addonName)
+        }
+        return null
+    }
+
     private fun releaseName(p: ParsedStream): String =
         (p.raw.behaviorHints?.filename?.takeIf { it.isNotBlank() }
             ?: firstLine(p.raw.title)
@@ -940,6 +993,7 @@ object StreamLabels {
         val info = p.info
         return when (field) {
             "addon" -> p.addonName
+            "provider" -> providerName(p)
             "quality" -> resolutionLabel(info.resolution).ifBlank { null }
             "source" -> info.source
             "hdr" -> info.hdr
@@ -958,6 +1012,7 @@ object StreamLabels {
 
     private fun labelFor(field: String): String = when (field) {
         "addon" -> "Addon"
+        "provider" -> "Provider"
         "quality" -> "Quality"
         "source" -> "Source"
         "hdr" -> "HDR"
@@ -998,8 +1053,8 @@ object StreamLabels {
             0,
             "Example Addon",
             RawStream(
-                name = "Example.Movie.2026.2160p.WEB-DL.HDR10.HEVC.Atmos.BENG.ENG",
-                title = "Example.Movie.2026.2160p.WEB-DL.HDR10.HEVC.Atmos.BENG.ENG",
+                name = "🌀 CNCVerse 4K • MovieBoxIN",
+                title = "Example.Movie.2026.2160p.WEB-DL.HDR10.HEVC.Atmos.BENG.ENG\\n🛰️ Source: MovieBoxIN • HubCloud",
                 url = "https://example.invalid/movie.mkv",
                 subtitles = listOf(
                     RawSubtitle(url = "https://example.invalid/en.vtt", lang = "eng"),
