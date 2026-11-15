@@ -58,10 +58,10 @@ class HomeRowsTest {
 
         assertEquals(4, rows.size)
         assertEquals(1, rows.count { it.visibleOnHome })
-        assertEquals("ON", rows.single { it.addon === active }.status)
-        assertEquals("HIDDEN", rows.single { it.addon === hidden }.status)
-        assertEquals("ADDON OFF", rows.single { it.addon === disabled }.status)
-        assertEquals("CATALOGS OFF", rows.single { it.addon === catalogsOff }.status)
+        assertEquals("Visible", rows.single { it.addon === active }.status)
+        assertEquals("Hidden", rows.single { it.addon === hidden }.status)
+        assertEquals("Addon is off", rows.single { it.addon === disabled }.status)
+        assertEquals("Catalog use is off", rows.single { it.addon === catalogsOff }.status)
         assertFalse(rows.any { it.name == "Search only" })
         assertEquals(1, HomeRows.visibleCount(settings.copy(addons = mutableListOf(active))) { manifests[it.id] })
     }
@@ -74,7 +74,7 @@ class HomeRowsTest {
         }
 
         assertEquals(1, rows.size)
-        assertEquals("RESOURCE MISSING", rows.single().status)
+        assertEquals("Addon doesn't provide this", rows.single().status)
         assertFalse(rows.single().visibleOnHome)
     }
 
@@ -98,6 +98,32 @@ class HomeRowsTest {
         assertTrue(rows.all { it.visibleOnHome })
     }
 
+
+    @Test
+    fun homepageTitleIsSharedAndSupportsCustomNameAndAddonPrefixOrSuffix() {
+        val addon = AddonConfig(id = "title-addon", name = "Example Addon")
+        val settings = Settings(addons = mutableListOf(addon))
+        val row = HomeRows.resolve(settings) { manifest() }.single()
+
+        assertEquals("Popular - Movies", HomeRows.homeTitle(row, settings))
+        settings.rowTitleMode = "PREFIX"
+        assertEquals("Example Addon - Popular - Movies", HomeRows.homeTitle(row, settings))
+        settings.rowTitleMode = "SUFFIX"
+        assertEquals("Popular - Example Addon - Movies", HomeRows.homeTitle(row, settings))
+        settings.customCatalogNames[row.key] = "My Picks"
+        assertEquals("My Picks - Example Addon - Movies", HomeRows.homeTitle(row, settings))
+    }
+
+    @Test
+    fun dragInsertionIndexTracksPointerWithoutMutatingList() {
+        val original = listOf("A", "B", "C", "D")
+        val centers = listOf(10f, 30f, 50f)
+        assertEquals(0, DragReorderMath.insertionIndex(centers, 5f))
+        assertEquals(2, DragReorderMath.insertionIndex(centers, 40f))
+        assertEquals(3, DragReorderMath.insertionIndex(centers, 80f))
+        assertEquals(listOf("A", "B", "C", "D"), original)
+    }
+
     @Test
     fun missingImportedExtensionRowsRemainVisibleInSettingsButNotOnHomepage() {
         val external = ExternalRowConfig(
@@ -115,7 +141,7 @@ class HomeRowsTest {
         )
 
         assertEquals(1, rows.size)
-        assertEquals("EXTENSION MISSING", rows.single().status)
+        assertEquals("Extension not installed", rows.single().status)
         assertTrue(rows.single().rowEnabled)
         assertFalse(rows.single().visibleOnHome)
     }

@@ -38,7 +38,7 @@ internal object BackupSettingsScreen {
             SettingItem(
                 "Copy preferences-only backup",
                 "Excludes source URLs and imported extension rows",
-                SettingItemType.Value,
+                SettingItemType.Navigate,
                 onClick = {
                     confirm(
                         ctx,
@@ -92,7 +92,8 @@ internal object BackupSettingsScreen {
                             confirm(ctx, "Restore this backup?", warning, onCancel = again) {
                                 restored.seeded = true
                                 Config.replace(restored)
-                                toast(ctx, "Backup restored. Refresh the home page.")
+                                HomeRefreshNotice.mark()
+                                toast(ctx, "Backup restored.")
                                 MainMenuSettingsScreen.show(ctx)
                             }
                         }
@@ -113,26 +114,15 @@ internal object BackupSettingsScreen {
                 },
                 searchKeywords = listOf("reset", "filters", "sorting", "defaults"),
             ),
-            SettingItem(
-                "Remove ALL addons and settings",
-                "Delete every saved source and preference",
-                SettingItemType.Value,
-                onClick = {
-                    confirm(ctx, "Remove everything?", "All addons and settings are deleted (Cinemeta is not re-added).", onCancel = again) {
-                        Config.replace(Settings(seeded = true))
-                        toast(ctx, "All MultiStremio settings cleared.")
-                        MainMenuSettingsScreen.show(ctx)
-                    }
-                },
-                searchKeywords = listOf("remove", "delete", "clear", "all", "factory reset"),
-            ),
+
         )
         settingMenu(
             ctx,
-            "Backup & maintenance",
+            "Backup & restore",
             items,
             { MainMenuSettingsScreen.show(ctx) },
             "Choose a privacy level before exporting. Full backups may contain private access keys in addon URLs.",
+            forceSearch = true,
         )
     }
 

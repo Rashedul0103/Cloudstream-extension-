@@ -59,7 +59,7 @@ class MultiStremio : MainAPI() {
                     if (external != null) {
                         val installed = homeRow.installedExternal ?: return@mapNotNull null
                         homeRow.key to MainPageData(
-                            installed.row.name,
+                            HomeRows.homeTitle(homeRow, settings),
                             Json.toJson(ExternalPageRef(homeRow.key)),
                             installed.row.horizontalImages,
                         )
@@ -68,7 +68,7 @@ class MultiStremio : MainAPI() {
                         val type = homeRow.type ?: return@mapNotNull null
                         val id = homeRow.catalogId ?: return@mapNotNull null
                         homeRow.key to MainPageData(
-                            "${homeRow.name} · ${typeLabel(type)}",
+                            HomeRows.homeTitle(homeRow, settings),
                             Json.toJson(CatalogRef(addon.id, type, id)),
                             false,
                         )

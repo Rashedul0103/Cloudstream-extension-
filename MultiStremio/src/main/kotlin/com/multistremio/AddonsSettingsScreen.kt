@@ -3,9 +3,11 @@ package com.multistremio
 import android.content.ClipData
 import android.content.ClipboardManager
 import android.content.Context
+import android.view.Gravity
 import android.view.ViewGroup
 import android.widget.LinearLayout
 import android.widget.ScrollView
+import android.widget.TextView
 import java.net.URL
 import java.util.concurrent.Executors
 import kotlin.concurrent.thread
@@ -15,35 +17,48 @@ internal object AddonsSettingsScreen {
     fun showAddon(ctx: Context, addon: AddonConfig) = addonMenu(ctx, addon)
 
     private fun addonsMenu(ctx: Context) {
-        val addons = Config.settings.addons
-        val items = addons.mapIndexed { index, addon ->
+        val addons = Config.snapshot().addons
+        val items = addons.map { addon ->
             val capabilities = listOfNotNull(
                 if (addon.useCatalogs) "catalogs" else null,
                 if (addon.useMeta) "meta" else null,
                 if (addon.useStreams) "streams" else null,
-                if (addon.useSubtitles) "subtitles" else null,
+                if (addon.useSubtitles) "subs" else null,
             ).joinToString(" / ").ifBlank { "No capabilities enabled" }
             SettingItem(
-                title = "${index + 1}. ${if (addon.enabled) "✓" else "✗"} ${addon.name}",
-                summary = "${host(addon.url)} · $capabilities",
+                title = addon.name,
+                summary = capabilities,
                 type = SettingItemType.Switch,
-                onClick = { addonMenu(ctx, addon) },
-                searchKeywords = listOf(addon.name, host(addon.url), capabilities, "enabled", "disabled"),
+                onClick = { addonMenu(ctx, Config.snapshot().addons.firstOrNull { it.id == addon.id } ?: addon) },
+                onToggle = {
+                    Config.update { addons.firstOrNull { it.id == addon.id }?.let { it.enabled = !it.enabled } }
+                    HomeRefreshNotice.mark()
+                    addonsMenu(ctx)
+                },
+                checked = addon.enabled,
+                searchKeywords = listOf(addon.name, capabilities, "enabled", "disabled", "catalogs", "metadata", "streams", "subtitles"),
             )
         } + listOf(
             SettingItem(
+                "Reorder addon priority",
+                "Drag addons to change source priority; use arrows as an alternative",
+                SettingItemType.Navigate,
+                onClick = { addonPriorityDialog(ctx) },
+                searchKeywords = listOf("priority", "reorder", "drag", "move", "order"),
+            ),
+            SettingItem(
                 "Check all addon connections",
                 "Test manifest reachability and response time",
-                SettingItemType.Value,
+                SettingItemType.Navigate,
                 onClick = { checkAddonConnections(ctx) },
                 searchKeywords = listOf("check", "connection", "test", "manifest", "status"),
             ),
             SettingItem(
                 "Add addon",
-                "Enter a Stremio addon manifest URL",
+                "Enter or paste a Stremio addon manifest URL",
                 SettingItemType.Navigate,
                 onClick = { addAddon(ctx) },
-                searchKeywords = listOf("add", "new", "URL", "manifest"),
+                searchKeywords = listOf("add", "new", "URL", "manifest", "paste"),
             ),
         )
         settingMenu(
@@ -51,8 +66,115 @@ internal object AddonsSettingsScreen {
             "Addons",
             items,
             { MainMenuSettingsScreen.show(ctx) },
-            "Enable or disable sources, set their priority, and check whether addon manifests are reachable.",
+            "Manage addon availability, capabilities and priority.",
+            showRefreshNotice = true,
+            forceSearch = true,
         )
+    }
+
+    private fun addonPriorityDialog(ctx: Context) {
+        val ordered = Config.snapshot().addons
+        if (ordered.size < 2) {
+            toast(ctx, "Add at least two addons to change their priority.")
+            addonsMenu(ctx)
+            return
+        }
+        val colors = palette(ctx)
+        val root = shell(
+            ctx,
+            "Addon priority",
+            "Higher addons are queried first for stream tie-breaking and metadata. Drag the grip or use arrows.",
+        )
+        val scroll = ScrollView(ctx)
+        val list = vertical(ctx)
+        fun refreshNumbers() {
+            for (index in 0 until list.childCount) {
+                val row = list.getChildAt(index) as? LinearLayout ?: continue
+                val label = row.getChildAt(1) as? TextView ?: continue
+                label.text = "${index + 1}. ${row.tag as? String ?: ""}"
+            }
+        }
+        ordered.forEachIndexed { index, addon ->
+            val handle = text(ctx, "☰", 21f, colors.accent, true).apply {
+                gravity = Gravity.CENTER
+                contentDescription = "Drag to change priority for ${addon.name}"
+            }
+            val label = text(ctx, "${index + 1}. ${addon.name}", 14f, colors.primary, true)
+            lateinit var row: LinearLayout
+            row = LinearLayout(ctx).apply {
+                orientation = LinearLayout.HORIZONTAL
+                gravity = Gravity.CENTER_VERTICAL
+                setPadding(dp(ctx, 10), dp(ctx, 8), dp(ctx, 6), dp(ctx, 8))
+                background = rounded(ctx, colors.background, colors.outline)
+                tag = addon.id
+                addView(handle, LinearLayout.LayoutParams(dp(ctx, 42), dp(ctx, 46)))
+                addView(label, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
+                val controls = vertical(ctx).apply {
+                    val up = text(ctx, "↑", 18f, colors.secondary, true).apply {
+                        gravity = Gravity.CENTER
+                        setOnClickListener {
+                            val position = list.indexOfChild(row)
+                            if (position > 0) {
+                                list.removeView(row)
+                                list.addView(row, position - 1)
+                                refreshNumbers()
+                                saveAddonPriority(ctx, list)
+                            }
+                        }
+                    }
+                    val down = text(ctx, "↓", 18f, colors.secondary, true).apply {
+                        gravity = Gravity.CENTER
+                        setOnClickListener {
+                            val position = list.indexOfChild(row)
+                            if (position in 0 until list.childCount - 1) {
+                                list.removeView(row)
+                                list.addView(row, position + 1)
+                                refreshNumbers()
+                                saveAddonPriority(ctx, list)
+                            }
+                        }
+                    }
+                    addView(up)
+                    addView(down)
+                }
+                addView(controls, LinearLayout.LayoutParams(dp(ctx, 34), ViewGroup.LayoutParams.WRAP_CONTENT))
+            }
+            list.addView(row, LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT,
+                ViewGroup.LayoutParams.WRAP_CONTENT,
+            ).apply { bottomMargin = dp(ctx, 6) })
+            installDragReordering(
+                ctx, handle, row, list, scroll, colors,
+                onDrop = {
+                    saveAddonPriority(ctx, list)
+                    refreshNumbers()
+                },
+                onMoved = { refreshNumbers() },
+            )
+        }
+        scroll.addView(list, ViewGroup.LayoutParams(
+            ViewGroup.LayoutParams.MATCH_PARENT,
+            ViewGroup.LayoutParams.WRAP_CONTENT,
+        ))
+        root.addView(scroll, LinearLayout.LayoutParams(
+            ViewGroup.LayoutParams.MATCH_PARENT,
+            minOf(dp(ctx, 380), dp(ctx, maxOf(100, ordered.size * 60))),
+        ))
+        addFooter(ctx, root, "Done", { addonsMenu(ctx) })
+        SettingsDialogHost.show(ctx, "addon-priority", root, { addonsMenu(ctx) })
+    }
+
+    private fun saveAddonPriority(ctx: Context, list: LinearLayout) {
+        val ids = (0 until list.childCount).mapNotNull { list.getChildAt(it).tag as? String }
+        if (ids.size != Config.settings.addons.size || ids.toSet() != Config.settings.addons.map { it.id }.toSet()) {
+            toast(ctx, "Could not save addon priority.")
+            return
+        }
+        Config.update {
+            val byId = addons.associateBy { it.id }
+            addons = ids.mapNotNull { byId[it] }.toMutableList()
+        }
+        toast(ctx, "Addon priority saved.")
     }
 
     private data class AddonHealthResult(
@@ -192,6 +314,7 @@ internal object AddonsSettingsScreen {
                 "Links often contain your personal keys, so keep them private.",
             "", false,
             onCancel = { addonsMenu(ctx) },
+            showPasteButton = true,
         ) { raw ->
             val url = Urls.normalizeAddonUrl(raw)
             if (url.isEmpty()) {
@@ -243,8 +366,9 @@ internal object AddonsSettingsScreen {
                             added = true
                         }
                     }
+                    if (added) HomeRefreshNotice.mark()
                     toast(ctx, if (added) {
-                        "Added ${addon.name}. Refresh the home page to see its catalogs."
+                        "Added ${addon.name}."
                     } else {
                         "That addon was added by another request."
                     })
@@ -254,15 +378,22 @@ internal object AddonsSettingsScreen {
         }
     }
 
-    private fun addonMenu(ctx: Context, a: AddonConfig) {
+    private fun addonMenu(ctx: Context, addon: AddonConfig) {
+        // Refresh from persisted settings each time this detail screen is reopened.
+        val a = Config.snapshot().addons.firstOrNull { it.id == addon.id } ?: addon
         val again = { addonMenu(ctx, a) }
         val items = listOf(
             SettingItem(
                 if (a.enabled) "Disable addon" else "Enable addon",
-                "Keep this source saved; change only whether it is used",
+                "Keep this addon saved; change only whether it is used",
                 SettingItemType.Switch,
-                onClick = { updateAndReopen({ again() }) { a.enabled = !a.enabled } },
-                searchKeywords = listOf("enable", "disable", "active", "source"),
+                onClick = {
+                    Config.update { addons.firstOrNull { it.id == a.id }?.let { it.enabled = !it.enabled } }
+                    HomeRefreshNotice.mark()
+                    again()
+                },
+                checked = a.enabled,
+                searchKeywords = listOf("enable", "disable", "active", "addon"),
             ),
             SettingItem(
                 "Choose addon capabilities",
@@ -273,6 +404,12 @@ internal object AddonsSettingsScreen {
                     if (a.useSubtitles) "Subtitles" else null,
                 ).joinToString(", ").ifBlank { "None enabled" },
                 SettingItemType.Value,
+                valueLabel = listOfNotNull(
+                    if (a.useCatalogs) "Catalogs" else null,
+                    if (a.useMeta) "Meta" else null,
+                    if (a.useStreams) "Streams" else null,
+                    if (a.useSubtitles) "Subs" else null,
+                ).joinToString(" / ").ifBlank { "None" },
                 onClick = {
                     multi(
                         ctx,
@@ -281,12 +418,16 @@ internal object AddonsSettingsScreen {
                         listOf(a.useCatalogs, a.useMeta, a.useStreams, a.useSubtitles),
                         onCancel = again,
                     ) { selected ->
-                        updateAndReopen({ again() }) {
-                            a.useCatalogs = selected[0]
-                            a.useMeta = selected[1]
-                            a.useStreams = selected[2]
-                            a.useSubtitles = selected[3]
+                        Config.update {
+                            addons.firstOrNull { it.id == a.id }?.let { saved ->
+                                saved.useCatalogs = selected[0]
+                                saved.useMeta = selected[1]
+                                saved.useStreams = selected[2]
+                                saved.useSubtitles = selected[3]
+                            }
                         }
+                        HomeRefreshNotice.mark()
+                        again()
                     }
                 },
                 searchKeywords = listOf("catalogs", "search", "metadata", "streams", "subtitles", "capabilities"),
@@ -295,13 +436,14 @@ internal object AddonsSettingsScreen {
                 "Home catalogs to show",
                 "Select the catalog rows this addon contributes to the home page",
                 SettingItemType.Value,
+                valueLabel = "${HomeRows.resolve(Config.snapshot()).count { it.addon?.id == a.id && it.visibleOnHome }} visible",
                 onClick = { catalogPicker(ctx, a) },
                 searchKeywords = listOf("home", "catalog", "homepage", "rows", "visibility"),
             ),
             SettingItem(
                 "Move up (higher source priority)",
                 "Give this addon higher priority for matching results",
-                SettingItemType.Value,
+                SettingItemType.Navigate,
                 onClick = {
                     if (move(a, -1)) toast(ctx, "Addon priority increased.")
                     else toast(ctx, "This addon is already at the top of the priority list.")
@@ -312,7 +454,7 @@ internal object AddonsSettingsScreen {
             SettingItem(
                 "Move down (lower source priority)",
                 "Give this addon lower priority for matching results",
-                SettingItemType.Value,
+                SettingItemType.Navigate,
                 onClick = {
                     if (move(a, +1)) toast(ctx, "Addon priority decreased.")
                     else toast(ctx, "This addon is already at the bottom of the priority list.")
@@ -322,12 +464,19 @@ internal object AddonsSettingsScreen {
             ),
             SettingItem(
                 "Rename addon",
-                a.name,
+                "Set the display name for this addon",
                 SettingItemType.Value,
+                valueLabel = a.name,
                 onClick = {
                     prompt(ctx, "Rename addon", null, a.name, false, onCancel = again) { newName ->
-                        if (newName.isNotEmpty()) updateAndReopen({ again() }) { a.name = newName }
-                        else again()
+                        if (newName.isNotEmpty()) {
+                            Config.update {
+                                val saved = addons.firstOrNull { it.id == a.id }
+                                if (saved != null) saved.name = newName
+                            }
+                            HomeRefreshNotice.mark()
+                            again()
+                        } else again()
                     }
                 },
                 searchKeywords = listOf("rename", "display name"),
@@ -335,7 +484,7 @@ internal object AddonsSettingsScreen {
             SettingItem(
                 "Refresh & test manifest",
                 "Download the manifest again and update cached capabilities",
-                SettingItemType.Value,
+                SettingItemType.Navigate,
                 onClick = {
                     var hidden = false
                     val progressDialog = progress(
@@ -369,8 +518,8 @@ internal object AddonsSettingsScreen {
             ),
             SettingItem(
                 "Remove addon",
-                "Delete this source and its saved catalog rows from MultiStremio",
-                SettingItemType.Value,
+                "Delete this addon and its saved homepage rows from MultiStremio",
+                SettingItemType.Navigate,
                 onClick = {
                     confirm(
                         ctx,
@@ -379,10 +528,12 @@ internal object AddonsSettingsScreen {
                         onCancel = again,
                     ) {
                         Config.update {
-                            addons.remove(a)
+                            addons.removeAll { it.id == a.id }
                             val addonPrefix = a.id + "|"
                             catalogOrder.removeAll { it.startsWith(addonPrefix) }
+                            customCatalogNames.keys.removeAll { it.startsWith(addonPrefix) }
                         }
+                        HomeRefreshNotice.mark()
                         addonsMenu(ctx)
                     }
                 },
@@ -394,8 +545,9 @@ internal object AddonsSettingsScreen {
             a.name,
             items,
             { addonsMenu(ctx) },
-            "Addon priority affects source tie-breaking and metadata fallback. It does not change homepage row order; arrange homepage rows separately in Catalog rows.",
+            "Addon priority affects stream tie-breaking and metadata fallback. Homepage rows are arranged separately.",
             screenKey = "addon:${a.id}",
+            showRefreshNotice = true,
         )
     }
 
@@ -420,9 +572,13 @@ internal object AddonsSettingsScreen {
             onCancel = { addonMenu(ctx, a) },
         ) { v ->
             Config.update {
-                a.hiddenCatalogs = keys.filterIndexed { i, _ -> !v[i] }.toMutableList()
+                val saved = addons.firstOrNull { it.id == a.id }
+                if (saved != null) {
+                    saved.hiddenCatalogs = keys.filterIndexed { i, _ -> !v[i] }.toMutableList()
+                }
             }
-            toast(ctx, "Saved. Refresh the home page to apply.")
+            HomeRefreshNotice.mark()
+            toast(ctx, "Homepage row visibility saved.")
             addonMenu(ctx, a)
         }
     }

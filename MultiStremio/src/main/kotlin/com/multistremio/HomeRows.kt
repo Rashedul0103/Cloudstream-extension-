@@ -19,6 +19,28 @@ data class HomeRowEntry(
 )
 
 object HomeRows {
+    /** Stable display title shared by the settings list and CloudStream home page. */
+    fun homeTitle(row: HomeRowEntry, settings: Settings): String {
+        val baseName = settings.customCatalogNames[row.key]?.takeIf { it.isNotBlank() } ?: row.name
+        val addonName = row.addon?.name ?: row.external?.providerName ?: row.sourceLabel
+        val titled = when (settings.rowTitleMode.uppercase()) {
+            "PREFIX" -> "$addonName - $baseName"
+            "SUFFIX" -> "$baseName - $addonName"
+            else -> baseName
+        }
+        val type = row.type?.let(::typeLabel)
+        return if (type == null) titled else "$titled - $type"
+    }
+
+    private fun typeLabel(type: String): String = when (type.lowercase()) {
+        "movie" -> "Movies"
+        "series" -> "Series"
+        "anime" -> "Anime"
+        "tv" -> "TV"
+        "channel" -> "Channels"
+        else -> type.replaceFirstChar { it.uppercase() }
+    }
+
     /**
      * A home catalog must have an identity, must not require user input such as search text,
      * and must be backed by the catalog resource. This matches the catalog picker rules.
@@ -57,11 +79,11 @@ object HomeRows {
                 val rowEnabled = "$type/$id" !in addon.hiddenCatalogs
                 val visible = addon.enabled && addon.useCatalogs && resourceAvailable && rowEnabled
                 val status = when {
-                    !addon.enabled -> "ADDON OFF"
-                    !addon.useCatalogs -> "CATALOGS OFF"
-                    !resourceAvailable -> "RESOURCE MISSING"
-                    rowEnabled -> "ON"
-                    else -> "HIDDEN"
+                    !addon.enabled -> "Addon is off"
+                    !addon.useCatalogs -> "Catalog use is off"
+                    !resourceAvailable -> "Addon doesn't provide this"
+                    rowEnabled -> "Visible"
+                    else -> "Hidden"
                 }
 
                 rows += HomeRowEntry(
@@ -84,8 +106,8 @@ object HomeRows {
             }
             val available = installedExternalRows == null || installed != null
             val status = when {
-                !available -> "EXTENSION MISSING"
-                external.enabled -> "ON"
+                !available -> "Extension not installed"
+                external.enabled -> "Visible"
                 else -> "HIDDEN"
             }
             rows += HomeRowEntry(
@@ -112,6 +134,7 @@ object HomeRows {
     /** Number of rows expected to be visible using the currently known source configuration. */
     fun visibleCount(
         settings: Settings,
+        installedExternalRows: List<InstalledExternalHomeRow>? = null,
         manifestOf: (AddonConfig) -> Manifest? = { Json.parse<Manifest>(it.manifest) },
-    ): Int = resolve(settings, manifestOf = manifestOf).count { it.visibleOnHome }
+    ): Int = resolve(settings, installedExternalRows, manifestOf).count { it.visibleOnHome }
 }

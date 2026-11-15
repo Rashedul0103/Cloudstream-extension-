@@ -182,6 +182,12 @@ data class Settings(
     var subtitleLanguages: MutableList<String> = mutableListOf(),
     var detailedLabels: Boolean = true,
     var streamFormat: StreamFormatSettings = StreamFormatSettings(),
+    /** Last selected quick filter profile; manual edits are marked CUSTOM by Config.update. */
+    var filterPreset: String = "BALANCED",
+    /** Optional user labels keyed by stable homepage-row identity. */
+    var customCatalogNames: MutableMap<String, String> = mutableMapOf(),
+    /** OFF, PREFIX or SUFFIX. */
+    var rowTitleMode: String = "OFF",
     var seeded: Boolean = false,
 )
 
@@ -195,6 +201,7 @@ fun Settings.snapshot(): Settings = copy(
     }.toMutableList(),
     catalogOrder = catalogOrder.toMutableList(),
     externalRows = externalRows.map { it.copy() }.toMutableList(),
+    customCatalogNames = customCatalogNames.toMutableMap(),
     filter = filter.copy(
         allowedResolutions = filter.allowedResolutions.toMutableList(),
         excludeKeywords = filter.excludeKeywords.toMutableList(),
@@ -217,6 +224,11 @@ fun Settings.snapshot(): Settings = copy(
  * This keeps old backups and hand-edited JSON from creating invalid timeouts or filter states.
  */
 fun Settings.sanitized(): Settings {
+    // Older settings files predate the preset label. Preserve manually customised values as Custom.
+    if (filterPreset == "BALANCED" && (filter != FilterSettings() || sort != SortSettings())) {
+        filterPreset = "CUSTOM"
+    }
+
     timeoutSec = timeoutSec.coerceIn(5, 180)
 
     val validResolutions = setOf(2160, 1440, 1080, 720, 576, 480, 360, 240, 0)
@@ -261,5 +273,9 @@ fun Settings.sanitized(): Settings {
     catalogOrder = catalogOrder.filter { it.isNotBlank() }.distinct().toMutableList()
     externalRows = externalRows.filter { it.key.isNotBlank() }.distinctBy { it.key }.toMutableList()
     subtitleLanguages = subtitleLanguages.map { it.trim() }.filter { it.isNotEmpty() }.distinct().toMutableList()
+    filterPreset = filterPreset.uppercase().takeIf { it in setOf("BALANCED", "BEST_QUALITY", "DATA_SAVER", "CUSTOM") } ?: "CUSTOM"
+    rowTitleMode = rowTitleMode.uppercase().takeIf { it in setOf("OFF", "PREFIX", "SUFFIX") } ?: "OFF"
+    customCatalogNames = customCatalogNames.mapValues { it.value.trim() }
+        .filterValues { it.isNotBlank() }.toMutableMap()
     return this
 }
