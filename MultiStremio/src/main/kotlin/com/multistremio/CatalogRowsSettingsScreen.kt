@@ -135,7 +135,7 @@ internal object CatalogRowsSettingsScreen {
                     text(ctx, "⋮", 20f, colors.secondary, true).apply {
                         gravity = Gravity.CENTER
                         contentDescription = "Manage or remove imported row ${row.displayName}"
-                        setOnClickListener { catalogRowMenu(ctx, row) }
+                        setOnClickListener { commitFocusedPosition?.invoke(); catalogRowMenu(ctx, row) }
                     }
                 } else null
 
@@ -150,6 +150,7 @@ internal object CatalogRowsSettingsScreen {
                         "Show homepage row ${row.displayName}"
                     }
                     setOnCheckedChangeListener { _, checked ->
+                        commitFocusedPosition?.invoke()
                         setRowVisibility(ctx, row, checked)
                         buttonTintList = android.content.res.ColorStateList.valueOf(
                             if (checked) colors.accent else colors.secondary,
