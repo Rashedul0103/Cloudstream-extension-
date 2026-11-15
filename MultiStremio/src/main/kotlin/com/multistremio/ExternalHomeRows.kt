@@ -54,13 +54,6 @@ object ExternalHomeRows {
         return rows.distinctBy { it.config.key }
     }
 
-    /**
-     * Resolve exact new keys first. For older saved rows, fall back to the stable provider/row
-     * identity; dataHash is used only to disambiguate duplicate row titles, never as identity.
-     */
-    fun resolve(config: ExternalRowConfig, exclude: MainAPI? = null): InstalledExternalHomeRow? =
-        resolve(config, installedRows(exclude))
-
     fun resolve(
         config: ExternalRowConfig,
         availableRows: List<InstalledExternalHomeRow>,
