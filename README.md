@@ -38,7 +38,7 @@ Imported homepage rows are matched using the source plugin, provider class, row 
 
 ## Stream filter edge cases
 
-Leaving every box unchecked under **Allowed resolutions** means no resolution restriction is applied; it does not hide every stream. The settings summary displays this as **Any (no restriction)**. Keyword filters accept plain comma-separated text or slash-delimited regular expressions. Invalid regular expressions are rejected before saving so a typo cannot silently produce an always-false rule.
+Leaving every box unchecked under **Allowed resolutions** means no resolution restriction is applied; it does not hide every stream. The settings summary displays this as **Any (no restriction)**. Keyword filters accept plain comma-separated text or slash-delimited regular expressions. Invalid or unsupported regular expressions are rejected before saving. Regex filters use a linear-time engine and a bounded cache; lookarounds, backreferences, oversized expressions and nested counted repetitions are not supported. Plain keyword matching is unchanged.
 
 ## Language matching
 
@@ -56,4 +56,4 @@ The Backup & restore screen can export preferences-only or full backups as UTF-8
 
 ## Stream request handling
 
-Multi-addon requests run in batches of up to eight concurrent calls per fan-out operation (stream and subtitle branches use four each when both are active). If the original addon cannot provide named metadata, fallback metadata providers are queried concurrently. Stream parsing reuses compiled patterns and the filtering pipeline avoids several intermediate list allocations. A synthetic JVM benchmark records parse and pipeline median/p95 timings for a fixed 750-record workload. It is a repeatable regression baseline, not a comparison against real addon traffic or a measurement of playback startup time on a phone.
+Multi-addon requests run in batches of up to eight concurrent calls per fan-out operation (stream and subtitle branches use four each when both are active). Addon API responses larger than 2 million characters are rejected before JSON parsing to limit memory spikes from malformed or unexpectedly large responses. If the original addon cannot provide named metadata, fallback metadata providers are queried concurrently. Stream parsing reuses compiled patterns and the filtering pipeline avoids several intermediate list allocations. A synthetic JVM benchmark records parse and pipeline median/p95 timings for a fixed 750-record workload. It is a repeatable regression baseline, not a comparison against real addon traffic or a measurement of playback startup time on a phone.

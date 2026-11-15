@@ -3,7 +3,7 @@ package com.multistremio
 import java.net.URLEncoder
 import java.net.URI
 import java.util.Locale
-import java.util.concurrent.ConcurrentHashMap
+import com.google.re2j.Pattern
 
 // ---------------------------------------------------------------------------------------------
 // Parsing, filtering, deduplicating and sorting of Stremio streams.
@@ -342,35 +342,158 @@ object StreamParser {
 // ---------------------------------------------------------------------------------------------
 
 object StreamFilter {
-    private val regexCache = ConcurrentHashMap<String, Regex>()
-    private val NEVER = Regex("(?!)")
+    private const val MAX_REGEX_LENGTH = 256
+    private const val MAX_REGEX_CACHE_ENTRIES = 128
+    private const val MAX_REPEAT_BOUND = 256L
+    private const val MAX_REPEAT_BUDGET = 1024L
+    private const val MAX_REGEX_PROGRAM_SIZE = 4096
+
+    private data class CountedRepeat(val endIndex: Int, val maximum: Long)
+
+    // Access-ordered and synchronized: settings can be edited while stream requests are running.
+    // Null values are cached too, so invalid/unsafe patterns are not recompiled for every stream.
+    private val regexCache = LinkedHashMap<String, Pattern?>(64, 0.75f, true)
 
     /** Plain keywords are case-insensitive substrings. Wrap in slashes for a regex: /x26[45]/ */
     fun matchesKeyword(lowerText: String, keyword: String): Boolean {
         val k = keyword.trim()
         if (k.isEmpty()) return false
         if (k.length > 2 && k.startsWith("/") && k.endsWith("/")) {
-            return compiledRegex(k).containsMatchIn(lowerText)
+            return compiledRegex(k)?.matcher(lowerText)?.find() == true
         }
         return lowerText.contains(k.lowercase(Locale.ROOT))
     }
 
-    private fun compiledRegex(pattern: String): Regex = regexCache.getOrPut(pattern) {
-        try {
-            Regex(pattern.substring(1, pattern.length - 1), RegexOption.IGNORE_CASE)
-        } catch (_: Exception) {
-            NEVER
+    /**
+     * Uses RE2/J rather than the JDK backtracking engine. Unsupported constructs (such as
+     * lookarounds and backreferences) are rejected instead of risking unbounded match time.
+     */
+    private fun compiledRegex(pattern: String): Pattern? = synchronized(regexCache) {
+        if (regexCache.containsKey(pattern)) {
+            regexCache[pattern]
+        } else {
+            val compiled = compileRegex(pattern)
+            regexCache[pattern] = compiled
+            if (regexCache.size > MAX_REGEX_CACHE_ENTRIES) {
+                val eldest = regexCache.entries.iterator()
+                if (eldest.hasNext()) {
+                    eldest.next()
+                    eldest.remove()
+                }
+            }
+            compiled
         }
     }
+
+    private fun compileRegex(delimitedPattern: String): Pattern? {
+        val source = delimitedPattern.substring(1, delimitedPattern.length - 1)
+        if (source.isEmpty() || source.length > MAX_REGEX_LENGTH || hasUnsafeCountedRepetition(source)) {
+            return null
+        }
+        return try {
+            Pattern.compile(source, Pattern.CASE_INSENSITIVE).takeIf {
+                it.programSize() <= MAX_REGEX_PROGRAM_SIZE
+            }
+        } catch (_: Exception) {
+            null
+        }
+    }
+
+    /**
+     * RE2/J avoids catastrophic backtracking. These additional bounds prevent excessive pattern
+     * compilation work, including deeply nested counted repetitions that can expand dramatically.
+     * Braces inside escaped text or character classes are ignored.
+     */
+    private fun hasUnsafeCountedRepetition(source: String): Boolean {
+        val groupContainsCountedRepeat = ArrayList<Boolean>()
+        var inCharacterClass = false
+        var escaped = false
+        var repeatBudget = 0L
+        var index = 0
+
+        while (index < source.length) {
+            val char = source[index]
+            if (escaped) {
+                escaped = false
+                index++
+                continue
+            }
+            if (char == '\\') {
+                escaped = true
+                index++
+                continue
+            }
+            if (inCharacterClass) {
+                if (char == ']') inCharacterClass = false
+                index++
+                continue
+            }
+            if (char == '[') {
+                inCharacterClass = true
+                index++
+                continue
+            }
+
+            when (char) {
+                '(' -> groupContainsCountedRepeat.add(false)
+                ')' -> {
+                    if (groupContainsCountedRepeat.isNotEmpty()) {
+                        val nestedCountedRepeat = groupContainsCountedRepeat.removeAt(
+                            groupContainsCountedRepeat.lastIndex,
+                        )
+                        val outerRepeat = countedRepeatAt(source, index + 1)
+                        if (nestedCountedRepeat && outerRepeat != null) return true
+                        if (nestedCountedRepeat && groupContainsCountedRepeat.isNotEmpty()) {
+                            groupContainsCountedRepeat[groupContainsCountedRepeat.lastIndex] = true
+                        }
+                    }
+                }
+                '{' -> {
+                    val repeat = countedRepeatAt(source, index)
+                    if (repeat != null) {
+                        if (repeat.maximum > MAX_REPEAT_BOUND) return true
+                        repeatBudget += repeat.maximum
+                        if (repeatBudget > MAX_REPEAT_BUDGET) return true
+                        if (groupContainsCountedRepeat.isNotEmpty()) {
+                            groupContainsCountedRepeat[groupContainsCountedRepeat.lastIndex] = true
+                        }
+                        index = repeat.endIndex + 1
+                        continue
+                    }
+                }
+            }
+            index++
+        }
+        return false
+    }
+
+    private fun countedRepeatAt(source: String, start: Int): CountedRepeat? {
+        if (source.getOrNull(start) != '{') return null
+        val end = source.indexOf('}', start + 1)
+        if (end < 0) return null
+        val body = source.substring(start + 1, end)
+        if (!body.matches(Regex("""\d+(,\d*)?"""))) return null
+        val parts = body.split(',', limit = 2)
+        val minimum = parts[0].toLongOrNull() ?: Long.MAX_VALUE
+        val maximum = when {
+            parts.size == 1 -> minimum
+            parts[1].isEmpty() -> minimum
+            else -> parts[1].toLongOrNull() ?: Long.MAX_VALUE
+        }
+        if (maximum < minimum) return null
+        return CountedRepeat(end, maximum)
+    }
+
+    internal fun regexCacheSizeForTests(): Int = synchronized(regexCache) { regexCache.size }
 
     fun anyMatch(lowerText: String, keywords: List<String>): Boolean =
         keywords.any { matchesKeyword(lowerText, it) }
 
-    /** Finds slash-delimited regular expressions that cannot be compiled before settings are saved. */
+    /** Finds slash-delimited patterns that are unsupported or exceed the safety limits. */
     fun invalidRegexPatterns(keywords: List<String>): List<String> =
         keywords.map { it.trim() }
             .filter { it.length > 2 && it.startsWith("/") && it.endsWith("/") }
-            .filter { pattern -> compiledRegex(pattern) === NEVER }
+            .filter { pattern -> compiledRegex(pattern) == null }
             .distinct()
 
     /** Remove malformed legacy required-regex entries once per pipeline, not once per stream. */
@@ -432,7 +555,6 @@ object StreamFilter {
         return true
     }
 }
-
 // ---------------------------------------------------------------------------------------------
 // Sorting
 // ---------------------------------------------------------------------------------------------
