@@ -13,6 +13,7 @@ import com.lagradost.cloudstream3.utils.SubtitleHelper
 import com.lagradost.cloudstream3.utils.loadExtractor
 import com.lagradost.cloudstream3.utils.newExtractorLink
 import java.util.concurrent.CancellationException
+import kotlinx.coroutines.Deferred
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.channels.Channel
@@ -293,27 +294,9 @@ class MultiStremio : MainAPI() {
                 }
             }
 
-            // Subtitle endpoints continue in parallel, but their completion is not required
-            // before the first playable links are made available.
-            val subtitleDeferred = async {
-                subAddons.map { addon ->
-                    async {
-                        val queuedAt = System.nanoTime()
-                        try {
-                            requestLimiter.withPermit {
-                                val queueWaitMs = (System.nanoTime() - queuedAt) / 1_000_000L
-                                StremioClient.subtitles(
-                                    addon, type, id, diagnosticRunId, queueWaitMs,
-                                )
-                            }
-                        } catch (e: CancellationException) {
-                            throw e
-                        } catch (_: Exception) {
-                            emptyList()
-                        }
-                    }
-                }.awaitAll().flatten()
-            }
+            // Do not submit subtitle requests to the shared semaphore yet. Stream addon jobs
+            // are given an uncontended first opportunity to return a playable link.
+            var subtitleDeferred: Deferred<List<RawSubtitle>>? = null
 
             val allParsed = ArrayList<ParsedStream>()
             val emissionTracker = StreamEmissionTracker(settings.filter)
@@ -324,6 +307,39 @@ class MultiStremio : MainAPI() {
             var completedAddons = 0
             var firstBatchEmitted = false
             var firstPlayableDeadlineNanos: Long? = null
+            val subtitleStartGate = SubtitleRequestStartGate()
+
+            // Start subtitle lookups once a playable callback has been sent, or after all stream
+            // addon requests finish when the content has no playable links. This prevents
+            // subtitles from occupying shared request slots during the first-playable phase.
+            val startSubtitleRequestsIfReady: () -> Unit = {
+                if (subtitleStartGate.tryStart(
+                        firstPlayableLinkEmitted = emittedLinks > 0,
+                        allStreamAddonsCompleted = completedAddons >= streamJobs.size,
+                    )
+                ) {
+                    StreamDiagnostics.markSubtitleRequestsStarted(diagnosticRunId)
+                    subtitleDeferred = async {
+                        subAddons.map { addon ->
+                            async {
+                                val queuedAt = System.nanoTime()
+                                try {
+                                    requestLimiter.withPermit {
+                                        val queueWaitMs = (System.nanoTime() - queuedAt) / 1_000_000L
+                                        StremioClient.subtitles(
+                                            addon, type, id, diagnosticRunId, queueWaitMs,
+                                        )
+                                    }
+                                } catch (e: CancellationException) {
+                                    throw e
+                                } catch (_: Exception) {
+                                    emptyList()
+                                }
+                            }
+                        }.awaitAll().flatten()
+                    }
+                }
+            }
 
             suspend fun emitAvailablePlayable() {
                 val playableNow = allParsed.filter { it.isDirect || it.isMagnet }
@@ -350,6 +366,7 @@ class MultiStremio : MainAPI() {
                     )
                     emitted = true
                     emittedLinks++
+                    startSubtitleRequestsIfReady()
                 }
                 StreamDiagnostics.recordStage(
                     diagnosticRunId, "emission",
@@ -419,6 +436,10 @@ class MultiStremio : MainAPI() {
                     diagnosticRunId, emittedLinks - beforeFirstBatch,
                 )
             }
+            // Fallback for no eligible streams, filtered-out candidates, or extractor-only
+            // addons. All stream requests are complete, so starting subtitles cannot delay
+            // discovery of a playable link.
+            startSubtitleRequestsIfReady()
             StreamDiagnostics.markAllPlayableLinksEmitted(diagnosticRunId)
 
             val parsed = allParsed.toList()
@@ -462,7 +483,7 @@ class MultiStremio : MainAPI() {
             // Keep the previous completion contract for subtitle callbacks, but measure this
             // final wait separately from time-to-first-playable-link.
             val subtitleWaitStarted = System.nanoTime()
-            val subtitles = subtitleDeferred.await()
+            val subtitles = subtitleDeferred?.await().orEmpty()
             StreamDiagnostics.recordStage(
                 diagnosticRunId, "subtitle_wait",
                 (System.nanoTime() - subtitleWaitStarted) / 1_000_000L,
