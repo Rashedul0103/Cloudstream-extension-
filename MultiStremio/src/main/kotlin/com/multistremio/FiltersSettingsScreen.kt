@@ -172,7 +172,7 @@ internal object FiltersSettingsScreen {
                 SettingItemType.Value,
                 onClick = {
                     keywordList(ctx, "Exclude keywords",
-                        "Comma separated, case-insensitive. Wrap in slashes for a regex, e.g. /x26[45]/. Invalid regex patterns are rejected.",
+                        "Comma separated, case-insensitive. Wrap in slashes for a regex, e.g. /x26[45]/. For safety, lookarounds, backreferences and nested or very large counted repetitions are not supported.",
                         f.excludeKeywords.joinToString(", "), onCancel = again) { values ->
                         updateAndReopen({ again() }) { f.excludeKeywords = values }
                     }
@@ -186,7 +186,7 @@ internal object FiltersSettingsScreen {
                 SettingItemType.Value,
                 onClick = {
                     keywordList(ctx, "Require keywords",
-                        "A stream must contain at least one of these. Leave empty to disable. Wrap regex patterns in slashes, e.g. /x26[45]/.",
+                        "A stream must contain at least one of these. Leave empty to disable. Wrap regex patterns in slashes, e.g. /x26[45]/. The same safe regex limits apply.",
                         f.requireKeywords.joinToString(", "), onCancel = again) { values ->
                         updateAndReopen({ again() }) { f.requireKeywords = values }
                     }
