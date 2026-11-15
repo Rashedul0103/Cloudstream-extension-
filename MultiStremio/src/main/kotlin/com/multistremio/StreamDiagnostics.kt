@@ -10,14 +10,29 @@ data class StreamRequestDiagnostic(
     val elapsedMs: Long,
     val status: String,
     val resultCount: Int,
+    /** Time spent waiting for a shared request permit before the HTTP call started. */
+    val queueWaitMs: Long = 0L,
 )
 
 data class StreamDiagnosticSnapshot(
     val startedAt: Long,
+    /** Complete lookup duration, including the final subtitle wait. Not video startup time. */
     val durationMs: Long,
+    val timeToFirstStreamRequestCompletedMs: Long?,
+    val timeToFirstPlayableResultMs: Long?,
+    /** Time until the first playable callback was handed to CloudStream. Not first video frame. */
+    val timeToFirstPlayableLinkMs: Long?,
+    val timeToAllStreamAddonsCompletedMs: Long?,
+    val timeToAllPlayableLinksEmittedMs: Long?,
+    val expectedStreamAddons: Int,
+    val completedStreamAddons: Int,
+    val firstBatchLinks: Int,
     val parseWorkMs: Long,
     val pipelineMs: Long,
     val emissionMs: Long,
+    val extractorResolutionMs: Long,
+    val subtitleWaitMs: Long,
+    val timeToSubtitleCompletionMs: Long?,
     val rawStreams: Int,
     val addonSubtitles: Int,
     val playableCandidates: Int,
@@ -31,9 +46,20 @@ object StreamDiagnostics {
         val startedAt: Long = System.currentTimeMillis(),
         val startedNanos: Long = System.nanoTime(),
         val requests: MutableList<StreamRequestDiagnostic> = mutableListOf(),
+        var expectedStreamAddons: Int = 0,
+        var completedStreamAddons: Int = 0,
+        var firstStreamRequestCompletedMs: Long? = null,
+        var firstPlayableResultMs: Long? = null,
+        var firstPlayableLinkMs: Long? = null,
+        var allStreamAddonsCompletedMs: Long? = null,
+        var allPlayableLinksEmittedMs: Long? = null,
+        var firstBatchLinks: Int? = null,
+        var timeToSubtitleCompletionMs: Long? = null,
         var parseWorkMs: Long = 0,
         var pipelineMs: Long = 0,
         var emissionMs: Long = 0,
+        var extractorResolutionMs: Long = 0,
+        var subtitleWaitMs: Long = 0,
     )
 
     private val ids = AtomicLong()
@@ -44,6 +70,9 @@ object StreamDiagnostics {
 
     @Volatile
     private var latestCompletedRunId: Long = 0L
+
+    private fun elapsedMs(run: ActiveRun): Long =
+        ((System.nanoTime() - run.startedNanos) / 1_000_000L).coerceAtLeast(0L)
 
     /** Addon names come from remote manifests or user input, so redact URL and query credentials. */
     fun safeAddonName(value: String): String = value
@@ -66,6 +95,81 @@ object StreamDiagnostics {
         return id
     }
 
+    fun setExpectedStreamAddons(runId: Long, count: Int) {
+        val run = active[runId] ?: return
+        synchronized(run) {
+            run.expectedStreamAddons = count.coerceAtLeast(0)
+            if (run.expectedStreamAddons == 0 && run.allStreamAddonsCompletedMs == null) {
+                run.allStreamAddonsCompletedMs = elapsedMs(run)
+            }
+        }
+    }
+
+    fun markFirstStreamRequestCompleted(runId: Long) {
+        val run = active[runId] ?: return
+        synchronized(run) {
+            if (run.firstStreamRequestCompletedMs == null) {
+                run.firstStreamRequestCompletedMs = elapsedMs(run)
+            }
+        }
+    }
+
+    fun markFirstPlayableResult(runId: Long) {
+        val run = active[runId] ?: return
+        synchronized(run) {
+            if (run.firstPlayableResultMs == null) {
+                run.firstPlayableResultMs = elapsedMs(run)
+            }
+        }
+    }
+
+    fun markFirstPlayableLink(runId: Long) {
+        val run = active[runId] ?: return
+        synchronized(run) {
+            if (run.firstPlayableLinkMs == null) {
+                run.firstPlayableLinkMs = elapsedMs(run)
+            }
+        }
+    }
+
+    fun recordStreamAddonCompleted(runId: Long) {
+        val run = active[runId] ?: return
+        synchronized(run) {
+            run.completedStreamAddons++
+            if (
+                run.completedStreamAddons >= run.expectedStreamAddons &&
+                run.allStreamAddonsCompletedMs == null
+            ) {
+                run.allStreamAddonsCompletedMs = elapsedMs(run)
+            }
+        }
+    }
+
+    fun markFirstBatchLinks(runId: Long, count: Int) {
+        val run = active[runId] ?: return
+        synchronized(run) {
+            if (run.firstBatchLinks == null) run.firstBatchLinks = count.coerceAtLeast(0)
+        }
+    }
+
+    fun markAllPlayableLinksEmitted(runId: Long) {
+        val run = active[runId] ?: return
+        synchronized(run) {
+            if (run.allPlayableLinksEmittedMs == null) {
+                run.allPlayableLinksEmittedMs = elapsedMs(run)
+            }
+        }
+    }
+
+    fun markSubtitleCompletion(runId: Long) {
+        val run = active[runId] ?: return
+        synchronized(run) {
+            if (run.timeToSubtitleCompletionMs == null) {
+                run.timeToSubtitleCompletionMs = elapsedMs(run)
+            }
+        }
+    }
+
     fun record(
         runId: Long?,
         addonName: String,
@@ -73,25 +177,29 @@ object StreamDiagnostics {
         elapsedMs: Long,
         status: String,
         resultCount: Int,
+        queueWaitMs: Long = 0L,
     ) {
         if (runId == null) return
         val run = active[runId] ?: return
         synchronized(run.requests) {
             run.requests += StreamRequestDiagnostic(
                 safeAddonName(addonName), resource, elapsedMs.coerceAtLeast(0L),
-                status, resultCount.coerceAtLeast(0),
+                status, resultCount.coerceAtLeast(0), queueWaitMs.coerceAtLeast(0L),
             )
         }
     }
 
-    /** Records aggregate CPU/work time for a stage; parallel addon parsing times are summed. */
+    /** Records CPU/work time. Parallel parse work and repeated incremental pipeline runs are summed. */
     fun recordStage(runId: Long, stage: String, elapsedMs: Long) {
         val run = active[runId] ?: return
         synchronized(run) {
+            val duration = elapsedMs.coerceAtLeast(0L)
             when (stage) {
-                "parse" -> run.parseWorkMs += elapsedMs.coerceAtLeast(0L)
-                "pipeline" -> run.pipelineMs += elapsedMs.coerceAtLeast(0L)
-                "emission" -> run.emissionMs += elapsedMs.coerceAtLeast(0L)
+                "parse" -> run.parseWorkMs += duration
+                "pipeline" -> run.pipelineMs += duration
+                "emission" -> run.emissionMs += duration
+                "extractors" -> run.extractorResolutionMs += duration
+                "subtitle_wait" -> run.subtitleWaitMs += duration
             }
         }
     }
@@ -106,20 +214,32 @@ object StreamDiagnostics {
     ) {
         val run = active.remove(runId) ?: return
         val requests = synchronized(run.requests) { run.requests.toList() }
-        val stageTimes = synchronized(run) { Triple(run.parseWorkMs, run.pipelineMs, run.emissionMs) }
-        val snapshot = StreamDiagnosticSnapshot(
-            startedAt = run.startedAt,
-            durationMs = ((System.nanoTime() - run.startedNanos) / 1_000_000L).coerceAtLeast(0L),
-            parseWorkMs = stageTimes.first,
-            pipelineMs = stageTimes.second,
-            emissionMs = stageTimes.third,
-            rawStreams = rawStreams.coerceAtLeast(0),
-            addonSubtitles = addonSubtitles.coerceAtLeast(0),
-            playableCandidates = playableCandidates.coerceAtLeast(0),
-            keptAfterFilters = keptAfterFilters.coerceAtLeast(0),
-            emittedLinks = emittedLinks.coerceAtLeast(0),
-            requests = requests,
-        )
+        val snapshot = synchronized(run) {
+            StreamDiagnosticSnapshot(
+                startedAt = run.startedAt,
+                durationMs = elapsedMs(run),
+                timeToFirstStreamRequestCompletedMs = run.firstStreamRequestCompletedMs,
+                timeToFirstPlayableResultMs = run.firstPlayableResultMs,
+                timeToFirstPlayableLinkMs = run.firstPlayableLinkMs,
+                timeToAllStreamAddonsCompletedMs = run.allStreamAddonsCompletedMs,
+                timeToAllPlayableLinksEmittedMs = run.allPlayableLinksEmittedMs,
+                expectedStreamAddons = run.expectedStreamAddons,
+                completedStreamAddons = run.completedStreamAddons,
+                firstBatchLinks = run.firstBatchLinks ?: 0,
+                parseWorkMs = run.parseWorkMs,
+                pipelineMs = run.pipelineMs,
+                emissionMs = run.emissionMs,
+                extractorResolutionMs = run.extractorResolutionMs,
+                subtitleWaitMs = run.subtitleWaitMs,
+                timeToSubtitleCompletionMs = run.timeToSubtitleCompletionMs,
+                rawStreams = rawStreams.coerceAtLeast(0),
+                addonSubtitles = addonSubtitles.coerceAtLeast(0),
+                playableCandidates = playableCandidates.coerceAtLeast(0),
+                keptAfterFilters = keptAfterFilters.coerceAtLeast(0),
+                emittedLinks = emittedLinks.coerceAtLeast(0),
+                requests = requests,
+            )
+        }
         // A slow older lookup must not overwrite a newer lookup that completed first.
         synchronized(this) {
             if (runId > latestCompletedRunId) {
