@@ -78,7 +78,7 @@ internal object OtherSearchRows {
 /**
  * One fixed provider per searchable homepage catalog. CloudStream snapshots both provider names
  * and repositories inside its activity-scoped SearchViewModel. The name therefore stays immutable
- * for this provider's lifetime; settings refresh only changes supportedTypes and the active row.
+ * for this provider's lifetime; settings refresh only activates or deactivates its row.
  */
 private class OtherSearchMainAPI(
     private val catalogKey: String,
@@ -112,7 +112,6 @@ private class OtherSearchMainAPI(
         // supportedTypes stays fixed for this provider's lifetime. CloudStream snapshots the
         // default provider-selection list; removing these types while Other is off would prevent
         // a later toggle from participating automatically.
-        supportedTypes = eligibleTypes
     }
 
     override suspend fun search(query: String): List<SearchResponse>? {
