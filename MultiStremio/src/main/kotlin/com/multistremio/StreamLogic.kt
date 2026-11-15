@@ -881,8 +881,8 @@ object StreamLabels {
     // Aggregator addons such as CNCVerse put their inner provider in a formatted
     // "Source: Provider • Host" description. The outer addon name is different.
     private val providerMarker = Regex("""(?i)(?:provider|source)\s*:\s*([^•·|\r\n]+)""")
-    private val cncVerseMarker = Regex("""(?i)\bcncverse\b""")
-    private val providerSeparators = listOf(" • ", " · ", " | ")
+    private val aggregatorMarker = Regex("""(?i)\b(?:cnc\s*verse|pengu\s*play)\b""")
+    private val providerSeparator = Regex("""\s*[•·|]\s*""")
     private val technicalStreamName = Regex(
         """(?i)^(?:auto|[0-9]{3,4}p|4k|uhd|fhd|hd|sd|web[ -]?dl|web[ -]?rip|blu[ -]?ray|remux|hdtv|cam|hdr10?\+?|dv|hevc|avc|av1|x26[45])$""",
     )
@@ -899,9 +899,14 @@ object StreamLabels {
 
     /** Provider/source inside an aggregator addon, not the outer addon or release source (WEB-DL). */
     private fun providerName(p: ParsedStream): String? {
-        // CNCVerse's default formatter exposes the provider before the next bullet, e.g.
-        // "🛰️ Source: MovieBoxIN • HubCloud". Check descriptions before display-name fallbacks.
-        for (text in listOfNotNull(p.raw.description, p.raw.title)) {
+        // Check all stream metadata fields. PenguPlay and some CNCVerse configurations put the
+        // source marker in the stream name rather than the description/title.
+        for (text in listOfNotNull(
+            p.raw.description,
+            p.raw.title,
+            p.raw.name,
+            p.raw.behaviorHints?.filename,
+        )) {
             val explicit = providerMarker.findAll(text)
                 .mapNotNull { match -> cleanProviderCandidate(match.groupValues[1], p.addonName) }
                 .firstOrNull()
@@ -909,21 +914,16 @@ object StreamLabels {
         }
 
         val streamName = p.raw.name?.trim()?.replace(Regex("""\s+"""), " ") ?: return null
-        // The CNCVerse name template ends with the inner addon name, usually after a bullet.
-        if (cncVerseMarker.containsMatchIn(streamName)) {
-            val separator = providerSeparators
-                .map { it to streamName.lastIndexOf(it) }
-                .filter { it.second >= 0 }
-                .maxByOrNull { it.second }
-            if (separator != null) {
-                cleanProviderCandidate(
-                    streamName.substring(separator.second + separator.first.length),
-                    p.addonName,
-                )?.let { return it }
-            }
+        // Both CNCVerse and PenguPlay can append the inner provider to the stream name:
+        // "🌀 CNCVerse ❄️ 4K • MovieBoxIN" / "🐧 PenguPlay 1080p • MovieBox".
+        // Restrict suffix parsing to these known aggregator formats to avoid guessing on
+        // ordinary addon titles.
+        if (aggregatorMarker.containsMatchIn(p.addonName) || aggregatorMarker.containsMatchIn(streamName)) {
+            val candidate = streamName.split(providerSeparator).lastOrNull()
+            cleanProviderCandidate(candidate, p.addonName)?.let { return it }
         }
 
-        // Some addons expose their provider directly in the stream-level name. Do not mistake
+        // Some addons expose their provider directly in a simple stream-level name. Do not mistake
         // common quality labels (1080p, WEB-DL, HDR, etc.) for provider names.
         if (streamName.none { it == '\n' || it == '|' || it == '•' || it == '·' }) {
             return cleanProviderCandidate(streamName, p.addonName)

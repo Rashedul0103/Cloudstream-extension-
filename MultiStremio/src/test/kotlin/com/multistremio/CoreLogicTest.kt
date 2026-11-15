@@ -750,6 +750,44 @@ class CoreLogicTest {
     }
 
     @Test
+    fun visualStreamFormatterExtractsPenguPlayProviderFromDefaultNameTemplate() {
+        val parsed = StreamParser.parsed(
+            0,
+            "PenguPlay",
+            RawStream(
+                name = "🐧 PenguPlay 1080p • MovieBox",
+                url = "https://example.com/movie.mkv",
+            ),
+        )
+        val format = StreamFormatSettings(
+            enabled = true,
+            fields = mutableListOf("provider"),
+            showLabels = true,
+        )
+
+        assertEquals("Provider: MovieBox", StreamLabels.build(parsed, format))
+    }
+
+    @Test
+    fun visualStreamFormatterReadsSourceMarkerFromStreamName() {
+        val parsed = StreamParser.parsed(
+            0,
+            "PenguPlay",
+            RawStream(
+                name = "🐧 PenguPlay 1080p • 🛰️ Source: VegaMovies",
+                url = "https://example.com/movie.mkv",
+            ),
+        )
+        val format = StreamFormatSettings(
+            enabled = true,
+            fields = mutableListOf("provider"),
+            showLabels = true,
+        )
+
+        assertEquals("Provider: VegaMovies", StreamLabels.build(parsed, format))
+    }
+
+    @Test
     fun visualStreamFormatterDoesNotTreatQualityAsAProviderName() {
         val parsed = StreamParser.parsed(
             0,
