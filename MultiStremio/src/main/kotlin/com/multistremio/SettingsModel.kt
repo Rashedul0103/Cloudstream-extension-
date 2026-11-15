@@ -87,9 +87,9 @@ object CatalogOrderMath {
     /**
      * Applies serial numbers to one addon section without moving rows across other sections.
      *
-     * Every row must have exactly one unique positive position. Gaps are allowed, so users can
-     * reorder by entering (for example) 10, 20 and 30; ties and blank/zero values are rejected.
-     * The original slots occupied by this group are retained in [currentOrder].
+     * Positive positions may repeat. Rows tied on a position keep their current relative order,
+     * making ties predictable and preventing an arbitrary jump. Gaps are allowed. Blank, zero,
+     * negative or missing positions are rejected. The original group slots are retained.
      */
     fun reorderGroup(
         currentOrder: List<String>,
@@ -101,12 +101,20 @@ object CatalogOrderMath {
         if (groupKeySet.size != groupKeys.size || positions.keys != groupKeySet) return null
 
         val requested = groupKeys.map { key -> positions[key] ?: return null }
-        if (requested.any { it <= 0 } || requested.distinct().size != groupKeys.size) return null
+        if (requested.any { it <= 0 }) return null
 
         val groupIndexes = currentOrder.indices.filter { currentOrder[it] in groupKeySet }
         if (groupIndexes.size != groupKeys.size) return null
 
-        val sortedGroup = groupKeys.sortedBy { positions.getValue(it) }
+        // The explicit original index is the tie-breaker: duplicate positions never cause a
+        // row to jump unpredictably, even if the sorting implementation changes.
+        val sortedGroup = groupKeys.withIndex()
+            .sortedWith(
+                compareBy<IndexedValue<String>> { positions.getValue(it.value) }
+                    .thenBy { it.index },
+            )
+            .map { it.value }
+
         return currentOrder.toMutableList().apply {
             groupIndexes.forEachIndexed { index, currentIndex ->
                 this[currentIndex] = sortedGroup[index]
