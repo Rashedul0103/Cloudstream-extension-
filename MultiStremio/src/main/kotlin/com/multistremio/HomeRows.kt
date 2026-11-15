@@ -38,6 +38,7 @@ object HomeRows {
         "anime" -> "Anime"
         "tv" -> "TV"
         "channel" -> "Channels"
+        "audiobook", "audio_book", "book", "books" -> "Audiobooks"
         else -> type.replaceFirstChar { it.uppercase() }
     }
 
