@@ -880,15 +880,15 @@ object StreamLabels {
 
     // Aggregator addons such as CNCVerse put their inner provider in a formatted
     // "Source: Provider • Host" description. The outer addon name is different.
-    private val providerMarker = Regex("""(?i)(?:provider|source)\\s*:\\s*([^•·|\\r\\n]+)""")
-    private val cncVerseMarker = Regex("""(?i)\\bcncverse\\b""")
+    private val providerMarker = Regex("""(?i)(?:provider|source)\s*:\s*([^•·|\r\n]+)""")
+    private val cncVerseMarker = Regex("""(?i)\bcncverse\b""")
     private val providerSeparators = listOf(" • ", " · ", " | ")
     private val technicalStreamName = Regex(
-        """(?i)^(?:auto|[0-9]{3,4}p|4k|uhd|fhd|hd|sd|web[ -]?dl|web[ -]?rip|blu[ -]?ray|remux|hdtv|cam|hdr10?\\+?|dv|hevc|avc|av1|x26[45])$""",
+        """(?i)^(?:auto|[0-9]{3,4}p|4k|uhd|fhd|hd|sd|web[ -]?dl|web[ -]?rip|blu[ -]?ray|remux|hdtv|cam|hdr10?\+?|dv|hevc|avc|av1|x26[45])$""",
     )
 
     private fun cleanProviderCandidate(value: String?, addonName: String): String? {
-        val candidate = value?.trim()?.replace(Regex("""\\s+"""), " ") ?: return null
+        val candidate = value?.trim()?.replace(Regex("""\s+"""), " ") ?: return null
         return candidate.takeIf {
             it.isNotBlank() &&
                 it.length <= 64 &&
@@ -908,7 +908,7 @@ object StreamLabels {
             if (explicit != null) return explicit
         }
 
-        val streamName = p.raw.name?.trim()?.replace(Regex("""\\s+"""), " ") ?: return null
+        val streamName = p.raw.name?.trim()?.replace(Regex("""\s+"""), " ") ?: return null
         // The CNCVerse name template ends with the inner addon name, usually after a bullet.
         if (cncVerseMarker.containsMatchIn(streamName)) {
             val separator = providerSeparators
@@ -925,7 +925,7 @@ object StreamLabels {
 
         // Some addons expose their provider directly in the stream-level name. Do not mistake
         // common quality labels (1080p, WEB-DL, HDR, etc.) for provider names.
-        if (streamName.none { it == '\\n' || it == '|' || it == '•' || it == '·' }) {
+        if (streamName.none { it == '\n' || it == '|' || it == '•' || it == '·' }) {
             return cleanProviderCandidate(streamName, p.addonName)
         }
         return null
