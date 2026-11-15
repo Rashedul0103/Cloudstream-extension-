@@ -58,6 +58,17 @@ internal object OtherSearchRows {
 
     fun dedicatedCatalogKeys(settings: Settings): Set<String> =
         resolve(settings).mapTo(HashSet()) { it.key }
+
+    /**
+     * CloudStream uses supportedTypes to decide which provider to query for selected type chips;
+     * it does not filter individual returned cards. Keep cross-media Other rows eligible under
+     * the default Movie/Series chips while each SearchResponse retains its catalog's real type.
+     */
+    fun searchProviderTypes(type: String): Set<TvType> = setOf(
+        TvType.Movie,
+        TvType.TvSeries,
+        StremioMediaTypes.toCloudStream(type),
+    )
 }
 
 /**
@@ -76,7 +87,7 @@ private class OtherSearchMainAPI(
     override var lang: String = "en"
     override val hasMainPage: Boolean = false
     override val hasQuickSearch: Boolean = false
-    override var supportedTypes: Set<TvType> = emptySet()
+    override var supportedTypes: Set<TvType> = OtherSearchRows.searchProviderTypes(type)
 
     private val currentRow = AtomicReference<OtherSearchRow?>(null)
     private val delegate = MultiStremio()
@@ -86,7 +97,7 @@ private class OtherSearchMainAPI(
      */
     fun configure(row: OtherSearchRow?) {
         currentRow.set(row)
-        supportedTypes = row?.let { setOf(StremioMediaTypes.toCloudStream(it.type)) } ?: emptySet()
+        supportedTypes = row?.let { OtherSearchRows.searchProviderTypes(it.type) } ?: emptySet()
     }
 
     override suspend fun search(query: String): List<SearchResponse>? {
@@ -143,7 +154,9 @@ internal object OtherSearchProviders {
     fun attach(settings: Settings, register: (MainAPI) -> Unit) {
         if (providers.isNotEmpty()) return
 
-        val occupiedNames = linkedSetOf("MultiStremio")
+        val occupiedNames = APIHolder.apis.withLock {
+            APIHolder.apis.mapTo(linkedSetOf()) { it.name }
+        }
         val candidates = OtherSearchRows.candidates(settings)
         for (row in candidates) {
             val displayName = uniqueName(row.title, row.addonName, occupiedNames)
