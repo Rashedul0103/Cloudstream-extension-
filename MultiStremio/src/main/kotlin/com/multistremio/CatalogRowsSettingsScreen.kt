@@ -69,28 +69,42 @@ internal object CatalogRowsSettingsScreen {
         val root = shell(
             ctx,
             "Homepage rows",
-            "Drag a grip to preview a new position; the row is placed only when you lift your finger. Tap a row name to manage it. Collapse addon groups to simplify the list; expand all groups before reordering.",
+            "Each addon has its own collapsible section. Drag a grip to preview the new position; the row moves only when you lift your finger. Reordering is within the addon section; addon priority is managed separately in Addons.",
         )
         HomeRefreshNotice.addTo(ctx, root)
         val scroll = ScrollView(ctx).apply { clipToPadding = false }
         val content = vertical(ctx)
-        val list = vertical(ctx)
         val rowViewsByGroup = linkedMapOf<String, MutableList<View>>()
+        val dragHandlesByGroup = linkedMapOf<String, MutableList<View>>()
         val rowViewsByKey = linkedMapOf<String, View>()
         val groupHeaderViews = linkedMapOf<String, View>()
-        val dragHandles = mutableListOf<View>()
+        val groupLists = linkedMapOf<String, LinearLayout>()
         val groupExpanded = mutableMapOf<String, Boolean>()
+        val groupForKey = rows.associate { row ->
+            row.key to (row.addon?.name ?: row.external?.providerName ?: row.sourceLabel)
+        }
         var activeQuery = ""
-        val rowByKey = rows.associateBy { it.key }
         val rowNames = rows.associate { it.key to it.displayName }
 
+        fun visualOrder(): List<String> {
+            val updated = rows.map { it.key }.toMutableList()
+            rowViewsByGroup.keys.forEach { groupName ->
+                val groupKeys = (0 until (groupLists[groupName]?.childCount ?: 0))
+                    .mapNotNull { groupLists[groupName]?.getChildAt(it)?.tag as? String }
+                val positions = rows.indices.filter { groupForKey[rows[it].key] == groupName }
+                positions.forEachIndexed { index, position ->
+                    groupKeys.getOrNull(index)?.let { updated[position] = it }
+                }
+            }
+            return updated
+        }
+
         fun refreshRowNumbers() {
-            for (position in 0 until list.childCount) {
-                val item = list.getChildAt(position) as? LinearLayout ?: continue
-                val key = item.tag as? String ?: continue
-                val description = item.getChildAt(0) as? LinearLayout ?: continue
-                val title = description.getChildAt(0) as? TextView ?: continue
-                title.text = (position + 1).toString() + ". " + rowNames[key].orEmpty()
+            visualOrder().forEachIndexed { position, key ->
+                val item = rowViewsByKey[key] as? LinearLayout ?: return@forEachIndexed
+                val description = item.getChildAt(0) as? LinearLayout ?: return@forEachIndexed
+                val title = description.getChildAt(0) as? TextView ?: return@forEachIndexed
+                title.text = "${position + 1}. " + rowNames[key].orEmpty()
             }
         }
 
@@ -119,7 +133,6 @@ internal object CatalogRowsSettingsScreen {
                 setPadding(dp(ctx, 5), 0, dp(ctx, 5), 0)
                 contentDescription = "Drag to reorder " + row.displayName
             }
-            dragHandles += handle
             val item = LinearLayout(ctx).apply {
                 orientation = LinearLayout.HORIZONTAL
                 gravity = Gravity.CENTER_VERTICAL
@@ -138,27 +151,9 @@ internal object CatalogRowsSettingsScreen {
                 ))
                 addView(handle, LinearLayout.LayoutParams(dp(ctx, 42), dp(ctx, 46)))
             }
-            list.addView(item, LinearLayout.LayoutParams(
-                ViewGroup.LayoutParams.MATCH_PARENT,
-                ViewGroup.LayoutParams.WRAP_CONTENT,
-            ).apply { bottomMargin = dp(ctx, 6) })
             rowViewsByGroup.getOrPut(group) { mutableListOf() }.add(item)
+            dragHandlesByGroup.getOrPut(group) { mutableListOf() }.add(handle)
             rowViewsByKey[row.key] = item
-            installDragReordering(
-                ctx, handle, item, list, scroll, colors,
-                onDrop = {
-                    val orderedKeys = (0 until list.childCount)
-                        .mapNotNull { list.getChildAt(it).tag as? String }
-                    if (orderedKeys.size == rows.size && orderedKeys.toSet() == rows.map { it.key }.toSet()) {
-                        Config.update { catalogOrder = orderedKeys.toMutableList() }
-                        HomeRefreshNotice.mark()
-                        catalogRowsMenu(ctx, installedRows)
-                    } else {
-                        toast(ctx, "Could not save the new row order.")
-                    }
-                },
-                onMoved = { refreshRowNumbers() },
-            )
         }
 
         if (rows.isEmpty()) {
@@ -173,6 +168,14 @@ internal object CatalogRowsSettingsScreen {
         } else {
             val groups = rowViewsByGroup.toList()
             groups.forEach { (groupName, groupRows) ->
+                val groupList = vertical(ctx)
+                groupLists[groupName] = groupList
+                groupRows.forEach { rowView ->
+                    groupList.addView(rowView, LinearLayout.LayoutParams(
+                        ViewGroup.LayoutParams.MATCH_PARENT,
+                        ViewGroup.LayoutParams.WRAP_CONTENT,
+                    ).apply { bottomMargin = dp(ctx, 6) })
+                }
                 var expanded = true
                 groupExpanded[groupName] = true
                 val header = LinearLayout(ctx).apply {
@@ -187,13 +190,13 @@ internal object CatalogRowsSettingsScreen {
                         if (activeQuery.isNotBlank()) return@setOnClickListener
                         expanded = !expanded
                         groupExpanded[groupName] = expanded
-                        groupRows.forEach { it.visibility = if (expanded) View.VISIBLE else View.GONE }
-                        val reorderEnabled = groupExpanded.values.all { it }
-                        dragHandles.forEach { handle ->
-                            handle.isEnabled = reorderEnabled
-                            handle.alpha = if (reorderEnabled) 1f else 0.35f
+                        groupList.visibility = if (expanded) View.VISIBLE else View.GONE
+                        dragHandlesByGroup[groupName].orEmpty().forEach { handle ->
+                            handle.isEnabled = expanded
+                            handle.alpha = if (expanded) 1f else 0.35f
                         }
-                        (getChildAt(1) as? TextView)?.text = "${groupRows.size} rows   ${if (expanded) "▾" else "▸"}"
+                        (getChildAt(1) as? TextView)?.text =
+                            "${groupRows.size} rows   ${if (expanded) "▾" else "▸"}"
                     }
                 }
                 groupHeaderViews[groupName] = header
@@ -201,8 +204,26 @@ internal object CatalogRowsSettingsScreen {
                     ViewGroup.LayoutParams.MATCH_PARENT,
                     ViewGroup.LayoutParams.WRAP_CONTENT,
                 ).apply { topMargin = dp(ctx, 5); bottomMargin = dp(ctx, 4) })
+                content.addView(groupList)
+
+                dragHandlesByGroup[groupName].orEmpty().forEachIndexed { rowIndex, handle ->
+                    val item = groupRows[rowIndex]
+                    installDragReordering(
+                        ctx, handle, item, groupList, scroll, colors,
+                        onDrop = {
+                            val orderedKeys = visualOrder()
+                            if (orderedKeys.size == rows.size && orderedKeys.toSet() == rows.map { it.key }.toSet()) {
+                                Config.update { catalogOrder = orderedKeys.toMutableList() }
+                                HomeRefreshNotice.mark()
+                                catalogRowsMenu(ctx, installedRows)
+                            } else {
+                                toast(ctx, "Could not save the new row order.")
+                            }
+                        },
+                        onMoved = { refreshRowNumbers() },
+                    )
+                }
             }
-            content.addView(list)
         }
 
         content.addView(text(ctx, "MORE ACTIONS", 10f, colors.accent, true).apply {
@@ -275,19 +296,29 @@ internal object CatalogRowsSettingsScreen {
 
         val rowSearch = searchBox(ctx, "Search homepage rows", colors) { query ->
             activeQuery = query.trim()
-            val allGroupsExpanded = groupExpanded.values.all { it }
             rows.forEach { row ->
-                val group = row.addon?.name ?: row.external?.providerName ?: row.sourceLabel
+                val group = groupForKey[row.key].orEmpty()
                 val rowMatches = activeQuery.isBlank() ||
                     row.displayName.contains(activeQuery, true) ||
                     row.sourceLabel.contains(activeQuery, true) ||
                     row.status.contains(activeQuery, true) ||
                     group.contains(activeQuery, true)
-                val groupIsExpanded = groupExpanded[group] ?: true
-                rowViewsByKey[row.key]?.visibility = when {
-                    activeQuery.isNotBlank() -> if (rowMatches) View.VISIBLE else View.GONE
-                    groupIsExpanded -> View.VISIBLE
-                    else -> View.GONE
+                rowViewsByKey[row.key]?.visibility =
+                    if (activeQuery.isBlank() || rowMatches) View.VISIBLE else View.GONE
+                val expanded = groupExpanded[group] ?: true
+                val groupList = groupLists[group]
+                if (activeQuery.isNotBlank()) {
+                    groupList?.visibility = View.VISIBLE
+                    dragHandlesByGroup[group].orEmpty().forEach { handle ->
+                        handle.isEnabled = false
+                        handle.alpha = 0.35f
+                    }
+                } else {
+                    groupList?.visibility = if (expanded) View.VISIBLE else View.GONE
+                    dragHandlesByGroup[group].orEmpty().forEach { handle ->
+                        handle.isEnabled = expanded
+                        handle.alpha = if (expanded) 1f else 0.35f
+                    }
                 }
             }
             groupHeaderViews.forEach { (group, header) ->
@@ -302,11 +333,6 @@ internal object CatalogRowsSettingsScreen {
                 }
                 header.visibility = if (groupMatches) View.VISIBLE else View.GONE
                 header.isEnabled = activeQuery.isBlank()
-            }
-            dragHandles.forEach { handle ->
-                val enabled = activeQuery.isBlank() && allGroupsExpanded
-                handle.isEnabled = enabled
-                handle.alpha = if (enabled) 1f else 0.35f
             }
         }
         root.addView(rowSearch, LinearLayout.LayoutParams(
