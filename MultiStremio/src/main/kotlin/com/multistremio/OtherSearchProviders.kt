@@ -88,7 +88,11 @@ private class OtherSearchMainAPI(
     override var mainUrl: String =
         "https://other-search-${Hashing.sha256(catalogKey).take(24)}.multistremio.invalid"
     override var lang: String = "en"
-    override val hasMainPage: Boolean = false
+    // CloudStream's default saved search-provider list includes only providers with hasMainPage.
+    // An empty mainPage keeps this search-only provider out of the actual homepage while allowing
+    // it to be selected automatically by the default search-provider discovery logic.
+    override val hasMainPage: Boolean = true
+    override val mainPage: List<MainPageData> = emptyList()
     override val hasQuickSearch: Boolean = false
     override var supportedTypes: Set<TvType> = emptySet()
 
