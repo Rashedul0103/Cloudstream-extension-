@@ -15,20 +15,26 @@ object StremioClient {
     private suspend fun fetch(url: String): FetchResult =
         try {
             val res = app.get(url, timeout = Config.settings.timeoutSec.toLong())
-            val contentLength = res.size
-            when {
-                !res.isSuccessful -> FetchResult(null, "HTTP_ERROR")
-                // NiceHttp exposes Content-Length without consuming the response body. Avoid
-                // materializing large payloads when the server provides this header.
-                contentLength != null && contentLength > MAX_RESPONSE_BYTES -> FetchResult(null, "BODY_TOO_LARGE")
-                else -> {
-                    val body = res.text
-                    when {
-                        body.length > MAX_RESPONSE_CHARS -> FetchResult(null, "BODY_TOO_LARGE")
-                        body.isBlank() -> FetchResult(body, "EMPTY_BODY")
-                        else -> FetchResult(body, "RECEIVED")
+            try {
+                val contentLength = res.size
+                when {
+                    !res.isSuccessful -> FetchResult(null, "HTTP_ERROR")
+                    // NiceHttp exposes Content-Length without consuming the response body. Avoid
+                    // materializing large payloads when the server provides this header.
+                    contentLength != null && contentLength > MAX_RESPONSE_BYTES -> FetchResult(null, "BODY_TOO_LARGE")
+                    else -> {
+                        val body = res.text
+                        when {
+                            body.length > MAX_RESPONSE_CHARS -> FetchResult(null, "BODY_TOO_LARGE")
+                            body.isBlank() -> FetchResult(body, "EMPTY_BODY")
+                            else -> FetchResult(body, "RECEIVED")
+                        }
                     }
                 }
+            } finally {
+                // Error and oversized responses do not consume .text, so close them explicitly.
+                // Closing an already-consumed body is safe and keeps connection resources bounded.
+                runCatching { res.okhttpResponse.close() }
             }
         } catch (e: CancellationException) {
             throw e
