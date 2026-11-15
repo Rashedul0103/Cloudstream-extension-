@@ -81,6 +81,7 @@ internal object CatalogRowsSettingsScreen {
         val rowViewsByKey = linkedMapOf<String, View>()
         val rowsByKey = rows.associateBy { it.key }
         var orderedRowKeys = rows.map { it.key }.toMutableList()
+        var commitFocusedPosition: (() -> Unit)? = null
         var activeQuery = ""
 
         val content = vertical(ctx, dp(ctx, 8))
@@ -119,7 +120,7 @@ internal object CatalogRowsSettingsScreen {
 
                 val name = text(ctx, row.displayName, 13.5f, colors.primary, true).apply {
                     setPadding(dp(ctx, 2), 0, 0, 0)
-                    setOnClickListener { catalogRowMenu(ctx, row) }
+                    setOnClickListener { commitFocusedPosition?.invoke(); catalogRowMenu(ctx, row) }
                     isClickable = true
                 }
                 val source = text(ctx, "From ${row.sourceLabel}", 11f, colors.secondary).apply {
@@ -216,7 +217,7 @@ internal object CatalogRowsSettingsScreen {
                 ))
                 addView(text(ctx, "›", 22f, colors.secondary).apply { gravity = Gravity.CENTER },
                     LinearLayout.LayoutParams(dp(ctx, 22), ViewGroup.LayoutParams.MATCH_PARENT))
-                setOnClickListener { commitFocusedPosition(); action() }
+                setOnClickListener { commitFocusedPosition?.invoke(); action() }
             }
             content.addView(actionRow, LinearLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT,
@@ -305,7 +306,7 @@ internal object CatalogRowsSettingsScreen {
             toast(ctx, "Moved to position $requestedPosition. Other rows renumbered.")
         }
 
-        fun commitFocusedPosition() {
+        commitFocusedPosition = {
             orderInputsByKey.entries.firstOrNull { it.value.hasFocus() }?.key?.let {
                 applyRequestedPosition(it)
             }
@@ -396,7 +397,7 @@ internal object CatalogRowsSettingsScreen {
             minOf(dp(ctx, 460), dp(ctx, maxOf(180, rows.size * 72 + 170))),
         ))
         addFooter(ctx, root, "Done", {
-            commitFocusedPosition()
+            commitFocusedPosition?.invoke()
             MainMenuSettingsScreen.show(ctx)
         })
         SettingsDialogHost.show(ctx, "catalog-rows", root) { MainMenuSettingsScreen.show(ctx) }
