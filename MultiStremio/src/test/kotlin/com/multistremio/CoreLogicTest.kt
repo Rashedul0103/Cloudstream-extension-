@@ -712,7 +712,7 @@ class CoreLogicTest {
             "CNCVerse",
             RawStream(
                 name = "🌀 CNCVerse ❄️ 4K • MovieBoxIN",
-                title = "Example.Movie.2026.2160p.WEB-DL\\n🛰️ Source: MovieBoxIN • HubCloud",
+                title = "Example.Movie.2026.2160p.WEB-DL\n🛰️ Source: MovieBoxIN • HubCloud",
                 url = "https://example.com/movie.mkv",
             ),
         )
