@@ -1,6 +1,7 @@
 package com.multistremio
 
 import android.content.Context
+import android.text.InputType
 import android.view.Gravity
 import android.view.View
 import android.view.ViewGroup
@@ -9,7 +10,6 @@ import android.widget.EditText
 import android.widget.LinearLayout
 import android.widget.ScrollView
 import android.widget.TextView
-import android.text.InputType
 
 internal object CatalogRowsSettingsScreen {
     fun show(ctx: Context) = catalogRowsMenu(ctx)
@@ -133,7 +133,11 @@ internal object CatalogRowsSettingsScreen {
                 }
                 setOnCheckedChangeListener { _, checked ->
                     setRowVisibility(ctx, row, checked)
+                    buttonTintList = android.content.res.ColorStateList.valueOf(
+                        if (checked) colors.accent else colors.secondary,
+                    )
                     statusLabel.text = when {
+                        row.status == "Extension not installed" -> row.status
                         row.external != null -> if (checked) "Visible" else "Hidden"
                         row.addon?.enabled == false -> "Addon is off"
                         row.addon?.useCatalogs == false -> "Catalog use is off"
@@ -215,7 +219,6 @@ internal object CatalogRowsSettingsScreen {
                     ViewGroup.LayoutParams.WRAP_CONTENT,
                 ).apply { topMargin = dp(ctx, 5); bottomMargin = dp(ctx, 4) })
                 content.addView(groupList)
-
             }
         }
 
