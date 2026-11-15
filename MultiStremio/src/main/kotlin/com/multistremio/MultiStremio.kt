@@ -121,7 +121,7 @@ class MultiStremio : MainAPI() {
         val key = request.data
         if (page <= 1) skipOffsets.remove(key)
         // Page > 1 without a known offset (e.g. after a process restart) would repeat page 1.
-        val skip = if (page <= 1) 0 else skipOffsets[key] ?: return newHomePageResponse(request, emptyList(), false)
+        val skip = if (page <= 1) 0 else skipOffsets.get(key) ?: return newHomePageResponse(request, emptyList(), false)
         val metas = StremioClient.catalog(addon, type, catalogId, if (skip > 0) "skip=$skip" else null)
         val hasNext = supportsSkip && metas.isNotEmpty()
         if (hasNext) skipOffsets.put(key, skip + metas.size) else skipOffsets.remove(key)
