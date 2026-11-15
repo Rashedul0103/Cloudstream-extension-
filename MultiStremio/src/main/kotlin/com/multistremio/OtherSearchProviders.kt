@@ -94,7 +94,12 @@ private class OtherSearchMainAPI(
     override val hasMainPage: Boolean = true
     override val mainPage: List<MainPageData> = emptyList()
     override val hasQuickSearch: Boolean = false
-    override var supportedTypes: Set<TvType> = emptySet()
+    // Keep the slot discoverable in CloudStream's default search-provider list even while Other
+    // is off. The inactive search returns null, so it creates no empty result section.
+    private val eligibleTypes = OtherSearchRows.searchProviderTypes(
+        OtherSearchRows.candidates(Config.snapshot()).firstOrNull { it.key == catalogKey }?.type ?: "movie",
+    )
+    override var supportedTypes: Set<TvType> = eligibleTypes
 
     private val currentRow = AtomicReference<OtherSearchRow?>(null)
     private val delegate = MultiStremio()
@@ -104,24 +109,27 @@ private class OtherSearchMainAPI(
      */
     fun configure(row: OtherSearchRow?) {
         currentRow.set(row)
-        supportedTypes = row?.let { OtherSearchRows.searchProviderTypes(it.type) } ?: emptySet()
+        // supportedTypes stays fixed for this provider's lifetime. CloudStream snapshots the
+        // default provider-selection list; removing these types while Other is off would prevent
+        // a later toggle from participating automatically.
+        supportedTypes = eligibleTypes
     }
 
     override suspend fun search(query: String): List<SearchResponse>? {
         if (query.isBlank()) return emptyList()
-        val selected = currentRow.get() ?: return emptyList()
+        val selected = currentRow.get() ?: return null
         val settings = Config.snapshot()
         val current = OtherSearchRows.resolve(settings).firstOrNull { it.key == selected.key }
-            ?: return emptyList()
+            ?: return null
         val addon = settings.addons.firstOrNull {
             it.id == current.addonId && it.enabled && it.useOther
-        } ?: return emptyList()
-        val manifest = Config.manifestOf(addon) ?: return emptyList()
+        } ?: return null
+        val manifest = Config.manifestOf(addon) ?: return null
         val catalog = manifest.catalogs.orEmpty().firstOrNull {
             it.type == current.type && it.id == current.catalogId
-        } ?: return emptyList()
+        } ?: return null
         if (!manifest.supports("catalog", current.type, null) || !catalog.isSearchable()) {
-            return emptyList()
+            return null
         }
 
         val metas = StremioClient.catalog(
