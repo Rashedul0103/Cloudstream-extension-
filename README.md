@@ -8,6 +8,10 @@ Open **CloudStream Settings → Extensions → MultiStremio → Catalog rows** a
 
 MultiStremio delegates each selected row request to its original extension provider, including pagination. It does not copy the source extension's catalog implementation or stream logic.
 
+## Separate search rows (Other capability)
+
+Open **Settings → Extensions → MultiStremio → Addons → [addon] → Choose addon capabilities** and enable **Other**. Each searchable homepage catalog from that addon appears as its own CloudStream search section, using the same title as the homepage row and the catalog addon's own poster and metadata. **Other** is independent of **Catalogs**: it can remain enabled when the addon is excluded from the combined homepage. Only the exact catalog rows assigned to Other are removed from the combined MultiStremio search; other addons and other catalog rows remain searchable. A catalog must advertise an optional `search` extra in its Stremio manifest. Duplicate titles are disambiguated with the addon name because CloudStream requires unique provider names. If CloudStream's search-provider filter was manually restricted, enable both **MultiStremio** and the new Other row providers in that filter.
+
 ## Install in CloudStream
 
 After this repository has been pushed to GitHub, add this repository manifest in CloudStream → Settings → Extensions → Add repository:
@@ -26,7 +30,7 @@ The settings use a theme-aware mobile layout with clearer section descriptions, 
 
 ## Catalog layout
 
-Open the plugin settings and choose **Catalog rows (visibility & order)**. Every Stremio catalog and imported extension row appears in one flat list, with its source shown underneath. Edit a row's position number and then leave the field or press Done. The row moves to that exact 1-based position, every row between its old and new positions shifts by one, and all visible rows are renumbered automatically. For example, moving row 50 to position 5 makes the old rows 5–49 become rows 6–50. The order is saved immediately; there is no separate Apply action. Rows temporarily unavailable from an addon remain saved after the rows currently on screen. Use the checkbox at the right of a row to show or hide it immediately. Tap a row title to rename it or open its parent addon's settings. Imported extension rows can be removed without uninstalling their source extension. Addon-wide enable/disable and the separate “Catalogs & search” usage switch remain under **Addons**. Row order and visibility are saved locally on the device.
+Open the plugin settings and choose **Catalog rows (visibility & order)**. Every Stremio catalog and imported extension row appears in one flat list, with its source shown underneath. Edit a row's position number and then leave the field or press Done. The row moves to that exact 1-based position, every row between its old and new positions shifts by one, and all visible rows are renumbered automatically. For example, moving row 50 to position 5 makes the old rows 5–49 become rows 6–50. The order is saved immediately; there is no separate Apply action. Rows temporarily unavailable from an addon remain saved after the rows currently on screen. Use the checkbox at the right of a row to show or hide it immediately. Tap a row title to rename it or open its parent addon's settings. Imported extension rows can be removed without uninstalling their source extension. Addon-wide enable/disable and the separate “Catalogs & search” and **Other** capabilities remain under **Addons**. Row order and visibility are saved locally on the device.
 
 ## Status
 
