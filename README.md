@@ -1,6 +1,6 @@
 # MultiStremio — CloudStream extension
 
-A CloudStream plugin that combines Stremio addons: merged catalogs, cross-addon search, metadata and episodes, subtitles, streams, stream filtering, and sorting. Users can also add homepage rows from other installed CloudStream extensions, then hide or reorder all rows together. Stremio catalog row titles show the catalog name without repeating the addon name.
+A CloudStream plugin that combines Stremio addons: merged catalogs, cross-addon search, metadata and episodes, subtitles, streams, stream filtering, and sorting. It supports movies, series, anime, live channels and audiobooks (including Stremio's custom `audiobook` media type). Search results keep the poster supplied by the catalog addon when another metadata addon does not provide one. Users can also add homepage rows from other installed CloudStream extensions, then hide or reorder all rows together. Stremio catalog row titles show the catalog name without repeating the addon name.
 
 ## Homepage row integration
 

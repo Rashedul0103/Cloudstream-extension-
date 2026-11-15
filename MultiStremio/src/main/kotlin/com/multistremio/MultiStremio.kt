@@ -41,7 +41,7 @@ class MultiStremio : MainAPI() {
     override var lang = "en"
     override val hasMainPage = true
     override val hasQuickSearch = false
-    override val supportedTypes = setOf(TvType.Movie, TvType.TvSeries, TvType.Anime, TvType.Live, TvType.Others)
+    override val supportedTypes = setOf(TvType.Movie, TvType.TvSeries, TvType.Anime, TvType.Live, TvType.AudioBook, TvType.Others)
 
     /** Running item count per catalog, used as Stremio's `skip` for the next page. */
     private val skipOffsets = CatalogOffsetCache()
@@ -174,7 +174,7 @@ class MultiStremio : MainAPI() {
         val title = meta?.name ?: ref.n ?: id
         val poster = meta?.poster ?: ref.p
         val metaId = meta?.id ?: id
-        val tvType = tvTypeOf(type)
+        val tvType = StremioMediaTypes.toCloudStream(type)
         val videos = meta?.videos.orEmpty().filter { !it.id.isNullOrBlank() }
         val yr = yearOf(meta)
 
@@ -587,7 +587,7 @@ class MultiStremio : MainAPI() {
         val title = name ?: return null
         val t = type?.takeIf { it.isNotBlank() } ?: fallbackType
         val url = Json.toJson(ItemRef(addonId, t, metaId, title, poster))
-        val tvType = tvTypeOf(t)
+        val tvType = StremioMediaTypes.toCloudStream(t)
         return if (tvType == TvType.Live) {
             newLiveSearchResponse(title, url, tvType, fix = false) { posterUrl = poster }
         } else {
@@ -599,20 +599,13 @@ class MultiStremio : MainAPI() {
         }
     }
 
-    private fun tvTypeOf(t: String): TvType = when (t.lowercase()) {
-        "movie" -> TvType.Movie
-        "series" -> TvType.TvSeries
-        "anime" -> TvType.Anime
-        "tv", "channel" -> TvType.Live
-        else -> TvType.Others
-    }
-
     private fun typeLabel(t: String): String = when (t.lowercase()) {
         "movie" -> "Movies"
         "series" -> "Series"
         "anime" -> "Anime"
         "tv" -> "TV"
         "channel" -> "Channels"
+        "audiobook", "audio_book", "book", "books" -> "Audiobooks"
         else -> t.replaceFirstChar { it.uppercase() }
     }
 

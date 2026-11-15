@@ -356,6 +356,17 @@ class CoreLogicTest {
     }
 
     @Test
+    fun stremioAudiobookTypesNormalizeToTheAudiobookMediaType() {
+        listOf("audiobook", "AudioBook", "audio_book", "audio-book", "book", "books").forEach { type ->
+            assertEquals("audiobook", StremioMediaTypes.canonicalType(type))
+        }
+
+        assertEquals("movie", StremioMediaTypes.canonicalType("movie"))
+        assertEquals("series", StremioMediaTypes.canonicalType("series"))
+        assertEquals("other", StremioMediaTypes.canonicalType("unrecognized-type"))
+    }
+
+    @Test
     fun catalogResourceDeclarationsGateHomepageAndSearchTypes() {
         val stringResource = Manifest(
             resources = listOf("catalog"),
