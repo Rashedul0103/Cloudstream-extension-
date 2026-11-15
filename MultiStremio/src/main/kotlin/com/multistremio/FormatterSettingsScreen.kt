@@ -38,7 +38,7 @@ internal object FormatterSettingsScreen {
                         val newlySelected = fields.map { it.id }.filter { it in wanted && it !in existingOrder }
                         updateAndReopen({ again() }) { streamFormat.fields = (existingOrder + newlySelected).toMutableList() }
                     }
-                }, searchKeywords = listOf("fields", "quality", "source", "HDR", "codec", "language", "size")),
+                }, searchKeywords = listOf("fields", "quality", "source", "provider", "MovieBox", "Vega Movies", "HDR", "codec", "language", "size")),
             SettingItem("Reorder visible information", "Arrange details in the order they appear", SettingItemType.Navigate,
                 onClick = { streamFormatReorderDialog(ctx) },
                 searchKeywords = listOf("reorder", "drag", "order", "fields")),

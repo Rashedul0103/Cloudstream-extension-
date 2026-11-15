@@ -210,7 +210,8 @@ data class StreamFormatField(val id: String, val title: String, val description:
 
 object StreamFormatFields {
     val all = listOf(
-        StreamFormatField("addon", "Addon name", "Which extension supplied this link"),
+        StreamFormatField("addon", "Addon name", "The outer extension supplying streams, e.g. CNCVerse"),
+        StreamFormatField("provider", "Provider / source name", "The inner provider of an aggregator addon, e.g. MovieBox or Vega Movies"),
         StreamFormatField("quality", "Video quality", "4K, 1080p, 720p and similar"),
         StreamFormatField("source", "Video source", "WEB-DL, BluRay, REMUX and similar"),
         StreamFormatField("hdr", "HDR format", "HDR10, Dolby Vision and similar"),
@@ -224,7 +225,8 @@ object StreamFormatFields {
         StreamFormatField("link_type", "Link type", "Direct link or magnet link"),
         StreamFormatField("release", "Release name", "The original filename or release title"),
     )
-    val defaultOrder = all.map { it.id }
+    // Provider is optional: many addons expose no separate inner-provider name.
+    val defaultOrder = all.map { it.id }.filterNot { it == "provider" }
 }
 
 data class StreamFormatSettings(
