@@ -418,7 +418,7 @@ object StreamFilter {
                 index++
                 continue
             }
-            if (char == '\\\\') {
+            if (char == '\\') {
                 escaped = true
                 index++
                 continue
@@ -472,7 +472,7 @@ object StreamFilter {
         val end = source.indexOf('}', start + 1)
         if (end < 0) return null
         val body = source.substring(start + 1, end)
-        if (!body.matches(Regex("""\\d+(,\\d*)?"""))) return null
+        if (!body.matches(Regex("""\d+(,\d*)?"""))) return null
         val parts = body.split(',', limit = 2)
         val minimum = parts[0].toLongOrNull() ?: Long.MAX_VALUE
         val maximum = when {
