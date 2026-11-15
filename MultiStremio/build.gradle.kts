@@ -36,6 +36,7 @@ dependencies {
     // Linear-time matching prevents user-defined stream filters from stalling playback.
     implementation("com.google.re2j:re2j:1.8")
     testImplementation("junit:junit:4.13.2")
+    testImplementation("org.jetbrains.kotlinx:kotlinx-coroutines-core:1.11.0")
 }
 
 
