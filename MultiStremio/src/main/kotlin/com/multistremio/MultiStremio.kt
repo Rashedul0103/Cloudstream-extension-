@@ -13,7 +13,6 @@ import com.lagradost.cloudstream3.utils.SubtitleHelper
 import com.lagradost.cloudstream3.utils.loadExtractor
 import com.lagradost.cloudstream3.utils.newExtractorLink
 import java.util.concurrent.CancellationException
-import java.util.concurrent.ConcurrentHashMap
 
 /**
  * Run addon fan-out in bounded batches. Batches stay sequential while requests inside each
@@ -40,7 +39,7 @@ class MultiStremio : MainAPI() {
     override val supportedTypes = setOf(TvType.Movie, TvType.TvSeries, TvType.Anime, TvType.Live, TvType.Others)
 
     /** Running item count per catalog, used as Stremio's `skip` for the next page. */
-    private val skipOffsets = ConcurrentHashMap<String, Int>()
+    private val skipOffsets = CatalogOffsetCache()
 
     private val noAddonsMessage =
         "No addons configured. Open Settings > Extensions > MultiStremio (gear icon) and add an addon."
@@ -124,10 +123,11 @@ class MultiStremio : MainAPI() {
         // Page > 1 without a known offset (e.g. after a process restart) would repeat page 1.
         val skip = if (page <= 1) 0 else skipOffsets[key] ?: return newHomePageResponse(request, emptyList(), false)
         val metas = StremioClient.catalog(addon, type, catalogId, if (skip > 0) "skip=$skip" else null)
-        skipOffsets[key] = skip + metas.size
+        val hasNext = supportsSkip && metas.isNotEmpty()
+        if (hasNext) skipOffsets.put(key, skip + metas.size) else skipOffsets.remove(key)
 
         val items = metas.mapNotNull { it.toSearchResponse(addon.id, type) }
-        return newHomePageResponse(request, items, supportsSkip && metas.isNotEmpty())
+        return newHomePageResponse(request, items, hasNext)
     }
 
     override suspend fun search(query: String): List<SearchResponse>? {
