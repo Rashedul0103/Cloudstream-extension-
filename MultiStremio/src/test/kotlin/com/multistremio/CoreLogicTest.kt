@@ -188,6 +188,32 @@ class CoreLogicTest {
     }
 
     @Test
+    fun regexFiltersRejectUnsafeAndUnsupportedExpressions() {
+        assertEquals(
+            listOf("/(?=web)web/", "/(a{10}){10}/", "/a{999999}/"),
+            StreamFilter.invalidRegexPatterns(
+                listOf("/(?=web)web/", "/(a{10}){10}/", "/a{999999}/"),
+            ),
+        )
+        val tooLong = "/" + "a".repeat(257) + "/"
+        assertEquals(listOf(tooLong), StreamFilter.invalidRegexPatterns(listOf(tooLong)))
+    }
+
+    @Test
+    fun regexFiltersHandleBacktrackingShapedInputWithLinearEngine() {
+        val hostileInput = "a".repeat(50_000) + "!"
+        assertFalse(StreamFilter.matchesKeyword(hostileInput, "/(a+)+$/"))
+    }
+
+    @Test
+    fun regexCacheHasAFixedUpperBound() {
+        repeat(200) { index ->
+            StreamFilter.matchesKeyword("no match", "/token$index/")
+        }
+        assertTrue(StreamFilter.regexCacheSizeForTests() <= 128)
+    }
+
+    @Test
     fun invalidLegacyRequireRegexDoesNotHideEveryStream() {
         val raw = RawStream(name = "Example.Movie.1080p.WEB-DL")
         val (info, text) = StreamParser.parse(raw)
