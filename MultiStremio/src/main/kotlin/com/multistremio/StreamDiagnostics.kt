@@ -12,7 +12,18 @@ data class StreamRequestDiagnostic(
     val resultCount: Int,
     /** Time spent waiting for a shared request permit before the HTTP call started. */
     val queueWaitMs: Long = 0L,
-)
+    /** HTTP response code for rejected responses; no response body or URL is retained. */
+    val httpCode: Int? = null,
+    /** Exception class only; exception messages can contain private URLs or credentials. */
+    val errorType: String? = null,
+) {
+    fun displayStatus(): String = buildString {
+        append(status)
+        httpCode?.let { append(" (HTTP ").append(it).append(')') }
+        errorType?.takeIf { it.isNotBlank() }?.let { append(" · ").append(it) }
+        if (resultCount > 0) append(" · ").append(resultCount).append(" items")
+    }
+}
 
 data class StreamDiagnosticSnapshot(
     val startedAt: Long,
@@ -190,6 +201,8 @@ object StreamDiagnostics {
         status: String,
         resultCount: Int,
         queueWaitMs: Long = 0L,
+        httpCode: Int? = null,
+        errorType: String? = null,
     ) {
         if (runId == null) return
         val run = active[runId] ?: return
@@ -197,6 +210,7 @@ object StreamDiagnostics {
             run.requests += StreamRequestDiagnostic(
                 safeAddonName(addonName), resource, elapsedMs.coerceAtLeast(0L),
                 status, resultCount.coerceAtLeast(0), queueWaitMs.coerceAtLeast(0L),
+                httpCode, errorType?.take(80),
             )
         }
     }

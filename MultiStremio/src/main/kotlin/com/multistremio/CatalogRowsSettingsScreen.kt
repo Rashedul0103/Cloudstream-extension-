@@ -71,170 +71,24 @@ internal object CatalogRowsSettingsScreen {
         val root = shell(
             ctx,
             "Homepage rows",
-            "Drag a source handle to reorder addon sections. Edit position numbers to reorder rows. Use checkboxes to show or hide rows. Tap a row name to rename/manage it; use ⋮ on imported rows to remove them.",
+            "Every row has one global position, regardless of its addon. Mix rows from different Stremio addons and installed extensions. Repeated numbers keep their current relative order. Each row shows its source. Stremio addon priority follows the first row from each addon."
         )
         HomeRefreshNotice.addTo(ctx, root)
-        val scroll = ScrollView(ctx).apply { clipToPadding = false }
-        val content = vertical(ctx)
-        val sections = vertical(ctx)
-        val rowViewsByGroup = linkedMapOf<String, MutableList<View>>()
-        val rowKeysByGroup = linkedMapOf<String, MutableList<String>>()
-        val rowViewsByKey = linkedMapOf<String, View>()
-        val groupLists = linkedMapOf<String, LinearLayout>()
-        val groupSections = linkedMapOf<String, LinearLayout>()
-        val groupDragHandles = linkedMapOf<String, View>()
-        val groupExpanded = mutableMapOf<String, Boolean>()
-        val groupTitles = linkedMapOf<String, String>()
-        val groupAddonIds = linkedMapOf<String, String>()
-        val groupForKey = linkedMapOf<String, String>()
+
         val orderInputsByKey = linkedMapOf<String, EditText>()
-        val initialPositionByKey = mutableMapOf<String, Int>()
+        val rowViewsByKey = linkedMapOf<String, View>()
+        val rowsByKey = rows.associateBy { it.key }
         var activeQuery = ""
 
-        fun sourceGroupKey(row: CatalogRow): String = when {
-            row.addon != null -> "addon:${row.addon.id}"
-            row.external != null -> "extension:${row.external.sourcePlugin.ifBlank { row.external.providerName }}"
-            else -> "source:${row.sourceLabel}"
-        }
+        val content = vertical(ctx, dp(ctx, 8))
+        content.addView(text(ctx, "GLOBAL ORDER · ALL SOURCES", 10f, colors.accent, true).apply {
+            letterSpacing = 0.10f
+            setPadding(dp(ctx, 4), dp(ctx, 4), 0, dp(ctx, 2))
+        })
 
-        rows.forEach { row ->
-            val group = sourceGroupKey(row)
-            groupForKey[row.key] = group
-            if (group !in groupTitles) {
-                groupTitles[group] = row.addon?.name ?: row.external?.providerName ?: row.sourceLabel
-            }
-            row.addon?.id?.let { groupAddonIds[group] = it }
-            rowViewsByGroup.getOrPut(group) { mutableListOf() }
-            rowKeysByGroup.getOrPut(group) { mutableListOf() }.add(row.key)
-
-            val serialNumber = EditText(ctx).apply {
-                setSingleLine(true)
-                inputType = InputType.TYPE_CLASS_NUMBER
-                textSize = 13f
-                gravity = Gravity.CENTER
-                setText("1")
-                setSelectAllOnFocus(true)
-                setPadding(dp(ctx, 3), 0, dp(ctx, 3), 0)
-                background = rounded(ctx, colors.background, colors.outline)
-                contentDescription = "Position of ${row.displayName} within ${groupTitles[group]}"
-                isFocusable = true
-                isFocusableInTouchMode = true
-            }
-            orderInputsByKey[row.key] = serialNumber
-
-            val description = text(ctx, row.displayName, 13.5f, colors.primary, true).apply {
-                setPadding(dp(ctx, 7), dp(ctx, 2), dp(ctx, 2), dp(ctx, 2))
-                setOnClickListener { catalogRowMenu(ctx, row) }
-                isClickable = true
-            }
-            val manageImported = if (row.external != null) {
-                text(ctx, "⋮", 20f, colors.secondary, true).apply {
-                    gravity = Gravity.CENTER
-                    contentDescription = "Manage or remove imported row ${row.displayName}"
-                    setOnClickListener { catalogRowMenu(ctx, row) }
-                }
-            } else null
-
-            val visibility = CheckBox(ctx).apply {
-                isChecked = row.rowEnabled
-                buttonTintList = android.content.res.ColorStateList.valueOf(
-                    if (isChecked) colors.accent else colors.secondary,
-                )
-                contentDescription = if (row.rowEnabled) {
-                    "Hide homepage row ${row.displayName}"
-                } else {
-                    "Show homepage row ${row.displayName}"
-                }
-                setOnCheckedChangeListener { _, checked ->
-                    setRowVisibility(ctx, row, checked)
-                    buttonTintList = android.content.res.ColorStateList.valueOf(
-                        if (checked) colors.accent else colors.secondary,
-                    )
-                    contentDescription = if (checked) {
-                        "Hide homepage row ${row.displayName}"
-                    } else {
-                        "Show homepage row ${row.displayName}"
-                    }
-                }
-            }
-            val item = LinearLayout(ctx).apply {
-                orientation = LinearLayout.HORIZONTAL
-                gravity = Gravity.CENTER_VERTICAL
-                setPadding(dp(ctx, 8), dp(ctx, 5), dp(ctx, 4), dp(ctx, 5))
-                background = rounded(ctx, colors.background, colors.outline)
-                minimumHeight = dp(ctx, 54)
-                tag = row.key
-                addView(serialNumber, LinearLayout.LayoutParams(dp(ctx, 42), dp(ctx, 38)).apply {
-                    marginEnd = dp(ctx, 5)
-                })
-                addView(description, LinearLayout.LayoutParams(
-                    0,
-                    ViewGroup.LayoutParams.WRAP_CONTENT,
-                    1f,
-                ))
-                manageImported?.let {
-                    addView(it, LinearLayout.LayoutParams(dp(ctx, 30), dp(ctx, 40)))
-                }
-                addView(visibility, LinearLayout.LayoutParams(dp(ctx, 40), dp(ctx, 40)))
-            }
-            rowViewsByGroup.getValue(group).add(item)
-            rowViewsByKey[row.key] = item
-        }
-
-        rowKeysByGroup.forEach { (group, keys) ->
-            keys.forEachIndexed { index, key -> initialPositionByKey[key] = index + 1 }
-        }
-        orderInputsByKey.forEach { (key, input) ->
-            input.setText((initialPositionByKey[key] ?: 1).toString())
-        }
-
-        fun refreshGroupPositions() {
-            for (index in 0 until sections.childCount) {
-                val section = sections.getChildAt(index) as? LinearLayout ?: continue
-                val header = section.getChildAt(0) as? LinearLayout ?: continue
-                (header.getChildAt(3) as? TextView)?.text = (index + 1).toString()
-            }
-        }
-
-        fun persistGroupOrder() {
-            val orderedGroupKeys = (0 until sections.childCount).mapNotNull {
-                sections.getChildAt(it).tag as? String
-            }
-            val snapshot = Config.snapshot()
-            val groupRowKeys = rowKeysByGroup.mapValues { (_, keys) -> keys.toList() }
-            val reorderedCatalog = HomepageGroupOrderMath.reorderCatalogGroups(
-                snapshot.catalogOrder,
-                groupRowKeys,
-                orderedGroupKeys,
-            )
-            if (reorderedCatalog == null) {
-                toast(ctx, "Could not save the homepage section order.")
-                return
-            }
-            val orderedAddonIds = orderedGroupKeys.mapNotNull { groupAddonIds[it] }
-            val reorderedAddonIds = HomepageGroupOrderMath.reorderAddonSlots(
-                snapshot.addons.map { it.id },
-                orderedAddonIds,
-            )
-            if (reorderedAddonIds == null) {
-                toast(ctx, "Could not save addon priority.")
-                return
-            }
-
-            Config.update {
-                catalogOrder = reorderedCatalog.toMutableList()
-                val byId = addons.associateBy { it.id }
-                val reorderedAddons = reorderedAddonIds.mapNotNull { byId[it] }
-                if (reorderedAddons.size == addons.size) {
-                    addons = reorderedAddons.toMutableList()
-                }
-            }
-            HomeRefreshNotice.mark()
-            toast(ctx, "Homepage source order updated.")
-        }
-
+        val rowList = vertical(ctx)
         if (rows.isEmpty()) {
-            content.addView(text(
+            rowList.addView(text(
                 ctx,
                 "No homepage rows are available yet. Add a Stremio addon or import a row from another installed extension.",
                 13f,
@@ -243,81 +97,95 @@ internal object CatalogRowsSettingsScreen {
                 setPadding(dp(ctx, 12), dp(ctx, 14), dp(ctx, 12), dp(ctx, 14))
             })
         } else {
-            rowViewsByGroup.forEach { (group, groupRows) ->
-                val rowKeys = rowKeysByGroup[group].orEmpty()
-                val groupList = vertical(ctx).apply {
-                    setPadding(dp(ctx, 6), dp(ctx, 5), dp(ctx, 6), dp(ctx, 5))
+            rows.forEachIndexed { index, row ->
+                val positionInput = EditText(ctx).apply {
+                    setSingleLine(true)
+                    inputType = InputType.TYPE_CLASS_NUMBER
+                    textSize = 13f
+                    gravity = Gravity.CENTER
+                    setText((index + 1).toString())
+                    setSelectAllOnFocus(true)
+                    setPadding(dp(ctx, 3), 0, dp(ctx, 3), 0)
+                    background = rounded(ctx, colors.background, colors.outline)
+                    contentDescription = "Global position of ${row.displayName}"
+                    isFocusable = true
+                    isFocusableInTouchMode = true
                 }
-                groupLists[group] = groupList
-                groupRows.forEach { rowView ->
-                    groupList.addView(rowView, LinearLayout.LayoutParams(
-                        ViewGroup.LayoutParams.MATCH_PARENT,
-                        ViewGroup.LayoutParams.WRAP_CONTENT,
-                    ).apply { bottomMargin = dp(ctx, 4) })
+                orderInputsByKey[row.key] = positionInput
+
+                val name = text(ctx, row.displayName, 13.5f, colors.primary, true).apply {
+                    setPadding(dp(ctx, 2), 0, 0, 0)
+                    setOnClickListener { catalogRowMenu(ctx, row) }
+                    isClickable = true
+                }
+                val source = text(ctx, "From ${row.sourceLabel}", 11f, colors.secondary).apply {
+                    setPadding(dp(ctx, 2), dp(ctx, 2), 0, 0)
+                }
+                val details = vertical(ctx, dp(ctx, 1)).apply {
+                    addView(name)
+                    addView(source)
                 }
 
-                var expanded = true
-                groupExpanded[group] = true
-                val dragHandle = text(ctx, "☰", 17f, colors.accent, true).apply {
-                    gravity = Gravity.CENTER
-                    contentDescription = "Drag to reorder ${groupTitles[group].orEmpty()} homepage section"
-                }
-                groupDragHandles[group] = dragHandle
-                val positionBadge = text(ctx, "1", 11f, colors.accent, true).apply {
-                    tag = "homepage.group.position"
-                    gravity = Gravity.CENTER
-                    background = rounded(ctx, withAlpha(colors.accent, 14))
-                    setPadding(dp(ctx, 8), dp(ctx, 4), dp(ctx, 8), dp(ctx, 4))
-                }
-                val rowCount = text(ctx, "${rowKeys.size} rows  ▾", 11f, colors.secondary, true)
-                val header = LinearLayout(ctx).apply {
-                    orientation = LinearLayout.HORIZONTAL
-                    gravity = Gravity.CENTER_VERTICAL
-                    setPadding(dp(ctx, 8), dp(ctx, 6), dp(ctx, 8), dp(ctx, 6))
-                    background = ripple(ctx, withAlpha(colors.accent, 8), colors)
-                    addView(dragHandle, LinearLayout.LayoutParams(dp(ctx, 36), dp(ctx, 36)))
-                    addView(text(ctx, groupTitles[group].orEmpty(), 13.5f, colors.primary, true),
-                        LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
-                    addView(rowCount, LinearLayout.LayoutParams(
-                        ViewGroup.LayoutParams.WRAP_CONTENT,
-                        ViewGroup.LayoutParams.WRAP_CONTENT,
-                    ).apply { marginEnd = dp(ctx, 8) })
-                    addView(positionBadge)
-                    setOnClickListener {
-                        if (activeQuery.isNotBlank()) return@setOnClickListener
-                        expanded = !expanded
-                        groupExpanded[group] = expanded
-                        groupList.visibility = if (expanded) View.VISIBLE else View.GONE
-                        rowCount.text = "${rowKeys.size} rows  ${if (expanded) "▾" else "▸"}"
+                val manageImported = if (row.external != null) {
+                    text(ctx, "⋮", 20f, colors.secondary, true).apply {
+                        gravity = Gravity.CENTER
+                        contentDescription = "Manage or remove imported row ${row.displayName}"
+                        setOnClickListener { catalogRowMenu(ctx, row) }
+                    }
+                } else null
+
+                val visibility = CheckBox(ctx).apply {
+                    isChecked = row.rowEnabled
+                    buttonTintList = android.content.res.ColorStateList.valueOf(
+                        if (isChecked) colors.accent else colors.secondary,
+                    )
+                    contentDescription = if (row.rowEnabled) {
+                        "Hide homepage row ${row.displayName}"
+                    } else {
+                        "Show homepage row ${row.displayName}"
+                    }
+                    setOnCheckedChangeListener { _, checked ->
+                        setRowVisibility(ctx, row, checked)
+                        buttonTintList = android.content.res.ColorStateList.valueOf(
+                            if (checked) colors.accent else colors.secondary,
+                        )
+                        contentDescription = if (checked) {
+                            "Hide homepage row ${row.displayName}"
+                        } else {
+                            "Show homepage row ${row.displayName}"
+                        }
                     }
                 }
-                val section = vertical(ctx).apply {
-                    tag = group
+
+                val item = LinearLayout(ctx).apply {
+                    orientation = LinearLayout.HORIZONTAL
+                    gravity = Gravity.CENTER_VERTICAL
+                    setPadding(dp(ctx, 8), dp(ctx, 6), dp(ctx, 4), dp(ctx, 6))
                     background = rounded(ctx, colors.background, colors.outline)
-                    addView(header)
-                    addView(groupList)
+                    minimumHeight = dp(ctx, 58)
+                    tag = row.key
+                    addView(positionInput, LinearLayout.LayoutParams(dp(ctx, 46), dp(ctx, 38)).apply {
+                        marginEnd = dp(ctx, 7)
+                    })
+                    addView(details, LinearLayout.LayoutParams(
+                        0,
+                        ViewGroup.LayoutParams.WRAP_CONTENT,
+                        1f,
+                    ))
+                    manageImported?.let {
+                        addView(it, LinearLayout.LayoutParams(dp(ctx, 30), dp(ctx, 40)))
+                    }
+                    addView(visibility, LinearLayout.LayoutParams(dp(ctx, 40), dp(ctx, 40)))
                 }
-                groupSections[group] = section
-                sections.addView(section, LinearLayout.LayoutParams(
+
+                rowViewsByKey[row.key] = item
+                rowList.addView(item, LinearLayout.LayoutParams(
                     ViewGroup.LayoutParams.MATCH_PARENT,
                     ViewGroup.LayoutParams.WRAP_CONTENT,
-                ).apply { bottomMargin = dp(ctx, 6) })
-                if (rowViewsByGroup.size > 1) {
-                    installDragReordering(
-                        ctx,
-                        dragHandle,
-                        section,
-                        sections,
-                        scroll,
-                        colors,
-                        onDrop = { persistGroupOrder() },
-                        onMoved = { refreshGroupPositions() },
-                    )
-                }
+                ).apply { bottomMargin = dp(ctx, 5) })
             }
-            refreshGroupPositions()
-            content.addView(sections)
         }
+        content.addView(rowList)
 
         content.addView(text(ctx, "MORE ACTIONS", 10f, colors.accent, true).apply {
             letterSpacing = 0.10f
@@ -353,28 +221,41 @@ internal object CatalogRowsSettingsScreen {
         }
 
         addAction(
-            "Apply row order",
-            "Save the position numbers inside each addon section. Repeated numbers keep the current relative order.",
+            "Apply global row order",
+            "Save one mixed order across every source. The first row from each Stremio addon also sets its priority in Addon order sorting."
         ) {
-            var orderedKeys = rows.map { it.key }
-            for (groupKeys in rowKeysByGroup.values) {
-                val requestedPositions = groupKeys.associateWith { key ->
-                    orderInputsByKey[key]?.text?.toString()?.trim()?.toIntOrNull() ?: 0
-                }
-                val reordered = CatalogOrderMath.reorderGroup(
-                    orderedKeys,
-                    groupKeys,
-                    requestedPositions,
-                )
-                if (reordered == null) {
-                    toast(ctx, "Enter a positive whole number for every row. Repeated numbers are allowed.")
-                    return@addAction
-                }
-                orderedKeys = reordered
+            val snapshot = Config.snapshot()
+            val requestedPositions = rows.associate { row ->
+                row.key to (orderInputsByKey[row.key]?.text?.toString()?.trim()?.toIntOrNull() ?: 0)
             }
-            Config.update { catalogOrder = orderedKeys.toMutableList() }
+            val orderedKeys = CatalogOrderMath.reorderAll(
+                snapshot.catalogOrder,
+                rows.map { it.key },
+                requestedPositions,
+            )
+            if (orderedKeys == null) {
+                toast(ctx, "Enter a positive whole number for every row. Repeated numbers are allowed.")
+                return@addAction
+            }
+            val orderedAddonIds = orderedKeys.mapNotNull { rowsByKey[it]?.addon?.id }.distinct()
+            val reorderedAddonIds = HomepageGroupOrderMath.reorderAddonSlots(
+                snapshot.addons.map { it.id },
+                orderedAddonIds,
+            )
+            if (reorderedAddonIds == null) {
+                toast(ctx, "Could not save addon priority.")
+                return@addAction
+            }
+            Config.update {
+                catalogOrder = orderedKeys.toMutableList()
+                val byId = addons.associateBy { it.id }
+                val reorderedAddons = reorderedAddonIds.mapNotNull { byId[it] }
+                if (reorderedAddons.size == addons.size) {
+                    addons = reorderedAddons.toMutableList()
+                }
+            }
             HomeRefreshNotice.mark()
-            toast(ctx, "Homepage row order updated.")
+            toast(ctx, "Global row order and addon priority updated.")
             catalogRowsMenu(ctx, installedRows)
         }
         addAction(
@@ -383,12 +264,12 @@ internal object CatalogRowsSettingsScreen {
         ) { addExternalRowsMenu(ctx) }
         addAction(
             "Reset row order",
-            "Return to the saved addon and source order.",
+            "Return to the default addon/source order. Visibility and custom row names are unchanged.",
         ) {
             confirm(
                 ctx,
                 "Reset homepage row order?",
-                "Rows will return to their current addon/source priority. Visibility settings are unchanged.",
+                "Rows will return to their default addon/source order. Visibility settings are unchanged.",
                 onCancel = { catalogRowsMenu(ctx) },
             ) {
                 Config.update { catalogOrder.clear() }
@@ -415,32 +296,12 @@ internal object CatalogRowsSettingsScreen {
         val rowSearch = searchBox(ctx, "Search homepage rows", colors) { query ->
             activeQuery = query.trim()
             rows.forEach { row ->
-                val group = groupForKey[row.key].orEmpty()
-                val rowMatches = activeQuery.isBlank() ||
+                val matches = activeQuery.isBlank() ||
                     row.displayName.contains(activeQuery, true) ||
                     row.sourceLabel.contains(activeQuery, true) ||
-                    row.status.contains(activeQuery, true) ||
-                    groupTitles[group].orEmpty().contains(activeQuery, true)
+                    row.status.contains(activeQuery, true)
                 rowViewsByKey[row.key]?.visibility =
-                    if (activeQuery.isBlank() || rowMatches) View.VISIBLE else View.GONE
-            }
-            groupSections.forEach { (group, section) ->
-                val groupMatches = activeQuery.isBlank() || rows.any { row ->
-                    groupForKey[row.key] == group && (
-                        row.displayName.contains(activeQuery, true) ||
-                        row.sourceLabel.contains(activeQuery, true) ||
-                        groupTitles[group].orEmpty().contains(activeQuery, true)
-                    )
-                }
-                section.visibility = if (groupMatches) View.VISIBLE else View.GONE
-                val expanded = groupExpanded[group] ?: true
-                groupLists[group]?.visibility = if (activeQuery.isNotBlank() || expanded) {
-                    View.VISIBLE
-                } else {
-                    View.GONE
-                }
-                groupDragHandles[group]?.visibility =
-                    if (activeQuery.isBlank() && rowViewsByGroup.size > 1) View.VISIBLE else View.GONE
+                    if (activeQuery.isBlank() || matches) View.VISIBLE else View.GONE
             }
         }
         root.addView(rowSearch, LinearLayout.LayoutParams(
@@ -450,13 +311,16 @@ internal object CatalogRowsSettingsScreen {
         val initialSearch = SettingsDialogHost.consumeNextMenuSearch()
         if (initialSearch.isNotBlank()) rowSearch.setText(initialSearch)
 
-        scroll.addView(content, ViewGroup.LayoutParams(
-            ViewGroup.LayoutParams.MATCH_PARENT,
-            ViewGroup.LayoutParams.WRAP_CONTENT,
-        ))
+        val scroll = ScrollView(ctx).apply {
+            clipToPadding = false
+            addView(content, ViewGroup.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT,
+                ViewGroup.LayoutParams.WRAP_CONTENT,
+            ))
+        }
         root.addView(scroll, LinearLayout.LayoutParams(
             ViewGroup.LayoutParams.MATCH_PARENT,
-            minOf(dp(ctx, 460), dp(ctx, maxOf(180, rows.size * 66 + groupSections.size * 36 + 140))),
+            minOf(dp(ctx, 460), dp(ctx, maxOf(180, rows.size * 72 + 170))),
         ))
         addFooter(ctx, root, "Done", { MainMenuSettingsScreen.show(ctx) })
         SettingsDialogHost.show(ctx, "catalog-rows", root) { MainMenuSettingsScreen.show(ctx) }

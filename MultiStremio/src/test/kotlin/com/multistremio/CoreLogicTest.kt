@@ -1255,6 +1255,109 @@ class CoreLogicTest {
         )
     }
 
+    @Test
+    fun globalCatalogOrderCanInterleaveRowsFromDifferentAddonsAndExtensions() {
+        val original = listOf("addon-a-movie", "addon-a-series", "addon-b-movie", "external-row")
+        val reordered = CatalogOrderMath.reorderAll(
+            currentOrder = original,
+            rowKeys = original,
+            positions = mapOf(
+                "addon-a-movie" to 1,
+                "addon-a-series" to 3,
+                "addon-b-movie" to 2,
+                "external-row" to 4,
+            ),
+        )
+
+        assertEquals(
+            listOf("addon-a-movie", "addon-b-movie", "addon-a-series", "external-row"),
+            reordered,
+        )
+    }
+
+    @Test
+    fun globalCatalogOrderKeepsCurrentRelativeOrderWhenPositionsAreTied() {
+        val original = listOf("addon-a-first", "addon-b-first", "addon-a-second", "addon-b-second")
+        val reordered = CatalogOrderMath.reorderAll(
+            currentOrder = original,
+            rowKeys = original,
+            positions = mapOf(
+                "addon-a-first" to 1,
+                "addon-b-first" to 2,
+                "addon-a-second" to 2,
+                "addon-b-second" to 3,
+            ),
+        )
+
+        assertEquals(
+            listOf("addon-a-first", "addon-b-first", "addon-a-second", "addon-b-second"),
+            reordered,
+        )
+    }
+
+    @Test
+    fun globalCatalogOrderRejectsInvalidPositionsAndKeepsUnavailableSavedRows() {
+        val original = listOf("addon-a-first", "addon-a-second", "addon-b-first", "stale-row")
+        assertEquals(
+            listOf("addon-a-second", "addon-b-first", "addon-a-first", "stale-row"),
+            CatalogOrderMath.reorderAll(
+                currentOrder = original,
+                rowKeys = listOf("addon-a-first", "addon-a-second", "addon-b-first"),
+                positions = mapOf(
+                    "addon-a-first" to 3,
+                    "addon-a-second" to 1,
+                    "addon-b-first" to 2,
+                ),
+            ),
+        )
+        assertNull(CatalogOrderMath.reorderAll(
+            original,
+            listOf("addon-a-first", "addon-a-second"),
+            mapOf("addon-a-first" to 0, "addon-a-second" to 2),
+        ))
+        assertNull(CatalogOrderMath.reorderAll(
+            original,
+            listOf("addon-a-first", "addon-a-second"),
+            mapOf("addon-a-first" to 1),
+        ))
+        assertNull(CatalogOrderMath.reorderAll(
+            original,
+            listOf("addon-a-first", "addon-a-first"),
+            mapOf("addon-a-first" to 1),
+        ))
+    }
+
+    @Test
+    fun streamDiagnosticsIncludeHttpAndSafeFailureClassWithoutRequestUrls() {
+        val run = StreamDiagnostics.begin()
+        StreamDiagnostics.record(
+            run,
+            "Private addon https://example.com/manifest?token=secret",
+            "Streams",
+            300L,
+            "HTTP_ERROR",
+            0,
+            httpCode = 403,
+        )
+        StreamDiagnostics.record(
+            run,
+            "Unavailable addon",
+            "Streams",
+            30000L,
+            "TIMEOUT",
+            0,
+            errorType = "SocketTimeoutException",
+        )
+        StreamDiagnostics.finish(run, 0, 0, 0, 0, 0)
+
+        val requests = StreamDiagnostics.latest()!!.requests
+        assertEquals(403, requests.first().httpCode ?: -1)
+        assertEquals("HTTP_ERROR (HTTP 403)", requests.first().displayStatus())
+        assertEquals("SocketTimeoutException", requests.last().errorType)
+        assertTrue(requests.first().addonName.contains("[URL redacted]"))
+        assertFalse(requests.first().addonName.contains("secret"))
+    }
+
     private fun sampleSettings() = Settings(
         addons = mutableListOf(
             AddonConfig(
