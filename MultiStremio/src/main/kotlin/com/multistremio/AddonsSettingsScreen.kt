@@ -41,7 +41,7 @@ internal object AddonsSettingsScreen {
         } + listOf(
             SettingItem(
                 "Reorder addon priority",
-                "Drag addons to change source priority; use arrows as an alternative",
+                "Drag addons to change source priority. Homepage rows can also reorder whole addon sections.",
                 SettingItemType.Navigate,
                 onClick = { addonPriorityDialog(ctx) },
                 searchKeywords = listOf("priority", "reorder", "drag", "move", "order"),
