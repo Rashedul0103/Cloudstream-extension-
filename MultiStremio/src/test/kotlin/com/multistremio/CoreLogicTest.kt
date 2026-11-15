@@ -212,13 +212,44 @@ class CoreLogicTest {
     }
 
     @Test
-    fun catalogOrderMoveActionsPreserveRowsAndRespectListBoundaries() {
-        val original = listOf("first", "middle", "last")
-        assertEquals(listOf("middle", "first", "last"), CatalogOrderMath.move(original, "first", 1))
-        assertEquals(listOf("first", "last", "middle"), CatalogOrderMath.move(original, "middle", 1))
-        assertEquals(original, CatalogOrderMath.move(original, "first", -1))
-        assertEquals(original, CatalogOrderMath.move(original, "missing", 1))
-        assertEquals(original.size, CatalogOrderMath.move(original, "middle", 1).distinct().size)
+    fun catalogOrderSerialNumbersReorderRowsOnlyWithinTheirAddonSection() {
+        val original = listOf("a1", "a2", "b1", "a3", "b2")
+        val reordered = CatalogOrderMath.reorderGroup(
+            currentOrder = original,
+            groupKeys = listOf("a1", "a2", "a3"),
+            positions = mapOf("a1" to 3, "a2" to 1, "a3" to 2),
+        )
+
+        assertEquals(listOf("a2", "a3", "b1", "a1", "b2"), reordered)
+    }
+
+    @Test
+    fun catalogOrderSerialNumbersAcceptGapsButRejectInvalidOrDuplicatePositions() {
+        val original = listOf("first", "second", "third")
+        assertEquals(
+            listOf("second", "third", "first"),
+            CatalogOrderMath.reorderGroup(
+                original,
+                original,
+                mapOf("first" to 30, "second" to 10, "third" to 20),
+            ),
+        )
+        assertEquals(
+            null,
+            CatalogOrderMath.reorderGroup(original, original, mapOf("first" to 1, "second" to 1, "third" to 2)),
+        )
+        assertEquals(
+            null,
+            CatalogOrderMath.reorderGroup(original, original, mapOf("first" to 0, "second" to 1, "third" to 2)),
+        )
+        assertEquals(
+            null,
+            CatalogOrderMath.reorderGroup(original, original, mapOf("first" to 1, "second" to 2)),
+        )
+        assertEquals(
+            null,
+            CatalogOrderMath.reorderGroup(original, listOf("first", "missing"), mapOf("first" to 1, "missing" to 2)),
+        )
     }
 
     @Test
