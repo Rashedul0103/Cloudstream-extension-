@@ -106,7 +106,7 @@ internal fun withAlpha(color: Int, alpha: Int): Int =
 internal fun rounded(ctx: Context, fill: Int, stroke: Int = Color.TRANSPARENT): GradientDrawable =
         GradientDrawable().apply {
             setColor(fill)
-            cornerRadius = dp(ctx, 16).toFloat()
+            cornerRadius = dp(ctx, 14).toFloat()
             if (stroke != Color.TRANSPARENT) setStroke(dp(ctx, 1), stroke)
         }
 
@@ -130,17 +130,17 @@ internal fun vertical(ctx: Context, padding: Int = 0) =
 
 internal fun shell(ctx: Context, title: String, description: String? = null): LinearLayout {
         val colors = palette(ctx)
-        val root = vertical(ctx, dp(ctx, 18)).apply { background = rounded(ctx, colors.background) }
+        val root = vertical(ctx, dp(ctx, 16)).apply { background = rounded(ctx, colors.background) }
         val header = vertical(ctx).apply {
             addView(text(ctx, "MULTISTREMIO  /  SETTINGS", 10f, colors.accent, true).apply {
                 letterSpacing = 0.11f
             })
-            addView(text(ctx, title, 22f, colors.primary, true).apply {
-                setPadding(0, dp(ctx, 5), 0, 0)
+            addView(text(ctx, title, 20f, colors.primary, true).apply {
+                setPadding(0, dp(ctx, 4), 0, 0)
             })
             if (!description.isNullOrBlank()) {
-                addView(text(ctx, description, 13f, colors.secondary).apply {
-                    setPadding(0, dp(ctx, 5), 0, dp(ctx, 3))
+                addView(text(ctx, description, 12f, colors.secondary).apply {
+                    setPadding(0, dp(ctx, 4), 0, dp(ctx, 2))
                 })
             }
         }
@@ -148,8 +148,8 @@ internal fun shell(ctx: Context, title: String, description: String? = null): Li
         root.addView(View(ctx).apply {
             setBackgroundColor(colors.outline)
             layoutParams = LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(ctx, 1)).apply {
-                topMargin = dp(ctx, 14)
-                bottomMargin = dp(ctx, 12)
+                topMargin = dp(ctx, 11)
+                bottomMargin = dp(ctx, 10)
             }
         })
         return root
@@ -167,19 +167,19 @@ internal fun addFooter(
         val footer = LinearLayout(ctx).apply {
             orientation = LinearLayout.HORIZONTAL
             gravity = Gravity.END or Gravity.CENTER_VERTICAL
-            setPadding(0, dp(ctx, 10), 0, 0)
+            setPadding(0, dp(ctx, 7), 0, 0)
         }
         if (secondaryLabel != null && onSecondary != null) {
             footer.addView(text(ctx, secondaryLabel.uppercase(), 12f, colors.secondary, true).apply {
                 gravity = Gravity.CENTER
-                setPadding(dp(ctx, 14), dp(ctx, 11), dp(ctx, 14), dp(ctx, 11))
+                setPadding(dp(ctx, 12), dp(ctx, 9), dp(ctx, 12), dp(ctx, 9))
                 background = ripple(ctx, colors.background, colors)
                 setOnClickListener { onSecondary() }
             })
         }
         footer.addView(text(ctx, label.uppercase(), 12f, colors.accent, true).apply {
             gravity = Gravity.CENTER
-            setPadding(dp(ctx, 16), dp(ctx, 11), dp(ctx, 16), dp(ctx, 11))
+            setPadding(dp(ctx, 14), dp(ctx, 9), dp(ctx, 14), dp(ctx, 9))
             background = ripple(ctx, colors.background, colors)
             setOnClickListener { onClick() }
         })
@@ -262,7 +262,7 @@ internal fun searchBox(
     setHintTextColor(colors.secondary)
     setSingleLine(true)
     inputType = InputType.TYPE_CLASS_TEXT
-    setPadding(dp(ctx, 14), dp(ctx, 8), dp(ctx, 14), dp(ctx, 8))
+    setPadding(dp(ctx, 12), dp(ctx, 7), dp(ctx, 12), dp(ctx, 7))
     background = rounded(ctx, withAlpha(colors.accent, 12), colors.outline)
     tag = "settings.search"
     addTextChangedListener(object : TextWatcher {
@@ -445,10 +445,10 @@ internal fun settingMenu(
     fun makeRow(item: SettingItem): View {
         val body = vertical(ctx).apply {
             val dangerColor = 0xffd32f2f.toInt()
-            addView(text(ctx, item.title, 15f, if (item.danger) dangerColor else colors.primary, true))
+            addView(text(ctx, item.title, 14f, if (item.danger) dangerColor else colors.primary, true))
             if (!item.summary.isNullOrBlank()) {
-                addView(text(ctx, item.summary, 12f, if (item.danger) dangerColor else colors.secondary).apply {
-                    setPadding(0, dp(ctx, 3), 0, 0)
+                addView(text(ctx, item.summary, 11.5f, if (item.danger) dangerColor else colors.secondary).apply {
+                    setPadding(0, dp(ctx, 2), 0, 0)
                 })
             }
             setOnClickListener { item.onClick?.invoke() }
@@ -458,16 +458,16 @@ internal fun settingMenu(
             gravity = Gravity.CENTER_VERTICAL
             setPadding(
                 dp(ctx, 14),
-                dp(ctx, if (item.section == "Overview") 14 else 10),
+                dp(ctx, if (item.section == "Overview") 11 else 8),
                 dp(ctx, 10),
-                dp(ctx, if (item.section == "Overview") 14 else 10),
+                dp(ctx, if (item.section == "Overview") 11 else 8),
             )
             background = when {
                 item.section == "Overview" -> rounded(ctx, withAlpha(colors.accent, 14), colors.outline)
                 item.danger -> ripple(ctx, withAlpha(0xffd32f2f.toInt(), 10), colors)
                 else -> ripple(ctx, colors.background, colors)
             }
-            minimumHeight = dp(ctx, if (item.section == "Overview") 72 else 54)
+            minimumHeight = dp(ctx, if (item.section == "Overview") 66 else 48)
             addView(body, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
             when (item.type) {
                 SettingItemType.Switch -> {
@@ -533,7 +533,7 @@ internal fun settingMenu(
                 list.addView(text(ctx, section.uppercase(), 10f,
                     if (section.contains("danger", true)) 0xffd32f2f.toInt() else colors.accent, true).apply {
                     letterSpacing = 0.08f
-                    setPadding(dp(ctx, 8), dp(ctx, 12), 0, dp(ctx, 6))
+                    setPadding(dp(ctx, 8), dp(ctx, 10), 0, dp(ctx, 5))
                 })
                 previousSection = section
             }
@@ -544,8 +544,8 @@ internal fun settingMenu(
                         ViewGroup.LayoutParams.MATCH_PARENT,
                         dp(ctx, 1),
                     ).apply {
-                        leftMargin = dp(ctx, 14)
-                        rightMargin = dp(ctx, 14)
+                        leftMargin = dp(ctx, 12)
+                        rightMargin = dp(ctx, 12)
                     }
                 })
             }
@@ -559,14 +559,14 @@ internal fun settingMenu(
         if (initialSearch.isNotBlank()) search.setText(initialSearch)
         root.addView(search, LinearLayout.LayoutParams(
             ViewGroup.LayoutParams.MATCH_PARENT,
-            dp(ctx, 46),
-        ).apply { bottomMargin = dp(ctx, 8) })
+            dp(ctx, 42),
+        ).apply { bottomMargin = dp(ctx, 6) })
     }
 
     render(initialSearch)
     root.addView(scroll, LinearLayout.LayoutParams(
         ViewGroup.LayoutParams.MATCH_PARENT,
-        minOf(dp(ctx, 430), dp(ctx, maxOf(88, items.size * 62))),
+        minOf(dp(ctx, 420), dp(ctx, maxOf(88, items.size * 56))),
     ))
     addFooter(ctx, root, if (back != null) "Back" else "Close", {
         if (back != null) back() else SettingsDialogHost.dismiss()
