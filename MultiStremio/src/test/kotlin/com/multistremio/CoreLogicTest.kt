@@ -788,6 +788,113 @@ class CoreLogicTest {
     }
 
     @Test
+    fun providerExtractionSupportsGenericAddonMetadataMarkers() {
+        val samples = listOf(
+            RawStream(description = "Provider: MovieBox", url = "https://example.com/a.mkv"),
+            RawStream(title = "Indexer - Torrentio", url = "https://example.com/b.mkv"),
+            RawStream(name = "HDHub | 1080p | Vega Movies", url = "https://example.com/c.mkv"),
+            RawStream(name = "4K • MovieBoxIN", url = "https://example.com/d.mkv"),
+            RawStream(name = "DoodStreamProvider", url = "https://example.com/e.mkv"),
+        )
+        val addonNames = listOf("Generic Addon", "Generic Addon", "HDHub", "Generic Addon", "Generic Addon")
+        val expected = listOf("MovieBox", "Torrentio", "Vega Movies", "MovieBoxIN", "DoodStreamProvider")
+        val format = StreamFormatSettings(
+            enabled = true,
+            fields = mutableListOf("provider"),
+            showLabels = true,
+        )
+
+        samples.forEachIndexed { index, raw ->
+            val parsed = StreamParser.parsed(0, addonNames[index], raw)
+            assertEquals("Provider: " + expected[index], StreamLabels.build(parsed, format))
+        }
+    }
+
+    @Test
+    fun providerExtractionRejectsTechnicalSourceLabelsAndOrdinaryTitles() {
+        val format = StreamFormatSettings(
+            enabled = true,
+            fields = mutableListOf("provider"),
+            showLabels = true,
+        )
+        val technicalSource = StreamParser.parsed(
+            0, "Generic Addon",
+            RawStream(description = "Source: WEB-DL", url = "https://example.com/a.mkv"),
+        )
+        val ordinaryTitle = StreamParser.parsed(
+            0, "Generic Addon",
+            RawStream(name = "The Batman", url = "https://example.com/b.mkv"),
+        )
+        val ordinarySegmentedTitle = StreamParser.parsed(
+            0, "Generic Addon",
+            RawStream(name = "The Batman • 1080p", url = "https://example.com/c.mkv"),
+        )
+
+        assertFalse(StreamLabels.build(technicalSource, format).contains("Provider:"))
+        assertFalse(StreamLabels.build(ordinaryTitle, format).contains("Provider:"))
+        assertFalse(StreamLabels.build(ordinarySegmentedTitle, format).contains("Provider:"))
+    }
+
+    @Test
+    fun visualFormatterDoesNotRepeatResolutionInsideReleaseName() {
+        val parsed = StreamParser.parsed(
+            0,
+            "Test Addon",
+            RawStream(
+                name = "1080p",
+                url = "https://example.com/movie.mkv",
+                behaviorHints = BehaviorHints(filename = "The.Movie.2026.1080p.WEB-DL.HDR10.HEVC.mkv"),
+            ),
+        )
+        val format = StreamFormatSettings(
+            enabled = true,
+            fields = mutableListOf("quality", "release"),
+            separator = " | ",
+            showLabels = true,
+        )
+
+        assertEquals(
+            "Quality: 1080p | Release: The.Movie.2026.WEB-DL.HDR10.HEVC.mkv",
+            StreamLabels.build(parsed, format),
+        )
+    }
+
+    @Test
+    fun visualFormatterKeepsResolutionInReleaseWhenQualityFieldIsNotSelected() {
+        val parsed = StreamParser.parsed(
+            0,
+            "Test Addon",
+            RawStream(
+                url = "https://example.com/movie.mkv",
+                behaviorHints = BehaviorHints(filename = "The.Movie.2026.1080p.WEB-DL.mkv"),
+            ),
+        )
+        val format = StreamFormatSettings(
+            enabled = true,
+            fields = mutableListOf("release"),
+            showLabels = true,
+        )
+
+        assertEquals("Release: The.Movie.2026.1080p.WEB-DL.mkv", StreamLabels.build(parsed, format))
+    }
+
+    @Test
+    fun defaultDetailedFormatterDoesNotRepeatResolutionInsideReleaseName() {
+        val parsed = StreamParser.parsed(
+            0,
+            "Test Addon",
+            RawStream(
+                url = "https://example.com/movie.mkv",
+                behaviorHints = BehaviorHints(filename = "The.Movie.2026.4K.WEB-DL.mkv"),
+            ),
+        )
+
+        val label = StreamLabels.build(parsed, detailed = true)
+        assertTrue(label.contains("4K"))
+        assertTrue(label.endsWith("The.Movie.2026.WEB-DL.mkv"))
+    }
+
+    @Test
     fun visualStreamFormatterDoesNotTreatQualityAsAProviderName() {
         val parsed = StreamParser.parsed(
             0,
