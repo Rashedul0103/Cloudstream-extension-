@@ -224,23 +224,36 @@ class CoreLogicTest {
     }
 
     @Test
-    fun catalogOrderSerialNumbersAcceptGapsButRejectInvalidOrDuplicatePositions() {
+    fun catalogOrderSerialNumbersAllowDuplicatePositionsWithStableTieOrdering() {
         val original = listOf("first", "second", "third")
         assertEquals(
-            listOf("second", "third", "first"),
+            listOf("second", "first", "third"),
             CatalogOrderMath.reorderGroup(
-                original,
-                original,
-                mapOf("first" to 30, "second" to 10, "third" to 20),
+                currentOrder = original,
+                groupKeys = original,
+                positions = mapOf("first" to 20, "second" to 10, "third" to 20),
             ),
         )
         assertEquals(
-            null,
-            CatalogOrderMath.reorderGroup(original, original, mapOf("first" to 1, "second" to 1, "third" to 2)),
+            listOf("second", "third", "first"),
+            CatalogOrderMath.reorderGroup(
+                currentOrder = original,
+                groupKeys = original,
+                positions = mapOf("first" to 30, "second" to 10, "third" to 20),
+            ),
         )
+    }
+
+    @Test
+    fun catalogOrderSerialNumbersStillRejectBlankOrNonPositivePositions() {
+        val original = listOf("first", "second", "third")
         assertEquals(
             null,
             CatalogOrderMath.reorderGroup(original, original, mapOf("first" to 0, "second" to 1, "third" to 2)),
+        )
+        assertEquals(
+            null,
+            CatalogOrderMath.reorderGroup(original, original, mapOf("first" to -1, "second" to 1, "third" to 2)),
         )
         assertEquals(
             null,
