@@ -457,9 +457,9 @@ internal fun settingMenu(
             orientation = LinearLayout.HORIZONTAL
             gravity = Gravity.CENTER_VERTICAL
             setPadding(
-                dp(ctx, 14),
+                dp(ctx, 12),
                 dp(ctx, if (item.section == "Overview") 11 else 8),
-                dp(ctx, 10),
+                dp(ctx, 8),
                 dp(ctx, if (item.section == "Overview") 11 else 8),
             )
             background = when {
@@ -490,7 +490,7 @@ internal fun settingMenu(
                     if (!item.valueLabel.isNullOrBlank()) {
                         addView(text(ctx, item.valueLabel, 13f, if (item.danger) 0xffd32f2f.toInt() else colors.accent, true).apply {
                             gravity = Gravity.CENTER
-                            setPadding(dp(ctx, 8), dp(ctx, 4), dp(ctx, 4), dp(ctx, 4))
+                            setPadding(dp(ctx, 6), dp(ctx, 3), dp(ctx, 4), dp(ctx, 3))
                         })
                     } else {
                         addView(text(ctx, "›", 24f, colors.secondary).apply { gravity = Gravity.CENTER },
