@@ -41,7 +41,7 @@ internal object AddonsSettingsScreen {
         } + listOf(
             SettingItem(
                 "Reorder addon priority",
-                "Drag addons to change source priority; use arrows as an alternative",
+                "Drag addons to change source priority. Homepage rows can also reorder whole addon sections.",
                 SettingItemType.Navigate,
                 onClick = { addonPriorityDialog(ctx) },
                 searchKeywords = listOf("priority", "reorder", "drag", "move", "order"),
@@ -91,7 +91,7 @@ internal object AddonsSettingsScreen {
             for (index in 0 until list.childCount) {
                 val row = list.getChildAt(index) as? LinearLayout ?: continue
                 val label = row.getChildAt(1) as? TextView ?: continue
-                label.text = "${index + 1}. ${row.tag as? String ?: ""}"
+                label.text = "${index + 1}. ${label.tag as? String ?: ""}"
             }
         }
         ordered.forEachIndexed { index, addon ->
@@ -99,18 +99,20 @@ internal object AddonsSettingsScreen {
                 gravity = Gravity.CENTER
                 contentDescription = "Drag to change priority for ${addon.name}"
             }
-            val label = text(ctx, "${index + 1}. ${addon.name}", 14f, colors.primary, true)
+            val label = text(ctx, "${index + 1}. ${addon.name}", 13.5f, colors.primary, true).apply {
+                tag = addon.name
+            }
             lateinit var row: LinearLayout
             row = LinearLayout(ctx).apply {
                 orientation = LinearLayout.HORIZONTAL
                 gravity = Gravity.CENTER_VERTICAL
-                setPadding(dp(ctx, 10), dp(ctx, 8), dp(ctx, 6), dp(ctx, 8))
+                setPadding(dp(ctx, 8), dp(ctx, 6), dp(ctx, 5), dp(ctx, 6))
                 background = rounded(ctx, colors.background, colors.outline)
                 tag = addon.id
-                addView(handle, LinearLayout.LayoutParams(dp(ctx, 42), dp(ctx, 46)))
+                addView(handle, LinearLayout.LayoutParams(dp(ctx, 38), dp(ctx, 40)))
                 addView(label, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
                 val controls = vertical(ctx).apply {
-                    val up = text(ctx, "↑", 18f, colors.secondary, true).apply {
+                    val up = text(ctx, "↑", 16f, colors.secondary, true).apply {
                         gravity = Gravity.CENTER
                         setOnClickListener {
                             val position = list.indexOfChild(row)
@@ -122,7 +124,7 @@ internal object AddonsSettingsScreen {
                             }
                         }
                     }
-                    val down = text(ctx, "↓", 18f, colors.secondary, true).apply {
+                    val down = text(ctx, "↓", 16f, colors.secondary, true).apply {
                         gravity = Gravity.CENTER
                         setOnClickListener {
                             val position = list.indexOfChild(row)
@@ -142,7 +144,7 @@ internal object AddonsSettingsScreen {
             list.addView(row, LinearLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT,
                 ViewGroup.LayoutParams.WRAP_CONTENT,
-            ).apply { bottomMargin = dp(ctx, 6) })
+            ).apply { bottomMargin = dp(ctx, 4) })
             installDragReordering(
                 ctx, handle, row, list, scroll, colors,
                 onDrop = {
@@ -158,7 +160,7 @@ internal object AddonsSettingsScreen {
         ))
         root.addView(scroll, LinearLayout.LayoutParams(
             ViewGroup.LayoutParams.MATCH_PARENT,
-            minOf(dp(ctx, 380), dp(ctx, maxOf(100, ordered.size * 60))),
+            minOf(dp(ctx, 380), dp(ctx, maxOf(100, ordered.size * 52))),
         ))
         addFooter(ctx, root, "Done", { addonsMenu(ctx) })
         SettingsDialogHost.show(ctx, "addon-priority", root, { addonsMenu(ctx) })

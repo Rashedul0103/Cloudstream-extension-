@@ -26,7 +26,7 @@ The settings use a theme-aware mobile layout with clearer section descriptions, 
 
 ## Catalog layout
 
-Open the plugin settings and choose **Catalog rows (visibility & order)**. Enter a positive position number beside each row, then choose **Apply row order**. Position numbers are applied within each addon's section; repeated numbers are allowed, and rows tied on a number keep their existing relative order. Use the checkbox at the right of a row to show or hide it immediately. Tap a row title to rename it or open its parent addon's settings. Imported extension rows can be removed without uninstalling their source extension. Addon-wide enable/disable and the separate “Catalogs & search” usage switch remain under **Addons**. Row order and visibility are saved locally on the device.
+Open the plugin settings and choose **Catalog rows (visibility & order)**. Drag the handle beside a source heading to reorder whole addon sections; rows inside each section stay together. This also updates the priority of addons represented on the page, while addons with no homepage rows keep their existing relative slots. To reorder rows inside one section, enter positive position numbers and choose **Apply row order**. Repeated numbers are allowed, and tied rows keep their existing relative order. Use the checkbox at the right of a row to show or hide it immediately. Tap a row title to rename it or open its parent addon's settings. Imported extension rows can be removed without uninstalling their source extension. Addon-wide enable/disable and the separate “Catalogs & search” usage switch remain under **Addons**. Row order and visibility are saved locally on the device.
 
 ## Status
 

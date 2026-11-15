@@ -127,6 +127,45 @@ object CatalogOrderMath {
         (keys + newKey).distinct()
 }
 
+/**
+ * Reorders complete homepage source groups without changing the order of rows inside a group.
+ * Existing order keys for temporarily unavailable rows are retained after the visible groups.
+ */
+object HomepageGroupOrderMath {
+    fun reorderCatalogGroups(
+        currentOrder: List<String>,
+        groupRows: Map<String, List<String>>,
+        orderedGroupKeys: List<String>,
+    ): List<String>? {
+        if (groupRows.keys != orderedGroupKeys.toSet() || orderedGroupKeys.size != groupRows.size) return null
+        val allRowKeys = groupRows.values.flatten()
+        if (allRowKeys.size != allRowKeys.toSet().size) return null
+
+        val visibleOrder = orderedGroupKeys.flatMap { groupRows[it] ?: return null }
+        val visibleKeys = allRowKeys.toSet()
+        val unavailableKeys = currentOrder.filterNot { it in visibleKeys }
+        return visibleOrder + unavailableKeys
+    }
+
+    /**
+     * Reorders only addons represented by homepage sections, leaving addons without homepage
+     * rows in their existing slots. This keeps their relative priority stable.
+     */
+    fun reorderAddonSlots(
+        currentAddonIds: List<String>,
+        orderedGroupAddonIds: List<String>,
+    ): List<String>? {
+        if (orderedGroupAddonIds.isEmpty()) return currentAddonIds.toList()
+        val selected = orderedGroupAddonIds.toSet()
+        if (selected.size != orderedGroupAddonIds.size) return null
+        val currentSelected = currentAddonIds.filter { it in selected }
+        if (currentSelected.size != selected.size || currentSelected.toSet() != selected) return null
+
+        val iterator = orderedGroupAddonIds.iterator()
+        return currentAddonIds.map { id -> if (id in selected) iterator.next() else id }
+    }
+}
+
 /** Stable identity for a catalog row across app launches and addon manifest refreshes. */
 fun catalogOrderKey(addonId: String, type: String, catalogId: String): String =
     "$addonId|$type|$catalogId"

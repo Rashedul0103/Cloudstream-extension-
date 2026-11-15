@@ -145,4 +145,44 @@ class HomeRowsTest {
         assertTrue(rows.single().rowEnabled)
         assertFalse(rows.single().visibleOnHome)
     }
+
+    @Test
+    fun homepageSourceReorderMovesWholeGroupsButPreservesRowsWithinEachGroup() {
+        val reordered = HomepageGroupOrderMath.reorderCatalogGroups(
+            currentOrder = listOf("a1", "a2", "b1", "c1", "stale-row"),
+            groupRows = linkedMapOf(
+                "addon:a" to listOf("a1", "a2"),
+                "addon:b" to listOf("b1"),
+                "addon:c" to listOf("c1"),
+            ),
+            orderedGroupKeys = listOf("addon:c", "addon:a", "addon:b"),
+        )
+
+        assertEquals(listOf("c1", "a1", "a2", "b1", "stale-row"), reordered)
+    }
+
+    @Test
+    fun homepageSourceReorderRejectsDuplicateOrMissingGroupKeys() {
+        val groups = linkedMapOf("addon:a" to listOf("a1"), "addon:b" to listOf("b1"))
+        assertEquals(
+            null,
+            HomepageGroupOrderMath.reorderCatalogGroups(emptyList(), groups, listOf("addon:a", "addon:a")),
+        )
+        assertEquals(
+            null,
+            HomepageGroupOrderMath.reorderCatalogGroups(emptyList(), groups, listOf("addon:a")),
+        )
+    }
+
+    @Test
+    fun homepageSourceReorderChangesRepresentedAddonSlotsOnly() {
+        assertEquals(
+            listOf("no-home-row", "addon-c", "addon-b", "also-no-home-row"),
+            HomepageGroupOrderMath.reorderAddonSlots(
+                listOf("no-home-row", "addon-b", "addon-c", "also-no-home-row"),
+                listOf("addon-c", "addon-b"),
+            ),
+        )
+    }
+
 }

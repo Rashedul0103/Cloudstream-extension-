@@ -52,18 +52,18 @@ internal fun stringListPicker(
         val matching = currentOptions.filter { it.label.contains(query, true) || it.value.contains(query, true) }
         if (matching.isEmpty()) {
             list.addView(text(ctx, "No matching options.", 13f, colors.secondary).apply {
-                setPadding(dp(ctx, 12), dp(ctx, 16), dp(ctx, 12), dp(ctx, 12))
+                setPadding(dp(ctx, 10), dp(ctx, 12), dp(ctx, 10), dp(ctx, 10))
             })
         }
         matching.forEach { option ->
             val check = CheckBox(ctx).apply {
                 text = option.label
-                textSize = 14f
+                textSize = 13.5f
                 setTextColor(colors.primary)
                 isChecked = selected.any { it.equals(option.value, true) }
                 buttonTintList = android.content.res.ColorStateList.valueOf(colors.accent)
-                setPadding(dp(ctx, 8), dp(ctx, 6), dp(ctx, 8), dp(ctx, 6))
-                minHeight = dp(ctx, 46)
+                setPadding(dp(ctx, 7), dp(ctx, 4), dp(ctx, 7), dp(ctx, 4))
+                minHeight = dp(ctx, 42)
                 setOnCheckedChangeListener { _, checked ->
                     selected.removeAll { it.equals(option.value, true) }
                     if (checked) selected.add(option.value)
@@ -76,8 +76,8 @@ internal fun stringListPicker(
     val search = searchBox(ctx, "Search options", colors, ::render)
     root.addView(search, LinearLayout.LayoutParams(
         ViewGroup.LayoutParams.MATCH_PARENT,
-        dp(ctx, 44),
-    ).apply { bottomMargin = dp(ctx, 6) })
+        dp(ctx, 42),
+    ).apply { bottomMargin = dp(ctx, 5) })
     render()
     root.addView(scroll, LinearLayout.LayoutParams(
         ViewGroup.LayoutParams.MATCH_PARENT,
@@ -89,7 +89,7 @@ internal fun stringListPicker(
         gravity = Gravity.START or Gravity.CENTER_VERTICAL
     }
     fun action(label: String, callback: () -> Unit) = text(ctx, label, 12f, colors.accent, true).apply {
-        setPadding(dp(ctx, 12), dp(ctx, 10), dp(ctx, 14), dp(ctx, 10))
+        setPadding(dp(ctx, 10), dp(ctx, 8), dp(ctx, 12), dp(ctx, 8))
         background = ripple(ctx, colors.background, colors)
         setOnClickListener { callback() }
     }
@@ -150,22 +150,22 @@ private fun reorderStringValues(
         }
     }
     order.forEachIndexed { index, value ->
-        val handle = text(ctx, "☰", 21f, colors.accent, true).apply {
+        val handle = text(ctx, "☰", 18f, colors.accent, true).apply {
             gravity = Gravity.CENTER
             contentDescription = "Drag to reorder $value"
         }
-        val label = text(ctx, "${index + 1}. $value", 14f, colors.primary, true)
+        val label = text(ctx, "${index + 1}. $value", 13.5f, colors.primary, true)
         lateinit var row: LinearLayout
         row = LinearLayout(ctx).apply {
             orientation = LinearLayout.HORIZONTAL
             gravity = Gravity.CENTER_VERTICAL
-            setPadding(dp(ctx, 10), dp(ctx, 8), dp(ctx, 6), dp(ctx, 8))
+            setPadding(dp(ctx, 8), dp(ctx, 6), dp(ctx, 5), dp(ctx, 6))
             background = rounded(ctx, colors.background, colors.outline)
             tag = value
-            addView(handle, LinearLayout.LayoutParams(dp(ctx, 42), dp(ctx, 44)))
+            addView(handle, LinearLayout.LayoutParams(dp(ctx, 38), dp(ctx, 40)))
             addView(label, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
             val controls = vertical(ctx).apply {
-                val up = text(ctx, "↑", 18f, colors.secondary, true).apply {
+                val up = text(ctx, "↑", 16f, colors.secondary, true).apply {
                     gravity = Gravity.CENTER
                     setOnClickListener {
                         val position = list.indexOfChild(row)
@@ -176,7 +176,7 @@ private fun reorderStringValues(
                         }
                     }
                 }
-                val down = text(ctx, "↓", 18f, colors.secondary, true).apply {
+                val down = text(ctx, "↓", 16f, colors.secondary, true).apply {
                     gravity = Gravity.CENTER
                     setOnClickListener {
                         val position = list.indexOfChild(row)
@@ -190,12 +190,12 @@ private fun reorderStringValues(
                 addView(up)
                 addView(down)
             }
-            addView(controls, LinearLayout.LayoutParams(dp(ctx, 34), ViewGroup.LayoutParams.WRAP_CONTENT))
+            addView(controls, LinearLayout.LayoutParams(dp(ctx, 32), ViewGroup.LayoutParams.WRAP_CONTENT))
         }
         list.addView(row, LinearLayout.LayoutParams(
             ViewGroup.LayoutParams.MATCH_PARENT,
             ViewGroup.LayoutParams.WRAP_CONTENT,
-        ).apply { bottomMargin = dp(ctx, 6) })
+        ).apply { bottomMargin = dp(ctx, 4) })
         installDragReordering(ctx, handle, row, list, scroll, colors) { refresh() }
     }
     scroll.addView(list, ViewGroup.LayoutParams(
@@ -204,7 +204,7 @@ private fun reorderStringValues(
     ))
     root.addView(scroll, LinearLayout.LayoutParams(
         ViewGroup.LayoutParams.MATCH_PARENT,
-        minOf(dp(ctx, 360), dp(ctx, maxOf(100, order.size * 60))),
+        minOf(dp(ctx, 350), dp(ctx, maxOf(100, order.size * 52))),
     ))
     addFooter(ctx, root, "Save order", {
         onSave((0 until list.childCount).mapNotNull { list.getChildAt(it).tag as? String })
