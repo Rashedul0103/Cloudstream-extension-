@@ -496,7 +496,7 @@ class MultiStremio : MainAPI() {
                 diagnosticRunId, "subtitle_wait",
                 (System.nanoTime() - subtitleWaitStarted) / 1_000_000L,
             )
-            StreamDiagnostics.markSubtitleCompletion(diagnosticRunId)
+            StreamDiagnostics.markSubtitleCompletion(diagnosticRunId, subAddons.size)
             for (subtitle in subtitles) {
                 val url = subtitle.url?.takeIf { it.isNotBlank() } ?: continue
                 val code = subtitle.lang ?: "und"
