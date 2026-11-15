@@ -303,15 +303,10 @@ class MultiStremio : MainAPI() {
             var firstPlayableDeadlineNanos: Long? = null
             val subtitleStartGate = SubtitleRequestStartGate()
 
-            // Start subtitle lookups once a playable callback has been sent, or after all stream
-            // addon requests finish when the content has no playable links. This prevents
-            // subtitles from occupying shared request slots during the first-playable phase.
+            // Start subtitle lookups only after a playable callback has been sent. When no link
+            // exists, subtitle tracks cannot be used and should not delay the no-results response.
             val startSubtitleRequestsIfReady: () -> Unit = {
-                if (subtitleStartGate.tryStart(
-                        firstPlayableLinkEmitted = emittedLinks > 0,
-                        allStreamAddonsCompleted = completedAddons >= streamJobs.size,
-                    )
-                ) {
+                if (subtitleStartGate.tryStart(firstPlayableLinkEmitted = emittedLinks > 0)) {
                     subtitleDeferred = async {
                         subAddons.map { addon ->
                             async {
@@ -430,10 +425,8 @@ class MultiStremio : MainAPI() {
                     diagnosticRunId, emittedLinks - beforeFirstBatch,
                 )
             }
-            // Fallback for no eligible streams, filtered-out candidates, or extractor-only
-            // addons. All stream requests are complete, so starting subtitles cannot delay
-            // discovery of a playable link.
-            startSubtitleRequestsIfReady()
+            // No fallback subtitle lookup here: if no direct/magnet callback was emitted,
+            // there is no playable video for addon subtitle tracks to accompany.
             val parsed = allParsed.toList()
             val playable = parsed.filter { it.isDirect || it.isMagnet }
             val finalPipelineStarted = System.nanoTime()
@@ -485,12 +478,15 @@ class MultiStremio : MainAPI() {
             // Keep the previous completion contract for subtitle callbacks, but measure this
             // final wait separately from time-to-first-playable-link.
             val subtitleWaitStarted = System.nanoTime()
+            val subtitlesWereRequested = subtitleDeferred != null
             val subtitles = subtitleDeferred?.await().orEmpty()
             StreamDiagnostics.recordStage(
                 diagnosticRunId, "subtitle_wait",
                 (System.nanoTime() - subtitleWaitStarted) / 1_000_000L,
             )
-            StreamDiagnostics.markSubtitleCompletion(diagnosticRunId, subAddons.size)
+            if (subtitlesWereRequested) {
+                StreamDiagnostics.markSubtitleCompletion(diagnosticRunId, subAddons.size)
+            }
             for (subtitle in subtitles) {
                 val url = subtitle.url?.takeIf { it.isNotBlank() } ?: continue
                 val code = subtitle.lang ?: "und"
