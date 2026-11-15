@@ -4,6 +4,8 @@ import android.os.Handler
 import android.os.Looper
 import java.util.concurrent.CopyOnWriteArrayList
 import kotlin.concurrent.thread
+import kotlinx.coroutines.suspendCancellableCoroutine
+import kotlin.coroutines.resume
 
 /**
  * Short-lived cache for other installed extensions' homepage rows.
@@ -40,6 +42,20 @@ object ExternalHomeRowsCache {
         val age = System.currentTimeMillis() - loadedAtMs
         if (loadedAtMs == 0L || age > CACHE_TTL_MS) loadAsync()
         return snapshot
+    }
+
+    /**
+     * Returns a fresh provider snapshot, suspending while a cold or stale cache is scanned.
+     * Homepage requests use this instead of reading cachedRows immediately and accidentally
+     * treating an unfinished first scan as an empty set of installed extensions.
+     */
+    suspend fun awaitRows(): List<InstalledExternalHomeRow> {
+        snapshotIfFresh()?.let { return it }
+        return suspendCancellableCoroutine { continuation ->
+            loadAsync { rows ->
+                if (continuation.isActive) continuation.resume(rows)
+            }
+        }
     }
 
     fun loadAsync(callback: ((List<InstalledExternalHomeRow>) -> Unit)? = null) {

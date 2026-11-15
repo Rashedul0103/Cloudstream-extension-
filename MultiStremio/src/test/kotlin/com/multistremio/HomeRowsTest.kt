@@ -125,6 +125,32 @@ class HomeRowsTest {
     }
 
     @Test
+    fun configuredImportedRowsAreProvisionallyRegisteredBeforeProviderScanCompletes() {
+        val external = ExternalRowConfig(
+            key = "external:pending",
+            providerName = "Other extension",
+            providerClass = "example.Provider",
+            sourcePlugin = "example.plugin",
+            rowName = "Imported row",
+            horizontalImages = true,
+            enabled = true,
+        )
+
+        // A null provider snapshot means the asynchronous installed-provider scan has not
+        // completed yet. The saved row must still be registered in MultiStremio's home list.
+        val rows = HomeRows.resolve(
+            Settings(externalRows = mutableListOf(external)),
+            installedExternalRows = null,
+        )
+
+        assertEquals(1, rows.size)
+        assertTrue(rows.single().visibleOnHome)
+        assertEquals("external:pending", rows.single().key)
+        assertEquals("Imported row", rows.single().name)
+        assertEquals(null, rows.single().installedExternal)
+    }
+
+    @Test
     fun missingImportedExtensionRowsRemainVisibleInSettingsButNotOnHomepage() {
         val external = ExternalRowConfig(
             key = "external:missing",

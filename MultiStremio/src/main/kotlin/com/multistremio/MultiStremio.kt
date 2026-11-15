@@ -54,18 +54,19 @@ class MultiStremio : MainAPI() {
     override val mainPage: List<MainPageData>
         get() {
             val settings = Config.snapshot()
-            val installedExternalRows = ExternalHomeRowsCache.cachedOrRefresh()
-            val rows = HomeRows.resolve(settings, installedExternalRows) { Config.manifestOf(it) }
+            // The homepage row list is requested synchronously. Do not gate imported rows on
+            // the asynchronous provider scan: saved configuration is enough to register them.
+            // getMainPage awaits provider resolution before delegating the actual row request.
+            val rows = HomeRows.resolve(settings, null) { Config.manifestOf(it) }
                 .asSequence()
                 .filter { it.visibleOnHome }
                 .mapNotNull { homeRow ->
                     val external = homeRow.external
                     if (external != null) {
-                        val installed = homeRow.installedExternal ?: return@mapNotNull null
                         homeRow.key to MainPageData(
                             HomeRows.homeTitle(homeRow, settings),
                             Json.toJson(ExternalPageRef(homeRow.key)),
-                            installed.row.horizontalImages,
+                            external.horizontalImages,
                         )
                     } else {
                         val addon = homeRow.addon ?: return@mapNotNull null
@@ -91,7 +92,10 @@ class MultiStremio : MainAPI() {
             val selected = settings.externalRows.firstOrNull {
                 it.key == externalKey && it.enabled
             } ?: return newHomePageResponse(request, emptyList(), false)
-            val installed = ExternalHomeRows.resolve(selected, ExternalHomeRowsCache.cachedOrRefresh())
+            // The provider scan runs off the main thread and may not have populated the
+            // cache when CloudStream first asks for this homepage row. Await its result rather
+            // than returning a permanently empty first page from a cold cache.
+            val installed = ExternalHomeRows.resolve(selected, ExternalHomeRowsCache.awaitRows())
                 ?: return newHomePageResponse(request, emptyList(), false)
 
             return try {
