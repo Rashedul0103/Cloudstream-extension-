@@ -124,6 +124,15 @@ class OtherSearchRowsTest {
     }
 
     @Test
+    fun audiobookOtherProviderRemainsEligibleWithDefaultMovieAndSeriesSearchChips() {
+        val types = OtherSearchRows.searchProviderTypes("audiobook")
+
+        assertTrue(TvType.AudioBook in types)
+        assertTrue(TvType.Movie in types)
+        assertTrue(TvType.TvSeries in types)
+    }
+
+    @Test
     fun catalogsWithoutSearchSupportCannotCreateOtherSearchRows() {
         val addon = AddonConfig(id = "no-search", name = "No Search", useOther = true)
         val fixture = manifest(
