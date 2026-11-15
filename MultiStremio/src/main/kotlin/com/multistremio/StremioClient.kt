@@ -15,11 +15,12 @@ object StremioClient {
     private suspend fun fetch(url: String): FetchResult =
         try {
             val res = app.get(url, timeout = Config.settings.timeoutSec.toLong())
+            val contentLength = res.size
             when {
                 !res.isSuccessful -> FetchResult(null, "HTTP_ERROR")
                 // NiceHttp exposes Content-Length without consuming the response body. Avoid
                 // materializing large payloads when the server provides this header.
-                res.size != null && res.size > MAX_RESPONSE_BYTES -> FetchResult(null, "BODY_TOO_LARGE")
+                contentLength != null && contentLength > MAX_RESPONSE_BYTES -> FetchResult(null, "BODY_TOO_LARGE")
                 else -> {
                     val body = res.text
                     when {
