@@ -263,7 +263,11 @@ class MultiStremio : MainAPI() {
                     val raw = StremioClient.streams(addon, type, id, diagnosticRunId)
                     val parseStarted = System.nanoTime()
                     val converted = raw.mapNotNull { stream ->
-                        runCatching { StreamParser.parsed(index, addon.name, stream) }.getOrNull()
+                        try {
+                            StreamParser.parsed(index, addon.name, stream)
+                        } catch (_: Exception) {
+                            null
+                        }
                     }
                     StreamDiagnostics.recordStage(
                         diagnosticRunId, "parse",
@@ -301,17 +305,6 @@ class MultiStremio : MainAPI() {
                 emittedLinks++
             }
 
-            // Additional subtitle endpoints can be much slower than stream endpoints. Their delay
-            // must not hold back the already emitted playable links.
-            val subtitles = subtitleDeferred.await()
-            for (subtitle in subtitles) {
-                val url = subtitle.url?.takeIf { it.isNotBlank() } ?: continue
-                val code = subtitle.lang ?: "und"
-                if (wantedSubs.isNotEmpty() && subtitleKey(code) !in wantedSubs) continue
-                if (!sentSubs.add(url)) continue
-                subtitleCallback(newSubtitleFile(subtitleName(code), url))
-            }
-
             // YouTube/external links are not filterable; hand them to CloudStream's extractors.
             // Resolve them after direct links so a slow extractor cannot delay playable callbacks.
             val seenExternalTargets = HashSet<String>()
@@ -338,6 +331,17 @@ class MultiStremio : MainAPI() {
                 diagnosticRunId, "emission",
                 (System.nanoTime() - emissionStarted) / 1_000_000L,
             )
+
+            // Additional subtitle endpoints can be much slower than stream endpoints. Their delay
+            // must not hold back direct links or extractor links that have already been emitted.
+            val subtitles = subtitleDeferred.await()
+            for (subtitle in subtitles) {
+                val url = subtitle.url?.takeIf { it.isNotBlank() } ?: continue
+                val code = subtitle.lang ?: "und"
+                if (wantedSubs.isNotEmpty() && subtitleKey(code) !in wantedSubs) continue
+                if (!sentSubs.add(url)) continue
+                subtitleCallback(newSubtitleFile(subtitleName(code), url))
+            }
             StreamDiagnostics.finish(
                 diagnosticRunId,
                 rawStreams = parsed.size,
