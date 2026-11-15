@@ -89,7 +89,7 @@ internal object DiagnosticsSettingsScreen {
                 setPadding(0, dp(ctx, 3), 0, dp(ctx, 3))
             }) }
         }
-        root.addView(summary)
+        val content = vertical(ctx, dp(ctx, 10)).apply { addView(summary) }
         val list = vertical(ctx)
         if (snapshot.requests.isEmpty()) {
             list.addView(text(ctx, "No addon request details were recorded.", 13f, colors.secondary))
@@ -118,13 +118,24 @@ internal object DiagnosticsSettingsScreen {
                     ).apply { topMargin = dp(ctx, 7) })
                 }
         }
+        content.addView(text(ctx, "Addon request timings", 13f, colors.primary, true).apply {
+            setPadding(0, dp(ctx, 8), 0, 0)
+        })
+        content.addView(list)
+        val scrollHeight = minOf(
+            dp(ctx, 440),
+            (ctx.resources.displayMetrics.heightPixels - dp(ctx, 190)).coerceAtLeast(dp(ctx, 180)),
+        )
         val scroll = ScrollView(ctx).apply {
-            addView(list, ViewGroup.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT))
+            isFillViewport = false
+            addView(content, ViewGroup.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT,
+            ))
         }
         root.addView(scroll, LinearLayout.LayoutParams(
             ViewGroup.LayoutParams.MATCH_PARENT,
-            minOf(dp(ctx, 300), dp(ctx, maxOf(72, snapshot.requests.size * 62))),
-        ).apply { topMargin = dp(ctx, 10) })
+            scrollHeight,
+        ).apply { topMargin = dp(ctx, 2) })
         val report = buildString {
             appendLine("MultiStremio streaming diagnostics")
             appendLine("Time: $time")
