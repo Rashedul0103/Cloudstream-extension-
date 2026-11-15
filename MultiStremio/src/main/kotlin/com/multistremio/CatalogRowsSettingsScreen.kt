@@ -71,12 +71,13 @@ internal object CatalogRowsSettingsScreen {
         val root = shell(
             ctx,
             "Homepage rows",
-            "Every row has one global position, regardless of its addon. This lets you mix rows from different Stremio addons and installed extensions. Repeated numbers keep their current relative order. Each row shows its source.",
+            "Every row has one global position, regardless of its addon. Mix rows from different Stremio addons and installed extensions. Repeated numbers keep their current relative order. Each row shows its source. Stremio addon priority follows the first row from each addon."
         )
         HomeRefreshNotice.addTo(ctx, root)
 
         val orderInputsByKey = linkedMapOf<String, EditText>()
         val rowViewsByKey = linkedMapOf<String, View>()
+        val rowsByKey = rows.associateBy { it.key }
         var activeQuery = ""
 
         val content = vertical(ctx, dp(ctx, 8))
@@ -221,7 +222,7 @@ internal object CatalogRowsSettingsScreen {
 
         addAction(
             "Apply global row order",
-            "Save the position numbers across all addons and imported extensions. Repeated numbers keep the current relative order.",
+            "Save one mixed order across every source. The first row from each Stremio addon also sets its priority in Addon order sorting."
         ) {
             val snapshot = Config.snapshot()
             val requestedPositions = rows.associate { row ->
@@ -236,9 +237,25 @@ internal object CatalogRowsSettingsScreen {
                 toast(ctx, "Enter a positive whole number for every row. Repeated numbers are allowed.")
                 return@addAction
             }
-            Config.update { catalogOrder = orderedKeys.toMutableList() }
+            val orderedAddonIds = orderedKeys.mapNotNull { rowsByKey[it]?.addon?.id }.distinct()
+            val reorderedAddonIds = HomepageGroupOrderMath.reorderAddonSlots(
+                snapshot.addons.map { it.id },
+                orderedAddonIds,
+            )
+            if (reorderedAddonIds == null) {
+                toast(ctx, "Could not save addon priority.")
+                return@addAction
+            }
+            Config.update {
+                catalogOrder = orderedKeys.toMutableList()
+                val byId = addons.associateBy { it.id }
+                val reorderedAddons = reorderedAddonIds.mapNotNull { byId[it] }
+                if (reorderedAddons.size == addons.size) {
+                    addons = reorderedAddons.toMutableList()
+                }
+            }
             HomeRefreshNotice.mark()
-            toast(ctx, "Global homepage row order updated.")
+            toast(ctx, "Global row order and addon priority updated.")
             catalogRowsMenu(ctx, installedRows)
         }
         addAction(
