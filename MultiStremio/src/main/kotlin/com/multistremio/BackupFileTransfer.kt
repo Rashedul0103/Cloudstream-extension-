@@ -19,7 +19,7 @@ import java.util.UUID
  * storage or a cloud document provider without granting broad storage permissions.
  */
 internal object BackupFileTransfer {
-    private const val MAX_BACKUP_BYTES = 10 * 1024 * 1024
+    private const val MAX_BACKUP_BYTES = 25 * 1024 * 1024
 
     fun exportText(ctx: Context, contents: String, onSaved: () -> Unit) {
         val timestamp = SimpleDateFormat("yyyyMMdd-HHmmss", Locale.US).format(Date())
@@ -131,7 +131,7 @@ internal object BackupFileTransfer {
                 val count = stream.read(buffer)
                 if (count < 0) break
                 if (output.size() + count > MAX_BACKUP_BYTES) {
-                    throw IOException("Backup files must be 10 MB or smaller")
+                    throw IOException("Backup files must be 25 MB or smaller")
                 }
                 output.write(buffer, 0, count)
             }
