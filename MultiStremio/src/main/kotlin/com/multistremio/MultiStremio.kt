@@ -31,12 +31,6 @@ private suspend fun <T, R> List<T>.boundedAmap(
     transform: suspend (T) -> R,
 ): List<R> = boundedConcurrentMap(Semaphore(maxConcurrent.coerceAtLeast(1)), transform)
 
-/** Share one gate across related branches so unused slots can be taken by other addon requests. */
-private suspend fun <T, R> List<T>.boundedAmap(
-    semaphore: Semaphore,
-    transform: suspend (T) -> R,
-): List<R> = boundedConcurrentMap(semaphore, transform)
-
 /**
  * One CloudStream provider that fronts any number of Stremio addons.
  * Addons, filters and sorting are configured in the plugin settings (see SettingsUi).
