@@ -466,6 +466,9 @@ class MultiStremio : MainAPI() {
                 if (extractorLoaded) {
                     emitted = true
                     emittedLinks++
+                    // Extractor-only addons can still produce a playable link. Start subtitles
+                    // only after that link has actually been accepted by CloudStream.
+                    startSubtitleRequestsIfReady()
                 }
             }
             StreamDiagnostics.recordStage(
