@@ -146,6 +146,33 @@ object CatalogOrderMath {
         }
     }
 
+    /**
+     * Applies one global position sequence across every addon and imported extension row.
+     *
+     * Positive positions may repeat; tied rows keep their current relative order. Rows missing
+     * from the current screen (for example, because an addon's manifest is temporarily unavailable)
+     * retain their saved keys after the rows that can currently be edited.
+     */
+    fun reorderAll(
+        currentOrder: List<String>,
+        rowKeys: List<String>,
+        positions: Map<String, Int>,
+    ): List<String>? {
+        if (rowKeys.isEmpty()) return currentOrder.distinct()
+        val rowKeySet = rowKeys.toSet()
+        if (rowKeySet.size != rowKeys.size || positions.keys != rowKeySet) return null
+        if (positions.values.any { it <= 0 }) return null
+
+        val orderedRows = rowKeys.withIndex()
+            .sortedWith(
+                compareBy<IndexedValue<String>> { positions.getValue(it.value) }
+                    .thenBy { it.index },
+            )
+            .map { it.value }
+        val unavailableKeys = currentOrder.filterNot { it in rowKeySet }.distinct()
+        return orderedRows + unavailableKeys
+    }
+
     /** Seed every currently visible row before appending a newly imported row. */
     fun append(keys: List<String>, newKey: String): List<String> =
         (keys + newKey).distinct()
