@@ -44,6 +44,10 @@ Leaving every box unchecked under **Allowed resolutions** means no resolution re
 
 Language filters accept common ISO 639 codes, three-letter codes, regional tags such as `pt-BR`, and language names. Release-name detection recognizes common audio-language labels, country flags and selected native-language names. In stream sorting, the first language in **Prefer languages** has the highest priority; a stream containing multiple detected languages is ranked as a multi-audio option. Detection is heuristic: an addon that does not describe the audio language cannot be identified reliably from its stream label alone.
 
+## Backup files
+
+The Backup & restore screen can export preferences-only or full backups as UTF-8 `.txt` files through Android's system file picker. It can also import a saved TXT backup. The file contains the same portable JSON backup format as copy/paste, so existing clipboard backups remain compatible. File import validates the contents and displays the source-privacy warning before replacing settings. Files are limited to 10 MB. Full backups may contain private addon URLs and access keys; store them securely.
+
 ## Backup privacy
 
 **Preferences-only backup** excludes Stremio addon URLs, cached manifests, imported extension-row references and their order. It is suitable for sharing general filter and sorting preferences, but it does not restore sources.
