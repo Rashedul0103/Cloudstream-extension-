@@ -105,6 +105,11 @@ object Langs {
         }
     }
 
+    /** Canonical language codes accepted by the release/subtitle normalizer. */
+    fun supportedCodes(): List<String> = ALIASES.values.distinct()
+        .filterNot { it == "multi" || it == "und" }
+        .sorted()
+
     fun normalize(input: String): String {
         val raw = input.trim().lowercase(Locale.ROOT).replace('_', '-')
         if (raw.isEmpty()) return ""

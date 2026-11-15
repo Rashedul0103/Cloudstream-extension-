@@ -33,7 +33,11 @@ import kotlin.math.abs
 import kotlin.concurrent.thread
 
 internal object DiagnosticsSettingsScreen {
-    fun show(ctx: Context) = streamDiagnosticsMenu(ctx)
+    fun show(ctx: Context) {
+        // Diagnostics uses a custom report view, not settingMenu's searchable list.
+        SettingsDialogHost.consumeNextMenuSearch()
+        streamDiagnosticsMenu(ctx)
+    }
 
     private fun streamDiagnosticsMenu(ctx: Context) {
         val snapshot = StreamDiagnostics.latest()

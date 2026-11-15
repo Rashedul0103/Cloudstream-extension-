@@ -3,6 +3,7 @@ package com.multistremio
 import android.app.AlertDialog
 import android.app.Dialog
 import android.content.Context
+import android.content.ClipboardManager
 import android.content.res.ColorStateList
 import android.graphics.Color
 import android.graphics.Typeface
@@ -23,7 +24,9 @@ import android.widget.EditText
 import android.widget.FrameLayout
 import android.widget.LinearLayout
 import android.widget.ScrollView
+import android.widget.Switch
 import android.widget.TextView
+import android.view.inputmethod.InputMethodManager
 import android.widget.Toast
 import java.net.URL
 
@@ -37,6 +40,11 @@ internal data class SettingItem(
     val type: SettingItemType = SettingItemType.Navigate,
     val onClick: (() -> Unit)? = null,
     val searchKeywords: List<String> = emptyList(),
+    val checked: Boolean? = null,
+    val valueLabel: String? = null,
+    val section: String? = null,
+    val onToggle: (() -> Unit)? = null,
+    val danger: Boolean = false,
 )
 
 internal inline fun updateAndReopen(
@@ -49,6 +57,36 @@ internal inline fun updateAndReopen(
 
 internal fun toast(ctx: Context, message: String) =
         settingsMainHandler.post { Toast.makeText(ctx, message, Toast.LENGTH_LONG).show() }
+
+internal object HomeRefreshNotice {
+    @Volatile private var pending = false
+    fun mark() { pending = true }
+    fun clear() { pending = false }
+    fun addTo(ctx: Context, root: LinearLayout) {
+        if (!pending) return
+        val colors = palette(ctx)
+        lateinit var banner: LinearLayout
+        banner = LinearLayout(ctx).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER_VERTICAL
+            setPadding(dp(ctx, 12), dp(ctx, 9), dp(ctx, 8), dp(ctx, 9))
+            background = rounded(ctx, withAlpha(colors.accent, 16), colors.accent)
+            addView(text(ctx, "Changes saved. Refresh the home page to apply.", 12f, colors.primary),
+                LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
+            addView(text(ctx, "Dismiss", 11f, colors.accent, true).apply {
+                setPadding(dp(ctx, 8), dp(ctx, 6), dp(ctx, 6), dp(ctx, 6))
+                setOnClickListener {
+                    clear()
+                    (banner.parent as? ViewGroup)?.removeView(banner)
+                }
+            })
+        }
+        root.addView(banner, LinearLayout.LayoutParams(
+            ViewGroup.LayoutParams.MATCH_PARENT,
+            ViewGroup.LayoutParams.WRAP_CONTENT,
+        ).apply { bottomMargin = dp(ctx, 10) })
+    }
+}
 
 internal fun dp(ctx: Context, value: Int) =
         (value * ctx.resources.displayMetrics.density + 0.5f).toInt()
@@ -250,6 +288,10 @@ private data class SettingsScreenEntry(
  */
 internal object SettingsDialogHost {
     private val stack = mutableListOf<SettingsScreenEntry>()
+    private var nextMenuSearch: String? = null
+
+    fun setNextMenuSearch(query: String) { nextMenuSearch = query }
+    fun consumeNextMenuSearch(): String = nextMenuSearch.orEmpty().also { nextMenuSearch = null }
     private var dialog: Dialog? = null
     private var container: FrameLayout? = null
 
@@ -330,16 +372,20 @@ internal object SettingsDialogHost {
             settingsMainHandler.post { show(ctx, key, root, onBack) }
             return
         }
+        val requestedSearch = findSearch(root)?.text?.toString().orEmpty()
         val existingIndex = stack.indexOfLast { it.key == key }
         if (existingIndex >= 0) {
             val existing = stack[existingIndex]
             capture(existing)
             existing.root = root
             existing.onBack = onBack
+            if (requestedSearch.isNotBlank()) existing.searchText = requestedSearch
             while (stack.size > existingIndex + 1) stack.removeAt(stack.lastIndex)
         } else {
             capture(stack.lastOrNull())
-            stack += SettingsScreenEntry(key, root, onBack)
+            val entry = SettingsScreenEntry(key, root, onBack)
+            entry.searchText = requestedSearch
+            stack += entry
         }
         render(ctx)
     }
@@ -376,9 +422,13 @@ internal fun settingMenu(
     back: (() -> Unit)?,
     description: String? = null,
     screenKey: String? = null,
+    forceSearch: Boolean = false,
+    globalSearchItems: List<SettingItem> = emptyList(),
+    showRefreshNotice: Boolean = false,
 ) {
     val colors = palette(ctx)
     val root = shell(ctx, title, description ?: "Choose an item to manage this section.")
+    if (showRefreshNotice) HomeRefreshNotice.addTo(ctx, root)
     val list = vertical(ctx)
     val scroll = ScrollView(ctx).apply {
         isFillViewport = false
@@ -388,71 +438,120 @@ internal fun settingMenu(
             ViewGroup.LayoutParams.WRAP_CONTENT,
         ))
     }
-    val rowViews = items.map { item ->
+
+    fun makeRow(item: SettingItem): View {
         val body = vertical(ctx).apply {
-            addView(text(ctx, item.title, 15f, colors.primary, true))
+            val dangerColor = 0xffd32f2f.toInt()
+            addView(text(ctx, item.title, 15f, if (item.danger) dangerColor else colors.primary, true))
             if (!item.summary.isNullOrBlank()) {
-                addView(text(ctx, item.summary, 12f, colors.secondary).apply {
+                addView(text(ctx, item.summary, 12f, if (item.danger) dangerColor else colors.secondary).apply {
                     setPadding(0, dp(ctx, 3), 0, 0)
                 })
             }
+            setOnClickListener { item.onClick?.invoke() }
         }
-        val indicator = when (item.type) {
-            SettingItemType.Navigate -> "›"
-            SettingItemType.Switch -> "◉"
-            SettingItemType.Value -> "›"
-        }
-        val arrow = text(ctx, indicator, 25f, colors.secondary).apply { gravity = Gravity.CENTER }
         val row = LinearLayout(ctx).apply {
             orientation = LinearLayout.HORIZONTAL
             gravity = Gravity.CENTER_VERTICAL
-            setPadding(dp(ctx, 14), dp(ctx, 12), dp(ctx, 12), dp(ctx, 12))
-            background = ripple(ctx, colors.background, colors)
-            minimumHeight = dp(ctx, 52)
+            setPadding(dp(ctx, 14), dp(ctx, 10), dp(ctx, 10), dp(ctx, 10))
+            background = ripple(ctx, if (item.danger) withAlpha(0xffd32f2f.toInt(), 10) else colors.background, colors)
+            minimumHeight = dp(ctx, 54)
             addView(body, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
-            addView(arrow, LinearLayout.LayoutParams(dp(ctx, 24), ViewGroup.LayoutParams.MATCH_PARENT))
-            setOnClickListener { item.onClick?.invoke() }
+            when (item.type) {
+                SettingItemType.Switch -> {
+                    val toggle = Switch(ctx).apply {
+                        isChecked = item.checked ?: false
+                        isClickable = true
+                        isFocusable = true
+                        thumbTintList = ColorStateList.valueOf(if (isChecked) colors.accent else colors.secondary)
+                        trackTintList = ColorStateList.valueOf(withAlpha(if (isChecked) colors.accent else colors.secondary, 90))
+                        contentDescription = item.title
+                        setOnCheckedChangeListener { _, _ -> (item.onToggle ?: item.onClick)?.invoke() }
+                    }
+                    addView(toggle, LinearLayout.LayoutParams(
+                        ViewGroup.LayoutParams.WRAP_CONTENT,
+                        ViewGroup.LayoutParams.WRAP_CONTENT,
+                    ))
+                    setOnClickListener { (item.onToggle ?: item.onClick)?.invoke() }
+                }
+                SettingItemType.Value -> {
+                    if (!item.valueLabel.isNullOrBlank()) {
+                        addView(text(ctx, item.valueLabel, 13f, if (item.danger) 0xffd32f2f.toInt() else colors.accent, true).apply {
+                            gravity = Gravity.CENTER
+                            setPadding(dp(ctx, 8), dp(ctx, 4), dp(ctx, 4), dp(ctx, 4))
+                        })
+                    } else {
+                        addView(text(ctx, "›", 24f, colors.secondary).apply { gravity = Gravity.CENTER },
+                            LinearLayout.LayoutParams(dp(ctx, 24), ViewGroup.LayoutParams.MATCH_PARENT))
+                    }
+                    setOnClickListener { item.onClick?.invoke() }
+                }
+                SettingItemType.Navigate -> {
+                    addView(text(ctx, "›", 24f, colors.secondary).apply { gravity = Gravity.CENTER },
+                        LinearLayout.LayoutParams(dp(ctx, 24), ViewGroup.LayoutParams.MATCH_PARENT))
+                    setOnClickListener { item.onClick?.invoke() }
+                }
+            }
         }
-        row to item
+        return row
     }
+
+    val rowViews = items.map { item -> makeRow(item) to item }
+    val globalRows = globalSearchItems.map { item -> makeRow(item) to item }
 
     fun render(filter: String = "") {
         list.removeAllViews()
-        val matching = rowViews.filter { (_, item) ->
-            val keywords = item.searchKeywords.ifEmpty { listOfNotNull(item.title, item.summary) }
-            keywords.any { it.contains(filter, ignoreCase = true) }
+        val searching = filter.isNotBlank()
+        val source = if (searching && globalRows.isNotEmpty()) rowViews + globalRows else rowViews
+        val matching = source.filter { (_, item) ->
+            val keywords = item.searchKeywords.ifEmpty { listOfNotNull(item.title, item.summary, item.valueLabel) }
+            keywords.any { it.contains(filter, ignoreCase = true) } &&
+                (!searching || globalRows.isEmpty() || item in items || globalRows.any { it.second === item })
         }
         if (matching.isEmpty()) {
             list.addView(text(ctx, "No matching settings.", 13f, colors.secondary).apply {
                 setPadding(dp(ctx, 14), dp(ctx, 18), dp(ctx, 14), dp(ctx, 18))
             })
-        } else {
-            matching.forEachIndexed { visibleIndex, (row, _) ->
-                if (visibleIndex > 0) {
-                    list.addView(View(ctx).apply {
-                        setBackgroundColor(colors.outline)
-                        layoutParams = LinearLayout.LayoutParams(
-                            ViewGroup.LayoutParams.MATCH_PARENT,
-                            dp(ctx, 1),
-                        ).apply {
-                            leftMargin = dp(ctx, 14)
-                            rightMargin = dp(ctx, 14)
-                        }
-                    })
-                }
-                list.addView(row)
+            return
+        }
+        var previousSection: String? = null
+        matching.forEachIndexed { visibleIndex, (row, item) ->
+            val section = if (searching && globalRows.isNotEmpty() && item !in items) "MATCHING SETTINGS" else item.section
+            if (!section.isNullOrBlank() && section != previousSection) {
+                list.addView(text(ctx, section.uppercase(), 10f,
+                    if (section.contains("danger", true)) 0xffd32f2f.toInt() else colors.accent, true).apply {
+                    letterSpacing = 0.08f
+                    setPadding(dp(ctx, 8), dp(ctx, 12), 0, dp(ctx, 6))
+                })
+                previousSection = section
             }
+            if (visibleIndex > 0) {
+                list.addView(View(ctx).apply {
+                    setBackgroundColor(colors.outline)
+                    layoutParams = LinearLayout.LayoutParams(
+                        ViewGroup.LayoutParams.MATCH_PARENT,
+                        dp(ctx, 1),
+                    ).apply {
+                        leftMargin = dp(ctx, 14)
+                        rightMargin = dp(ctx, 14)
+                    }
+                })
+            }
+            list.addView(row)
         }
     }
 
-    if (items.size >= 8) {
-        root.addView(searchBox(ctx, "Search settings", colors, ::render), LinearLayout.LayoutParams(
+    val initialSearch = SettingsDialogHost.consumeNextMenuSearch()
+    if (forceSearch || items.size >= 8 || globalSearchItems.isNotEmpty()) {
+        val search = searchBox(ctx, "Search settings", colors, ::render)
+        if (initialSearch.isNotBlank()) search.setText(initialSearch)
+        root.addView(search, LinearLayout.LayoutParams(
             ViewGroup.LayoutParams.MATCH_PARENT,
             dp(ctx, 46),
         ).apply { bottomMargin = dp(ctx, 8) })
     }
 
-    render()
+    render(initialSearch)
     root.addView(scroll, LinearLayout.LayoutParams(
         ViewGroup.LayoutParams.MATCH_PARENT,
         minOf(dp(ctx, 430), dp(ctx, maxOf(88, items.size * 62))),
@@ -466,6 +565,7 @@ internal fun settingMenu(
 internal fun prompt(
     ctx: Context, title: String, message: String?, initial: String, numeric: Boolean,
     onCancel: (() -> Unit)? = null,
+    showPasteButton: Boolean = false,
     onOk: (String) -> Unit,
 ) {
     val colors = palette(ctx)
@@ -484,12 +584,29 @@ internal fun prompt(
         ViewGroup.LayoutParams.MATCH_PARENT,
         ViewGroup.LayoutParams.WRAP_CONTENT,
     ).apply { topMargin = dp(ctx, 6) })
+    if (showPasteButton) {
+        root.addView(text(ctx, "Paste from clipboard", 12f, colors.accent, true).apply {
+            setPadding(0, dp(ctx, 10), 0, dp(ctx, 4))
+            setOnClickListener {
+                val clipboard = ctx.getSystemService(Context.CLIPBOARD_SERVICE) as? ClipboardManager
+                val clip = clipboard?.primaryClip
+                val pasted = runCatching { clip?.getItemAt(0)?.coerceToText(ctx)?.toString().orEmpty() }.getOrDefault("")
+                if (pasted.isNotBlank()) input.setText(pasted) else toast(ctx, "Clipboard is empty.")
+            }
+        })
+    }
     addFooter(ctx, root, "Save", {
         onOk(input.text.toString().trim())
     }, "Cancel", {
         if (onCancel != null) onCancel() else SettingsDialogHost.back()
     })
     SettingsDialogHost.show(ctx, "prompt:$title", root, onCancel)
+    input.requestFocus()
+    input.post {
+        input.setSelection(input.text.length)
+        val manager = ctx.getSystemService(Context.INPUT_METHOD_SERVICE) as? InputMethodManager
+        manager?.showSoftInput(input, InputMethodManager.SHOW_IMPLICIT)
+    }
 }
 
 internal fun confirm(

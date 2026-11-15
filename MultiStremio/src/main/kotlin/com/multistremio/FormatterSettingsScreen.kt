@@ -19,11 +19,16 @@ internal object FormatterSettingsScreen {
         val separators = listOf(" · ", " | ", " • ", " — ", " / ", "\n")
         val separatorIndex = separators.indexOf(format.separator).takeIf { it >= 0 } ?: 0
         val again = { streamFormatterMenu(ctx) }
+        val preview = StreamLabels.preview(format)
         val items = listOf(
-            SettingItem("Custom layout", onOff(format.enabled), SettingItemType.Switch,
-                onClick = { updateAndReopen({ again() }) { streamFormat.enabled = !streamFormat.enabled } },
-                searchKeywords = listOf("custom", "layout", "enable", "disable")),
-            SettingItem("Choose information to show", "${selected.size} selected", SettingItemType.Value,
+            SettingItem(
+                "Live preview",
+                preview,
+                SettingItemType.Value,
+                valueLabel = "Example",
+                searchKeywords = listOf("preview", "example", "stream name"),
+            ),
+            SettingItem("Choose information to show", "${selected.size} selected", SettingItemType.Value, valueLabel = "${selected.size}",
                 onClick = {
                     multi(ctx, "Information to display",
                         fields.map { "${it.title} — ${it.description}" },
@@ -34,10 +39,10 @@ internal object FormatterSettingsScreen {
                         updateAndReopen({ again() }) { streamFormat.fields = (existingOrder + newlySelected).toMutableList() }
                     }
                 }, searchKeywords = listOf("fields", "quality", "source", "HDR", "codec", "language", "size")),
-            SettingItem("Reorder visible information", "Arrange details in the order they appear", SettingItemType.Value,
+            SettingItem("Reorder visible information", "Arrange details in the order they appear", SettingItemType.Navigate,
                 onClick = { streamFormatReorderDialog(ctx) },
                 searchKeywords = listOf("reorder", "drag", "order", "fields")),
-            SettingItem("Separator", separatorLabels[separatorIndex], SettingItemType.Value,
+            SettingItem("Separator", separatorLabels[separatorIndex], SettingItemType.Value, valueLabel = separatorLabels[separatorIndex],
                 onClick = {
                     choose(ctx, "Separate each detail with", separatorLabels, separatorIndex, onCancel = again) {
                         updateAndReopen({ again() }) { streamFormat.separator = separators[it] }
@@ -45,23 +50,9 @@ internal object FormatterSettingsScreen {
                 }, searchKeywords = listOf("separator", "dot", "bullet", "dash", "slash", "newline")),
             SettingItem("Show full field names", onOff(format.showLabels), SettingItemType.Switch,
                 onClick = { updateAndReopen({ again() }) { streamFormat.showLabels = !streamFormat.showLabels } },
+                checked = format.showLabels,
                 searchKeywords = listOf("labels", "names", "Quality:", "Video codec:")),
-            SettingItem("Preview your design", "Example only; no addon is contacted", SettingItemType.Navigate,
-                onClick = {
-                    val preview = StreamLabels.preview(format)
-                    settingMenu(
-                        ctx,
-                        "Your stream-name preview",
-                        listOf(SettingItem(
-                            title = preview,
-                            summary = "Example only; real links skip details that an addon does not provide",
-                            type = SettingItemType.Value,
-                        )),
-                        again,
-                        "Example only. Real links show whichever information each addon provides. Missing details are automatically skipped.",
-                    )
-                }, searchKeywords = listOf("preview", "example")),
-            SettingItem("Reset to recommended layout", "Restore the default fields, order and spacing", SettingItemType.Value,
+            SettingItem("Reset to recommended layout", "Restore the default fields, order and spacing", SettingItemType.Navigate,
                 onClick = {
                     confirm(ctx, "Reset stream formatter?",
                         "This restores the recommended field order, middle-dot separator and compact labels. Your custom layout will be turned off.",
@@ -72,14 +63,15 @@ internal object FormatterSettingsScreen {
         )
         settingMenu(
             ctx,
-            "Stream formatter",
+            "Link design",
             items,
             { MainMenuSettingsScreen.show(ctx) },
-            "Design how links look in the stream list. No codes or templates are needed. Choose the details, put them in your preferred order, and preview the result.",
+            "Design how links look in the link list. No codes or templates are needed. Choose the details and put them in your preferred order.",
+            forceSearch = true,
         )
     }
 
-    /** Drag selected information blocks into the exact order wanted in the stream list. */
+    /** Drag selected information blocks into the exact order wanted in the link list. */
     private fun streamFormatReorderDialog(ctx: Context) {
         val format = Config.settings.streamFormat
         val orderedIds = format.fields.distinct()
@@ -95,7 +87,7 @@ internal object FormatterSettingsScreen {
         val colors = palette(ctx)
         val root = shell(
             ctx,
-            "Arrange stream details",
+            "Arrange link details",
             "Drag the ☰ grip to move a field. No long-press is needed; swipe the field details to scroll. Tap Save when finished.",
         )
         val scroll = ScrollView(ctx).apply { clipToPadding = false }

@@ -26,6 +26,7 @@ object SettingsBackupManager {
             snapshot.addons.clear()
             snapshot.externalRows.clear()
             snapshot.catalogOrder.clear()
+            snapshot.customCatalogNames.clear()
         }
 
         return Json.toJson(

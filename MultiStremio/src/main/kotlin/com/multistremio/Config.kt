@@ -213,7 +213,14 @@ object Config {
 
     @Synchronized
     fun update(block: Settings.() -> Unit) {
+        val previousFilter = Json.toJson(settings.filter)
+        val previousSort = Json.toJson(settings.sort)
+        val previousPreset = settings.filterPreset
         settings.block()
+        if ((previousFilter != Json.toJson(settings.filter) || previousSort != Json.toJson(settings.sort)) &&
+            settings.filterPreset == previousPreset) {
+            settings.filterPreset = "CUSTOM"
+        }
         pruneManifestCache()
         save()
     }
