@@ -8,9 +8,8 @@ import kotlin.coroutines.cancellation.CancellationException
 
 /** Talks to Stremio addons over HTTP. Every call isolates failures so one bad addon never breaks the rest. */
 object StremioClient {
-    // Reject oversized addon payloads before reading/parsing whenever Content-Length is known.
+    // Enforce the cap from Content-Length when available and again while streaming the body.
     private const val MAX_RESPONSE_BYTES = 2L * 1024L * 1024L
-    private const val MAX_RESPONSE_CHARS = 2 * 1024 * 1024
 
     private data class FetchResult(val body: String?, val status: String)
 
@@ -28,16 +27,12 @@ object StremioClient {
                         val body = res.body.byteStream().use { input ->
                             readBoundedUtf8(input, MAX_RESPONSE_BYTES)
                         } ?: return FetchResult(null, "BODY_TOO_LARGE")
-                        when {
-                            body.length > MAX_RESPONSE_CHARS -> FetchResult(null, "BODY_TOO_LARGE")
-                            body.isBlank() -> FetchResult(body, "EMPTY_BODY")
-                            else -> FetchResult(body, "RECEIVED")
-                        }
+                        if (body.isBlank()) FetchResult(body, "EMPTY_BODY")
+                        else FetchResult(body, "RECEIVED")
                     }
                 }
             } finally {
-                // Error and oversized responses do not consume .text, so close them explicitly.
-                // Closing an already-consumed body is safe and keeps connection resources bounded.
+                // Also close responses rejected before the bounded reader consumes their body.
                 runCatching { res.okhttpResponse.close() }
             }
         } catch (e: CancellationException) {
