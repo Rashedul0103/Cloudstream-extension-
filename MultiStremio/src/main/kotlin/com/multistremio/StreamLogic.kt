@@ -816,7 +816,12 @@ object StreamPipeline {
         return ParsedStream(first.addonIndex, first.addonName, mergedRaw, text, info)
     }
 
-    fun process(items: List<ParsedStream>, filter: FilterSettings, sort: SortSettings): List<ParsedStream> {
+    fun process(
+        items: List<ParsedStream>,
+        filter: FilterSettings,
+        sort: SortSettings,
+        applyLimits: Boolean = true,
+    ): List<ParsedStream> {
         // Merge duplicate records before filtering so a richer copy from another addon can fill
         // missing resolution, language, filename, headers or subtitle information.
         val positions = HashMap<String, Int>()
@@ -842,7 +847,7 @@ object StreamPipeline {
             StreamFilter.passes(it, filter, wantedLanguages, validRequiredKeywords)
         }
         val sorted = filtered.sortedWith(StreamSorter.comparator(sort))
-        if (filter.maxPerAddon <= 0 && filter.maxTotal <= 0) return sorted
+        if (!applyLimits || (filter.maxPerAddon <= 0 && filter.maxTotal <= 0)) return sorted
 
         // Apply both limits in one pass and stop as soon as the total cap is reached.
         val perAddon = HashMap<Int, Int>()
@@ -855,6 +860,38 @@ object StreamPipeline {
             }
             result += stream
             if (filter.maxTotal > 0 && result.size >= filter.maxTotal) break
+        }
+        return result
+    }
+}
+
+/**
+ * Tracks which playable links have already been handed to CloudStream across progressively
+ * arriving addon batches. Limits are cumulative even though each update is re-sorted.
+ */
+internal class StreamEmissionTracker(private val filter: FilterSettings) {
+    private val emittedKeys = HashSet<String>()
+    private val emittedPerAddon = HashMap<Int, Int>()
+    var emittedCount: Int = 0
+        private set
+
+    /** [processed] must already be filtered, deduplicated and sorted by [StreamPipeline]. */
+    fun takeNew(processed: List<ParsedStream>): List<ParsedStream> {
+        val result = ArrayList<ParsedStream>()
+        for (stream in processed) {
+            // Direct URLs and magnet hashes are the only inputs to this tracker, so every
+            // candidate has a stable identity. Refuse an unidentifiable record rather than
+            // risking the same link being emitted more than once.
+            val key = StreamDeduplication.key(stream) ?: continue
+            if (!emittedKeys.add(key)) continue
+            if (filter.maxTotal > 0 && emittedCount >= filter.maxTotal) continue
+
+            val addonCount = emittedPerAddon[stream.addonIndex] ?: 0
+            if (filter.maxPerAddon > 0 && addonCount >= filter.maxPerAddon) continue
+
+            emittedPerAddon[stream.addonIndex] = addonCount + 1
+            emittedCount++
+            result += stream
         }
         return result
     }

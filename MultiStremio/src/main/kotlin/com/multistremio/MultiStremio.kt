@@ -14,8 +14,15 @@ import com.lagradost.cloudstream3.utils.loadExtractor
 import com.lagradost.cloudstream3.utils.newExtractorLink
 import java.util.concurrent.CancellationException
 import kotlinx.coroutines.async
+import kotlinx.coroutines.awaitAll
+import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.sync.Semaphore
+import kotlinx.coroutines.sync.withPermit
+import kotlinx.coroutines.withTimeoutOrNull
+
+private const val FIRST_BATCH_GRACE_MS = 400L
+private const val FIRST_BATCH_MAX_WAIT_MS = 1_800L
 
 /** Use a fresh request gate for independent fan-outs such as search and metadata fallback. */
 private suspend fun <T, R> List<T>.boundedAmap(
@@ -230,6 +237,7 @@ class MultiStremio : MainAPI() {
         val id = ref.i ?: return false
         val settings = Config.snapshot()
         val diagnosticRunId = StreamDiagnostics.begin()
+        val requestStartedNanos = System.nanoTime()
 
         val streamAddons = settings.addons.withIndex()
             .filter { (_, a) -> a.enabled && a.useStreams && Config.manifestOf(a)?.supports("stream", type, id) == true }
@@ -239,80 +247,194 @@ class MultiStremio : MainAPI() {
             }
         } else emptyList()
 
-        // Stream and subtitle providers share one cap. A slow addon no longer holds an entire
-        // fixed-size batch hostage, and an idle branch can lend capacity to the busy branch.
+        // Stream and subtitle providers retain the shared connection cap. Stream jobs are
+        // launched first, so their queued permits remain ahead of the subtitle branch.
         val requestLimiter = Semaphore(8)
+        StreamDiagnostics.setExpectedStreamAddons(diagnosticRunId, streamAddons.size)
+
         return coroutineScope {
-            // Start stream work first so it gets first access to the shared permits. This
-            // prevents a large subtitle-addon list from occupying every connection before any
-            // playable stream request has started.
-            val streamDeferred = async {
-                streamAddons.boundedAmap(requestLimiter) { (index, addon) ->
-                    try {
-                        val raw = StremioClient.streams(addon, type, id, diagnosticRunId)
-                        val parseStarted = System.nanoTime()
-                        val converted = raw.mapNotNull { stream ->
-                            try {
-                                StreamParser.parsed(index, addon.name, stream)
-                            } catch (_: Exception) {
-                                null
+            // Each addon publishes its parsed result as soon as it completes. Unlike the old
+            // await-all fan-out, a slow addon can no longer block the first playable batch.
+            val streamResults = Channel<List<ParsedStream>>(Channel.UNLIMITED)
+            val streamJobs = streamAddons.map { (index, addon) ->
+                async {
+                    val queuedAt = System.nanoTime()
+                    val converted = try {
+                        requestLimiter.withPermit {
+                            val queueWaitMs = (System.nanoTime() - queuedAt) / 1_000_000L
+                            val raw = StremioClient.streams(
+                                addon, type, id, diagnosticRunId, queueWaitMs,
+                            )
+                            val parseStarted = System.nanoTime()
+                            val parsed = raw.mapNotNull { stream ->
+                                try {
+                                    StreamParser.parsed(index, addon.name, stream)
+                                } catch (_: Exception) {
+                                    null
+                                }
                             }
+                            StreamDiagnostics.recordStage(
+                                diagnosticRunId, "parse",
+                                (System.nanoTime() - parseStarted) / 1_000_000L,
+                            )
+                            if (parsed.any { it.isDirect || it.isMagnet }) {
+                                StreamDiagnostics.markFirstPlayableResult(diagnosticRunId)
+                            }
+                            parsed
                         }
-                        StreamDiagnostics.recordStage(
-                            diagnosticRunId, "parse",
-                            (System.nanoTime() - parseStarted) / 1_000_000L,
-                        )
-                        converted
                     } catch (e: CancellationException) {
                         throw e
                     } catch (_: Exception) {
                         // One malformed addon must not discard valid results from other addons.
                         emptyList()
                     }
-                }.flatten()
+                    StreamDiagnostics.recordStreamAddonCompleted(diagnosticRunId)
+                    streamResults.send(converted)
+                }
             }
 
-            // Run subtitle requests concurrently, but don't let them delay playable callbacks.
-            // CloudStream updates the link list progressively as each callback arrives.
+            // Subtitle endpoints continue in parallel, but their completion is not required
+            // before the first playable links are made available.
             val subtitleDeferred = async {
-                subAddons.boundedAmap(requestLimiter) { addon ->
-                    try {
-                        StremioClient.subtitles(addon, type, id, diagnosticRunId)
-                    } catch (e: CancellationException) {
-                        throw e
-                    } catch (_: Exception) {
-                        emptyList()
+                subAddons.map { addon ->
+                    async {
+                        val queuedAt = System.nanoTime()
+                        try {
+                            requestLimiter.withPermit {
+                                val queueWaitMs = (System.nanoTime() - queuedAt) / 1_000_000L
+                                StremioClient.subtitles(
+                                    addon, type, id, diagnosticRunId, queueWaitMs,
+                                )
+                            }
+                        } catch (e: CancellationException) {
+                            throw e
+                        } catch (_: Exception) {
+                            emptyList()
+                        }
                     }
-                }.flatten()
+                }.awaitAll().flatten()
             }
 
-            val parsed = streamDeferred.await()
-
-            // YouTube/external-only entries do not use the playable filter or its limits.
-            val playable = parsed.filter { it.isDirect || it.isMagnet }
-            val pipelineStarted = System.nanoTime()
-            val processed = StreamPipeline.process(playable, settings.filter, settings.sort)
-            StreamDiagnostics.recordStage(
-                diagnosticRunId, "pipeline",
-                (System.nanoTime() - pipelineStarted) / 1_000_000L,
-            )
-
-            var emitted = false
-            var emittedLinks = 0
-            val emissionStarted = System.nanoTime()
+            val allParsed = ArrayList<ParsedStream>()
+            val emissionTracker = StreamEmissionTracker(settings.filter)
             val wantedSubs = settings.subtitleLanguages.map { subtitleKey(it) }.toSet()
             val sentSubs = HashSet<String>()
+            var emitted = false
+            var emittedLinks = 0
+            var completedAddons = 0
+            var firstBatchEmitted = false
+            var firstPlayableDeadlineNanos: Long? = null
 
-            // Emit sorted direct/magnet links as soon as all stream addons have answered.
-            // Sorting remains global and deterministic; only the independent subtitle wait moves later.
-            for (stream in processed) {
-                emitStream(stream, settings, sentSubs, wantedSubs, subtitleCallback, callback)
-                emitted = true
-                emittedLinks++
+            suspend fun emitAvailablePlayable() {
+                val playableNow = allParsed.filter { it.isDirect || it.isMagnet }
+                if (playableNow.isEmpty()) return
+
+                val pipelineStarted = System.nanoTime()
+                // Recompute over everything received so far to preserve cross-addon duplicate
+                // merging and deterministic ordering within each emitted batch. The tracker
+                // applies user limits cumulatively across batches.
+                val processed = StreamPipeline.process(
+                    playableNow, settings.filter, settings.sort, applyLimits = false,
+                )
+                StreamDiagnostics.recordStage(
+                    diagnosticRunId, "pipeline",
+                    (System.nanoTime() - pipelineStarted) / 1_000_000L,
+                )
+
+                val newLinks = emissionTracker.takeNew(processed)
+                if (newLinks.isEmpty()) return
+                val emissionStarted = System.nanoTime()
+                for (stream in newLinks) {
+                    emitStream(
+                        stream, settings, sentSubs, wantedSubs, subtitleCallback, callback, diagnosticRunId,
+                    )
+                    emitted = true
+                    emittedLinks++
+                }
+                StreamDiagnostics.recordStage(
+                    diagnosticRunId, "emission",
+                    (System.nanoTime() - emissionStarted) / 1_000_000L,
+                )
             }
 
-            // YouTube/external links are not filterable; hand them to CloudStream's extractors.
-            // Resolve them after direct links so a slow extractor cannot delay playable callbacks.
+            // Collect addon results until the first playable result arrives. Then gather a
+            // short 400 ms grace batch, capped at 1.8 s from loadLinks entry, so nearby fast
+            // addons can contribute before the initial sort without waiting for slow endpoints.
+            while (completedAddons < streamJobs.size) {
+                var timedOut = false
+                val result = if (!firstBatchEmitted && firstPlayableDeadlineNanos != null) {
+                    val remainingNanos = firstPlayableDeadlineNanos!! - System.nanoTime()
+                    val remainingMs = if (remainingNanos <= 0L) 0L
+                        else (remainingNanos + 999_999L) / 1_000_000L
+                    if (remainingMs == 0L) {
+                        timedOut = true
+                        null
+                    } else {
+                        withTimeoutOrNull(remainingMs) { streamResults.receive() }.also {
+                            if (it == null) timedOut = true
+                        }
+                    }
+                } else {
+                    streamResults.receive()
+                }
+
+                if (result != null) {
+                    completedAddons++
+                    allParsed.addAll(result)
+                    if (
+                        !firstBatchEmitted &&
+                        firstPlayableDeadlineNanos == null &&
+                        allParsed.any { it.isDirect || it.isMagnet }
+                    ) {
+                        val graceDeadline = System.nanoTime() + FIRST_BATCH_GRACE_MS * 1_000_000L
+                        val maximumDeadline = requestStartedNanos + FIRST_BATCH_MAX_WAIT_MS * 1_000_000L
+                        firstPlayableDeadlineNanos = minOf(graceDeadline, maximumDeadline)
+                    }
+                }
+
+                if (
+                    !firstBatchEmitted &&
+                    firstPlayableDeadlineNanos != null &&
+                    (timedOut || completedAddons >= streamJobs.size)
+                ) {
+                    val beforeFirstBatch = emittedLinks
+                    emitAvailablePlayable()
+                    StreamDiagnostics.markFirstBatchLinks(
+                        diagnosticRunId, emittedLinks - beforeFirstBatch,
+                    )
+                    firstBatchEmitted = true
+                } else if (firstBatchEmitted && result != null) {
+                    // Later addons append their new, locally sorted links as they finish.
+                    emitAvailablePlayable()
+                }
+            }
+
+            // A lookup with no playable results, or no eligible stream addons, still records
+            // completion. Ensure all children have returned before moving to extractors.
+            streamJobs.forEach { it.await() }
+            if (!firstBatchEmitted) {
+                val beforeFirstBatch = emittedLinks
+                emitAvailablePlayable()
+                StreamDiagnostics.markFirstBatchLinks(
+                    diagnosticRunId, emittedLinks - beforeFirstBatch,
+                )
+            }
+            StreamDiagnostics.markAllPlayableLinksEmitted(diagnosticRunId)
+
+            val parsed = allParsed.toList()
+            val playable = parsed.filter { it.isDirect || it.isMagnet }
+            val finalPipelineStarted = System.nanoTime()
+            val keptAfterFilters = StreamPipeline.process(
+                playable, settings.filter, settings.sort,
+            ).size
+            StreamDiagnostics.recordStage(
+                diagnosticRunId, "pipeline",
+                (System.nanoTime() - finalPipelineStarted) / 1_000_000L,
+            )
+
+            // External/YouTube-only entries cannot enter the playable pipeline. Resolve them
+            // after direct/magnet links have already been offered to CloudStream.
+            val extractorStarted = System.nanoTime()
             val seenExternalTargets = HashSet<String>()
             for (stream in parsed) {
                 val yt = stream.raw.ytId
@@ -332,15 +454,20 @@ class MultiStremio : MainAPI() {
                     emittedLinks++
                 }
             }
-
             StreamDiagnostics.recordStage(
-                diagnosticRunId, "emission",
-                (System.nanoTime() - emissionStarted) / 1_000_000L,
+                diagnosticRunId, "extractors",
+                (System.nanoTime() - extractorStarted) / 1_000_000L,
             )
 
-            // Additional subtitle endpoints can be much slower than stream endpoints. Their delay
-            // must not hold back direct links or extractor links that have already been emitted.
+            // Keep the previous completion contract for subtitle callbacks, but measure this
+            // final wait separately from time-to-first-playable-link.
+            val subtitleWaitStarted = System.nanoTime()
             val subtitles = subtitleDeferred.await()
+            StreamDiagnostics.recordStage(
+                diagnosticRunId, "subtitle_wait",
+                (System.nanoTime() - subtitleWaitStarted) / 1_000_000L,
+            )
+            StreamDiagnostics.markSubtitleCompletion(diagnosticRunId)
             for (subtitle in subtitles) {
                 val url = subtitle.url?.takeIf { it.isNotBlank() } ?: continue
                 val code = subtitle.lang ?: "und"
@@ -348,12 +475,13 @@ class MultiStremio : MainAPI() {
                 if (!sentSubs.add(url)) continue
                 subtitleCallback(newSubtitleFile(subtitleName(code), url))
             }
+
             StreamDiagnostics.finish(
                 diagnosticRunId,
                 rawStreams = parsed.size,
                 addonSubtitles = subtitles.size,
                 playableCandidates = playable.size,
-                keptAfterFilters = processed.size,
+                keptAfterFilters = keptAfterFilters,
                 emittedLinks = emittedLinks,
             )
             emitted
@@ -367,6 +495,7 @@ class MultiStremio : MainAPI() {
         wantedSubs: Set<String>,
         subtitleCallback: (SubtitleFile) -> Unit,
         callback: (ExtractorLink) -> Unit,
+        diagnosticRunId: Long,
     ) {
         val label = StreamLabels.build(p, settings.detailedLabels, settings.streamFormat)
         val quality = StreamLabels.linkQuality(p.info.resolution, settings.sort.overrideAppQuality)
@@ -397,6 +526,8 @@ class MultiStremio : MainAPI() {
                 },
             )
         }
+        // Timestamp immediately after the playable callback, before any inline subtitle work.
+        StreamDiagnostics.markFirstPlayableLink(diagnosticRunId)
         for (s in p.raw.subtitles.orEmpty()) {
             val su = s.url?.takeIf { it.isNotBlank() } ?: continue
             val language = s.lang ?: "und"

@@ -61,14 +61,19 @@ object StremioClient {
         type: String,
         id: String,
         diagnosticRunId: Long? = null,
+        queueWaitMs: Long = 0L,
     ): List<RawStream> {
         val started = System.nanoTime()
         val response = fetch(Urls.resource(addon.url, "stream", type, id))
+        if (diagnosticRunId != null) {
+            StreamDiagnostics.markFirstStreamRequestCompleted(diagnosticRunId)
+        }
         val parsed = if (response.body == null) ArrayParseResult<RawStream>(emptyList(), response.status)
             else Json.parseArrayDetailed<RawStream>(response.body, "streams")
         StreamDiagnostics.record(
             diagnosticRunId, addon.name, "Streams",
             (System.nanoTime() - started) / 1_000_000L, parsed.status, parsed.items.size,
+            queueWaitMs = queueWaitMs,
         )
         return parsed.items
     }
@@ -78,6 +83,7 @@ object StremioClient {
         type: String,
         id: String,
         diagnosticRunId: Long? = null,
+        queueWaitMs: Long = 0L,
     ): List<RawSubtitle> {
         val started = System.nanoTime()
         val response = fetch(Urls.resource(addon.url, "subtitles", type, id))
@@ -86,6 +92,7 @@ object StremioClient {
         StreamDiagnostics.record(
             diagnosticRunId, addon.name, "Subtitles",
             (System.nanoTime() - started) / 1_000_000L, parsed.status, parsed.items.size,
+            queueWaitMs = queueWaitMs,
         )
         return parsed.items
     }
