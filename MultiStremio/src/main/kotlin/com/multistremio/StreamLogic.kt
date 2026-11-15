@@ -193,8 +193,11 @@ object Langs {
         return out
     }
 
-    fun detect(text: String): Set<String> {
-        val normalizedText = text.lowercase(Locale.ROOT)
+    fun detect(text: String): Set<String> =
+        detectNormalized(text, text.lowercase(Locale.ROOT))
+
+    /** Reuses the parser's existing lowercase copy instead of allocating a second one per stream. */
+    internal fun detectNormalized(text: String, normalizedText: String): Set<String> {
         val found = linkedSetOf<String>()
         for (country in flagCountries(text)) FLAG_TO_LANG[country]?.let { found += it }
         for ((pattern, code) in WORD_LANGS) if (pattern.containsMatchIn(normalizedText)) found += code
@@ -315,7 +318,7 @@ object StreamParser {
         }
         val info = StreamInfo(
             resolution = res, sizeBytes = size, seeders = seeders, codec = codec, hdr = hdr,
-            source = source, audio = audio, cached = cached, isCam = cam, languages = Langs.detect(t),
+            source = source, audio = audio, cached = cached, isCam = cam, languages = Langs.detectNormalized(rawText, t),
         )
         return info to t
     }
@@ -594,10 +597,16 @@ object StreamSorter {
 
     fun comparator(s: SortSettings): Comparator<ParsedStream> {
         val chain = mutableListOf<Comparator<ParsedStream>>()
+        // Comparator callbacks run O(n log n) times. Cache expensive user preferences once per
+        // stream so regex and language matching are O(n), not repeated on every comparison.
+        val keywordMatches = java.util.IdentityHashMap<ParsedStream, Boolean>()
+        val languageRanks = java.util.IdentityHashMap<ParsedStream, Int>()
+        val codecRanks = java.util.IdentityHashMap<ParsedStream, Int>()
+        val audioRanks = java.util.IdentityHashMap<ParsedStream, Int>()
 
         if (s.preferKeywords.isNotEmpty()) {
             chain += compareByDescending<ParsedStream> {
-                if (StreamFilter.anyMatch(it.text, s.preferKeywords)) 1 else 0
+                if (keywordMatches.getOrPut(it) { StreamFilter.anyMatch(it.text, s.preferKeywords) }) 1 else 0
             }
         }
         if (s.preferLanguages.isNotEmpty()) {
@@ -610,12 +619,14 @@ object StreamSorter {
             if (wanted.isNotEmpty()) {
                 val positions = wanted.withIndex().associate { it.value to it.index }
                 chain += compareBy<ParsedStream> {
-                    val have = it.info.languages
-                    when {
-                        "multi" in have -> -1
-                        have.isEmpty() -> wanted.size
-                        else -> have.mapNotNull { language -> positions[language] }.minOrNull()
-                            ?: wanted.size + 1
+                    languageRanks.getOrPut(it) {
+                        val have = it.info.languages
+                        when {
+                            "multi" in have -> -1
+                            have.isEmpty() -> wanted.size
+                            else -> have.mapNotNull { language -> positions[language] }.minOrNull()
+                                ?: wanted.size + 1
+                        }
                     }
                 }
             }
@@ -625,8 +636,10 @@ object StreamSorter {
                 .withIndex().associate { it.value to it.index }
             if (ranks.isNotEmpty()) {
                 chain += compareBy<ParsedStream> {
-                    canonicalCodec(it.info.codec)?.let { codec -> ranks[codec] ?: ranks.size + 1 }
-                        ?: ranks.size + 2
+                    codecRanks.getOrPut(it) {
+                        canonicalCodec(it.info.codec)?.let { codec -> ranks[codec] ?: ranks.size + 1 }
+                            ?: ranks.size + 2
+                    }
                 }
             }
         }
@@ -635,8 +648,10 @@ object StreamSorter {
                 .withIndex().associate { it.value to it.index }
             if (ranks.isNotEmpty()) {
                 chain += compareBy<ParsedStream> {
-                    canonicalAudio(it.info.audio)?.let { audio -> ranks[audio] ?: ranks.size + 1 }
-                        ?: ranks.size + 2
+                    audioRanks.getOrPut(it) {
+                        canonicalAudio(it.info.audio)?.let { audio -> ranks[audio] ?: ranks.size + 1 }
+                            ?: ranks.size + 2
+                    }
                 }
             }
         }

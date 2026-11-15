@@ -6,7 +6,8 @@ import kotlin.coroutines.cancellation.CancellationException
 
 /** Talks to Stremio addons over HTTP. Every call isolates failures so one bad addon never breaks the rest. */
 object StremioClient {
-    // Reject oversized payloads before JSON parsing to limit avoidable memory/CPU spikes.
+    // Reject oversized addon payloads before reading/parsing whenever Content-Length is known.
+    private const val MAX_RESPONSE_BYTES = 2L * 1024L * 1024L
     private const val MAX_RESPONSE_CHARS = 2 * 1024 * 1024
 
     private data class FetchResult(val body: String?, val status: String)
@@ -14,14 +15,26 @@ object StremioClient {
     private suspend fun fetch(url: String): FetchResult =
         try {
             val res = app.get(url, timeout = Config.settings.timeoutSec.toLong())
-            if (!res.isSuccessful) FetchResult(null, "HTTP_ERROR")
-            else {
-                val body = res.text
+            try {
+                val contentLength = res.size
                 when {
-                    body.length > MAX_RESPONSE_CHARS -> FetchResult(null, "BODY_TOO_LARGE")
-                    body.isBlank() -> FetchResult(body, "EMPTY_BODY")
-                    else -> FetchResult(body, "RECEIVED")
+                    !res.isSuccessful -> FetchResult(null, "HTTP_ERROR")
+                    // NiceHttp exposes Content-Length without consuming the response body. Avoid
+                    // materializing large payloads when the server provides this header.
+                    contentLength != null && contentLength > MAX_RESPONSE_BYTES -> FetchResult(null, "BODY_TOO_LARGE")
+                    else -> {
+                        val body = res.text
+                        when {
+                            body.length > MAX_RESPONSE_CHARS -> FetchResult(null, "BODY_TOO_LARGE")
+                            body.isBlank() -> FetchResult(body, "EMPTY_BODY")
+                            else -> FetchResult(body, "RECEIVED")
+                        }
+                    }
                 }
+            } finally {
+                // Error and oversized responses do not consume .text, so close them explicitly.
+                // Closing an already-consumed body is safe and keeps connection resources bounded.
+                runCatching { res.okhttpResponse.close() }
             }
         } catch (e: CancellationException) {
             throw e

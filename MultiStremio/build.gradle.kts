@@ -1,5 +1,5 @@
 // Use an integer for version numbers; bump it on every release so CloudStream offers the update.
-version = 22
+version = 23
 
 cloudstream {
     description = "Combine any number of Stremio addons: merged catalogs, search, metadata, " +
@@ -36,6 +36,7 @@ dependencies {
     // Linear-time matching prevents user-defined stream filters from stalling playback.
     implementation("com.google.re2j:re2j:1.8")
     testImplementation("junit:junit:4.13.2")
+    testImplementation("org.jetbrains.kotlinx:kotlinx-coroutines-core-jvm:1.11.0")
 }
 
 
