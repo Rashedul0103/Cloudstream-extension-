@@ -1,5 +1,5 @@
 // Use an integer for version numbers; bump it on every release so CloudStream offers the update.
-version = 17
+version = 18
 
 cloudstream {
     description = "Combine any number of Stremio addons: merged catalogs, search, metadata, " +
