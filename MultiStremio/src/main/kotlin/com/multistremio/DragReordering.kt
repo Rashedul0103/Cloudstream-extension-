@@ -32,7 +32,7 @@ internal fun installDragReordering(
     var startScrollY = 0
     var destination = -1
     var edgeDirection = 0
-    lateinit var edgeScroller: Runnable
+    var edgeScroller: Runnable? = null
     var highlighted: View? = null
     var highlightedBackground: android.graphics.drawable.Drawable? = null
     val originalBackground = item.background
@@ -74,7 +74,7 @@ internal fun installDragReordering(
 
     fun finishDrag(commit: Boolean) {
         tracking = false
-        handle.removeCallbacks(edgeScroller)
+        edgeScroller?.let(handle::removeCallbacks)
         if (dragging) {
             restoreMarker()
             if (commit) {
@@ -141,8 +141,8 @@ internal fun installDragReordering(
                             event.rawY > position[1] + scroll.height - edge -> 1
                             else -> 0
                         }
-                        handle.removeCallbacks(edgeScroller)
-                        if (edgeDirection != 0) handle.postDelayed(edgeScroller, 16L)
+                        edgeScroller?.let(handle::removeCallbacks)
+                        if (edgeDirection != 0) edgeScroller?.let { handle.postDelayed(it, 16L) }
                     }
                 }
                 true

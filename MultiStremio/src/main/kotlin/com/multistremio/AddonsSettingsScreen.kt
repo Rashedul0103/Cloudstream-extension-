@@ -378,7 +378,9 @@ internal object AddonsSettingsScreen {
         }
     }
 
-    private fun addonMenu(ctx: Context, a: AddonConfig) {
+    private fun addonMenu(ctx: Context, addon: AddonConfig) {
+        // Refresh from persisted settings each time this detail screen is reopened.
+        val a = Config.snapshot().addons.firstOrNull { it.id == addon.id } ?: addon
         val again = { addonMenu(ctx, a) }
         val items = listOf(
             SettingItem(

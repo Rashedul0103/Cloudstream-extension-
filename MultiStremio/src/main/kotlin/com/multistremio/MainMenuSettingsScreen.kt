@@ -22,10 +22,10 @@ internal object MainMenuSettingsScreen {
 
         val items = listOf(
             SettingItem(
-                title = "${enabledAddons} addons · ${homeRowCount} rows visible",
-                summary = "Filters currently allow $filterSummary",
+                title = "$enabledAddons enabled addons · $homeRowCount rows visible",
+                summary = "Current filter limit",
                 type = SettingItemType.Value,
-                valueLabel = "Status",
+                valueLabel = filterSummary,
                 section = "Overview",
                 searchKeywords = listOf("status", "addons", "rows visible", "filters"),
             ),

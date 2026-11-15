@@ -17,6 +17,7 @@ internal object CatalogRowsSettingsScreen {
         val key: String,
         val sourceLabel: String,
         val name: String,
+        val displayName: String,
         val status: String,
         val rowEnabled: Boolean,
         val addon: AddonConfig? = null,
@@ -34,7 +35,8 @@ internal object CatalogRowsSettingsScreen {
             CatalogRow(
                 key = row.key,
                 sourceLabel = row.sourceLabel,
-                name = HomeRows.homeTitle(row, Config.settings),
+                name = row.name,
+                displayName = HomeRows.homeTitle(row, Config.settings),
                 status = row.status,
                 rowEnabled = row.rowEnabled,
                 addon = row.addon,
@@ -79,7 +81,7 @@ internal object CatalogRowsSettingsScreen {
         val groupExpanded = mutableMapOf<String, Boolean>()
         var activeQuery = ""
         val rowByKey = rows.associateBy { it.key }
-        val rowNames = rows.associate { it.key to it.name }
+        val rowNames = rows.associate { it.key to it.displayName }
 
         fun refreshRowNumbers() {
             for (position in 0 until list.childCount) {
@@ -94,7 +96,7 @@ internal object CatalogRowsSettingsScreen {
         rows.forEachIndexed { index, row ->
             val group = row.addon?.name ?: row.external?.providerName ?: row.sourceLabel
             val description = vertical(ctx).apply {
-                addView(text(ctx, (index + 1).toString() + ". " + row.name, 14f, colors.primary, true))
+                addView(text(ctx, (index + 1).toString() + ". " + row.displayName, 14f, colors.primary, true))
                 addView(text(ctx, row.status, 11f, colors.secondary).apply {
                     setPadding(0, dp(ctx, 3), 0, 0)
                 })
@@ -106,7 +108,7 @@ internal object CatalogRowsSettingsScreen {
                 isChecked = row.rowEnabled
                 thumbTintList = android.content.res.ColorStateList.valueOf(if (isChecked) colors.accent else colors.secondary)
                 trackTintList = android.content.res.ColorStateList.valueOf(withAlpha(if (isChecked) colors.accent else colors.secondary, 90))
-                contentDescription = "Show homepage row ${row.name}"
+                contentDescription = "Show homepage row ${row.displayName}"
                 setOnCheckedChangeListener { _, checked ->
                     setRowVisibility(ctx, row, checked, installedRows)
                 }
@@ -114,7 +116,7 @@ internal object CatalogRowsSettingsScreen {
             val handle = text(ctx, "☰", 22f, colors.accent, true).apply {
                 gravity = Gravity.CENTER
                 setPadding(dp(ctx, 5), 0, dp(ctx, 5), 0)
-                contentDescription = "Drag to reorder " + row.name
+                contentDescription = "Drag to reorder " + row.displayName
             }
             dragHandles += handle
             val item = LinearLayout(ctx).apply {
@@ -275,10 +277,8 @@ internal object CatalogRowsSettingsScreen {
             val allGroupsExpanded = groupExpanded.values.all { it }
             rows.forEach { row ->
                 val group = row.addon?.name ?: row.external?.providerName ?: row.sourceLabel
-                val displayTitle = HomeRows.homeTitle(row, Config.settings)
                 val rowMatches = activeQuery.isBlank() ||
-                    displayTitle.contains(activeQuery, true) ||
-                    row.name.contains(activeQuery, true) ||
+                    row.displayName.contains(activeQuery, true) ||
                     row.sourceLabel.contains(activeQuery, true) ||
                     row.status.contains(activeQuery, true) ||
                     group.contains(activeQuery, true)
@@ -293,8 +293,7 @@ internal object CatalogRowsSettingsScreen {
                 val groupMatches = activeQuery.isBlank() || rows.any { row ->
                     val rowGroup = row.addon?.name ?: row.external?.providerName ?: row.sourceLabel
                     rowGroup == group && (
-                        HomeRows.homeTitle(row, Config.settings).contains(activeQuery, true) ||
-                        row.name.contains(activeQuery, true) ||
+                        row.displayName.contains(activeQuery, true) ||
                         row.sourceLabel.contains(activeQuery, true) ||
                         row.status.contains(activeQuery, true) ||
                         group.contains(activeQuery, true)
@@ -517,7 +516,7 @@ internal object CatalogRowsSettingsScreen {
         )
         settingMenu(
             ctx,
-            row.sourceLabel + " · " + row.name,
+            row.sourceLabel + " · " + row.displayName,
             items,
             { catalogRowsMenu(ctx) },
             "Control the visibility and position of this homepage row.",

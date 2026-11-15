@@ -379,7 +379,10 @@ internal object SettingsDialogHost {
             capture(existing)
             existing.root = root
             existing.onBack = onBack
-            if (requestedSearch.isNotBlank()) existing.searchText = requestedSearch
+            if (requestedSearch.isNotBlank() && requestedSearch != existing.searchText) {
+                existing.searchText = requestedSearch
+                existing.scrollY = 0
+            }
             while (stack.size > existingIndex + 1) stack.removeAt(stack.lastIndex)
         } else {
             capture(stack.lastOrNull())
@@ -453,9 +456,18 @@ internal fun settingMenu(
         val row = LinearLayout(ctx).apply {
             orientation = LinearLayout.HORIZONTAL
             gravity = Gravity.CENTER_VERTICAL
-            setPadding(dp(ctx, 14), dp(ctx, 10), dp(ctx, 10), dp(ctx, 10))
-            background = ripple(ctx, if (item.danger) withAlpha(0xffd32f2f.toInt(), 10) else colors.background, colors)
-            minimumHeight = dp(ctx, 54)
+            setPadding(
+                dp(ctx, 14),
+                dp(ctx, if (item.section == "Overview") 14 else 10),
+                dp(ctx, 10),
+                dp(ctx, if (item.section == "Overview") 14 else 10),
+            )
+            background = when {
+                item.section == "Overview" -> rounded(ctx, withAlpha(colors.accent, 14), colors.outline)
+                item.danger -> ripple(ctx, withAlpha(0xffd32f2f.toInt(), 10), colors)
+                else -> ripple(ctx, colors.background, colors)
+            }
+            minimumHeight = dp(ctx, if (item.section == "Overview") 72 else 54)
             addView(body, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
             when (item.type) {
                 SettingItemType.Switch -> {
@@ -517,7 +529,7 @@ internal fun settingMenu(
         var previousSection: String? = null
         matching.forEachIndexed { visibleIndex, (row, item) ->
             val section = if (searching && globalRows.isNotEmpty() && item !in items) "MATCHING SETTINGS" else item.section
-            if (!section.isNullOrBlank() && section != previousSection) {
+            if (!section.isNullOrBlank() && section != "Overview" && section != previousSection) {
                 list.addView(text(ctx, section.uppercase(), 10f,
                     if (section.contains("danger", true)) 0xffd32f2f.toInt() else colors.accent, true).apply {
                     letterSpacing = 0.08f
