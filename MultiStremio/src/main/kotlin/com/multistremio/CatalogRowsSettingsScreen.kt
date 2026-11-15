@@ -5,6 +5,8 @@ import android.text.InputType
 import android.view.Gravity
 import android.view.View
 import android.view.ViewGroup
+import android.view.inputmethod.EditorInfo
+import android.view.inputmethod.InputMethodManager
 import android.widget.CheckBox
 import android.widget.EditText
 import android.widget.LinearLayout
@@ -71,13 +73,15 @@ internal object CatalogRowsSettingsScreen {
         val root = shell(
             ctx,
             "Homepage rows",
-            "Every row has one global position, regardless of its addon. Mix rows from different Stremio addons and installed extensions. Repeated numbers keep their current relative order. Each row shows its source. Stremio addon priority follows the first row from each addon."
+            "Every row has one global position across all sources. Edit a position, then leave the field or press Done: that row moves to the requested slot, rows in between shift automatically, and every row is renumbered. Stremio addon priority follows the first row from each addon."
         )
         HomeRefreshNotice.addTo(ctx, root)
 
         val orderInputsByKey = linkedMapOf<String, EditText>()
         val rowViewsByKey = linkedMapOf<String, View>()
         val rowsByKey = rows.associateBy { it.key }
+        var orderedRowKeys = rows.map { it.key }.toMutableList()
+        var commitFocusedPosition: (() -> Unit)? = null
         var activeQuery = ""
 
         val content = vertical(ctx, dp(ctx, 8))
@@ -101,6 +105,7 @@ internal object CatalogRowsSettingsScreen {
                 val positionInput = EditText(ctx).apply {
                     setSingleLine(true)
                     inputType = InputType.TYPE_CLASS_NUMBER
+                    imeOptions = EditorInfo.IME_ACTION_DONE
                     textSize = 13f
                     gravity = Gravity.CENTER
                     setText((index + 1).toString())
@@ -115,7 +120,7 @@ internal object CatalogRowsSettingsScreen {
 
                 val name = text(ctx, row.displayName, 13.5f, colors.primary, true).apply {
                     setPadding(dp(ctx, 2), 0, 0, 0)
-                    setOnClickListener { catalogRowMenu(ctx, row) }
+                    setOnClickListener { commitFocusedPosition?.invoke(); catalogRowMenu(ctx, row) }
                     isClickable = true
                 }
                 val source = text(ctx, "From ${row.sourceLabel}", 11f, colors.secondary).apply {
@@ -130,7 +135,7 @@ internal object CatalogRowsSettingsScreen {
                     text(ctx, "⋮", 20f, colors.secondary, true).apply {
                         gravity = Gravity.CENTER
                         contentDescription = "Manage or remove imported row ${row.displayName}"
-                        setOnClickListener { catalogRowMenu(ctx, row) }
+                        setOnClickListener { commitFocusedPosition?.invoke(); catalogRowMenu(ctx, row) }
                     }
                 } else null
 
@@ -145,6 +150,7 @@ internal object CatalogRowsSettingsScreen {
                         "Show homepage row ${row.displayName}"
                     }
                     setOnCheckedChangeListener { _, checked ->
+                        commitFocusedPosition?.invoke()
                         setRowVisibility(ctx, row, checked)
                         buttonTintList = android.content.res.ColorStateList.valueOf(
                             if (checked) colors.accent else colors.secondary,
@@ -212,7 +218,7 @@ internal object CatalogRowsSettingsScreen {
                 ))
                 addView(text(ctx, "›", 22f, colors.secondary).apply { gravity = Gravity.CENTER },
                     LinearLayout.LayoutParams(dp(ctx, 22), ViewGroup.LayoutParams.MATCH_PARENT))
-                setOnClickListener { action() }
+                setOnClickListener { commitFocusedPosition?.invoke(); action() }
             }
             content.addView(actionRow, LinearLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT,
@@ -220,32 +226,28 @@ internal object CatalogRowsSettingsScreen {
             ).apply { bottomMargin = dp(ctx, 4) })
         }
 
-        addAction(
-            "Apply global row order",
-            "Save one mixed order across every source. The first row from each Stremio addon also sets its priority in Addon order sorting."
-        ) {
-            val snapshot = Config.snapshot()
-            val requestedPositions = rows.associate { row ->
-                row.key to (orderInputsByKey[row.key]?.text?.toString()?.trim()?.toIntOrNull() ?: 0)
+        fun renumberPositionInputs() {
+            orderedRowKeys.forEachIndexed { index, key ->
+                val input = orderInputsByKey[key] ?: return@forEachIndexed
+                val expected = (index + 1).toString()
+                if (input.text.toString() != expected) input.setText(expected)
             }
+        }
+
+        fun persistVisibleOrder(visibleOrder: List<String>): Boolean {
+            val snapshot = Config.snapshot()
+            val positions = visibleOrder.withIndex().associate { it.value to it.index + 1 }
             val orderedKeys = CatalogOrderMath.reorderAll(
                 snapshot.catalogOrder,
                 rows.map { it.key },
-                requestedPositions,
-            )
-            if (orderedKeys == null) {
-                toast(ctx, "Enter a positive whole number for every row. Repeated numbers are allowed.")
-                return@addAction
-            }
+                positions,
+            ) ?: return false
             val orderedAddonIds = orderedKeys.mapNotNull { rowsByKey[it]?.addon?.id }.distinct()
             val reorderedAddonIds = HomepageGroupOrderMath.reorderAddonSlots(
                 snapshot.addons.map { it.id },
                 orderedAddonIds,
-            )
-            if (reorderedAddonIds == null) {
-                toast(ctx, "Could not save addon priority.")
-                return@addAction
-            }
+            ) ?: return false
+
             Config.update {
                 catalogOrder = orderedKeys.toMutableList()
                 val byId = addons.associateBy { it.id }
@@ -255,9 +257,82 @@ internal object CatalogRowsSettingsScreen {
                 }
             }
             HomeRefreshNotice.mark()
-            toast(ctx, "Global row order and addon priority updated.")
-            catalogRowsMenu(ctx, installedRows)
+            return true
         }
+
+        fun applyRequestedPosition(key: String) {
+            val input = orderInputsByKey[key] ?: return
+            val rawPosition = input.text.toString().trim()
+            if (rawPosition.isEmpty()) {
+                renumberPositionInputs()
+                return
+            }
+            val requestedPosition = rawPosition.toIntOrNull()
+            if (requestedPosition == null || requestedPosition !in 1..orderedRowKeys.size) {
+                renumberPositionInputs()
+                toast(ctx, "Choose a position from 1 to ${orderedRowKeys.size}.")
+                return
+            }
+
+            val newOrder = CatalogOrderMath.moveToPosition(
+                orderedRowKeys,
+                key,
+                requestedPosition,
+            )
+            if (newOrder == null) {
+                renumberPositionInputs()
+                toast(ctx, "Could not change the row position.")
+                return
+            }
+            if (newOrder == orderedRowKeys) {
+                renumberPositionInputs()
+                return
+            }
+            if (!persistVisibleOrder(newOrder)) {
+                renumberPositionInputs()
+                toast(ctx, "Could not save the homepage row order.")
+                return
+            }
+
+            orderedRowKeys = newOrder.toMutableList()
+            newOrder.forEachIndexed { targetIndex, rowKey ->
+                val rowView = rowViewsByKey[rowKey] ?: return@forEachIndexed
+                val currentIndex = rowList.indexOfChild(rowView)
+                if (currentIndex >= 0 && currentIndex != targetIndex) {
+                    rowList.removeViewAt(currentIndex)
+                    rowList.addView(rowView, targetIndex)
+                }
+            }
+            renumberPositionInputs()
+            toast(ctx, "Moved to position $requestedPosition. Other rows renumbered.")
+        }
+
+        commitFocusedPosition = {
+            orderInputsByKey.entries.firstOrNull { it.value.hasFocus() }?.key?.let {
+                applyRequestedPosition(it)
+            }
+        }
+
+        orderInputsByKey.forEach { (key, input) ->
+            input.setOnFocusChangeListener { _, hasFocus ->
+                if (!hasFocus) applyRequestedPosition(key)
+            }
+            input.setOnEditorActionListener { _, actionId, _ ->
+                if (actionId == EditorInfo.IME_ACTION_DONE ||
+                    actionId == EditorInfo.IME_ACTION_GO ||
+                    actionId == EditorInfo.IME_ACTION_NEXT
+                ) {
+                    applyRequestedPosition(key)
+                    input.clearFocus()
+                    val keyboard = ctx.getSystemService(Context.INPUT_METHOD_SERVICE) as? InputMethodManager
+                    keyboard?.hideSoftInputFromWindow(input.windowToken, 0)
+                    true
+                } else {
+                    false
+                }
+            }
+        }
+
         addAction(
             "Add rows from installed extensions",
             "Import a homepage row from another CloudStream extension.",
@@ -322,7 +397,10 @@ internal object CatalogRowsSettingsScreen {
             ViewGroup.LayoutParams.MATCH_PARENT,
             minOf(dp(ctx, 460), dp(ctx, maxOf(180, rows.size * 72 + 170))),
         ))
-        addFooter(ctx, root, "Done", { MainMenuSettingsScreen.show(ctx) })
+        addFooter(ctx, root, "Done", {
+            commitFocusedPosition?.invoke()
+            MainMenuSettingsScreen.show(ctx)
+        })
         SettingsDialogHost.show(ctx, "catalog-rows", root) { MainMenuSettingsScreen.show(ctx) }
     }
 

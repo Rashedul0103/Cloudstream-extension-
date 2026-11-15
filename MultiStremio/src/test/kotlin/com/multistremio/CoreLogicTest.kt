@@ -1328,6 +1328,48 @@ class CoreLogicTest {
     }
 
     @Test
+    fun movingHomepageRowToEarlierPositionShiftsEveryFollowingRowDown() {
+        val original = (1..50).map { "row-$it" }
+
+        val moved = CatalogOrderMath.moveToPosition(
+            currentOrder = original,
+            rowKey = "row-50",
+            requestedPosition = 5,
+        )
+
+        assertNotNull(moved)
+        assertEquals(
+            listOf("row-1", "row-2", "row-3", "row-4", "row-50", "row-5", "row-6"),
+            moved!!.take(7),
+        )
+        assertEquals("row-49", moved.last())
+        assertEquals(50, moved.size)
+        assertEquals(50, moved.toSet().size)
+    }
+
+    @Test
+    fun movingHomepageRowToLaterPositionShiftsRowsUpAndRenumbersUniquely() {
+        val original = listOf("row-1", "row-2", "row-3", "row-4", "row-5", "row-6")
+
+        val moved = CatalogOrderMath.moveToPosition(original, "row-2", 5)
+
+        assertEquals(
+            listOf("row-1", "row-3", "row-4", "row-5", "row-2", "row-6"),
+            moved,
+        )
+    }
+
+    @Test
+    fun homepageRowInsertionRejectsUnknownRowsAndOutOfRangePositions() {
+        val original = listOf("first", "second", "third")
+
+        assertNull(CatalogOrderMath.moveToPosition(original, "missing", 2))
+        assertNull(CatalogOrderMath.moveToPosition(original, "first", 0))
+        assertNull(CatalogOrderMath.moveToPosition(original, "first", 4))
+        assertNull(CatalogOrderMath.moveToPosition(listOf("same", "same"), "same", 1))
+    }
+
+    @Test
     fun streamDiagnosticsIncludeHttpAndSafeFailureClassWithoutRequestUrls() {
         val run = StreamDiagnostics.begin()
         StreamDiagnostics.record(

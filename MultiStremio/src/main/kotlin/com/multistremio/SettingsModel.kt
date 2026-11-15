@@ -173,6 +173,27 @@ object CatalogOrderMath {
         return orderedRows + unavailableKeys
     }
 
+    /**
+     * Moves one row to a 1-based position, shifting every row between its old and new
+     * positions by one. Unlike sorting arbitrary serial values, this is an insertion operation:
+     * moving row 50 to position 5 makes the old rows 5 through 49 become rows 6 through 50.
+     */
+    fun moveToPosition(
+        currentOrder: List<String>,
+        rowKey: String,
+        requestedPosition: Int,
+    ): List<String>? {
+        if (currentOrder.isEmpty() || currentOrder.size != currentOrder.toSet().size) return null
+        val currentIndex = currentOrder.indexOf(rowKey)
+        if (currentIndex < 0 || requestedPosition !in 1..currentOrder.size) return null
+        if (currentIndex == requestedPosition - 1) return currentOrder.toList()
+
+        return currentOrder.toMutableList().apply {
+            removeAt(currentIndex)
+            add(requestedPosition - 1, rowKey)
+        }
+    }
+
     /** Seed every currently visible row before appending a newly imported row. */
     fun append(keys: List<String>, newKey: String): List<String> =
         (keys + newKey).distinct()
