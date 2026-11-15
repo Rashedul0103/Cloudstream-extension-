@@ -706,6 +706,66 @@ class CoreLogicTest {
     }
 
     @Test
+    fun visualStreamFormatterExtractsCncVerseInnerProviderSeparatelyFromReleaseSource() {
+        val parsed = StreamParser.parsed(
+            0,
+            "CNCVerse",
+            RawStream(
+                name = "🌀 CNCVerse ❄️ 4K • MovieBoxIN",
+                title = "Example.Movie.2026.2160p.WEB-DL\\n🛰️ Source: MovieBoxIN • HubCloud",
+                url = "https://example.com/movie.mkv",
+            ),
+        )
+        val format = StreamFormatSettings(
+            enabled = true,
+            fields = mutableListOf("addon", "provider", "source"),
+            separator = " | ",
+            showLabels = true,
+        )
+
+        val label = StreamLabels.build(parsed, format)
+        assertTrue(label.contains("Addon: CNCVerse"))
+        assertTrue(label.contains("Provider: MovieBoxIN"))
+        assertTrue(label.contains("Source: WEB-DL"))
+        assertFalse(label.contains("HubCloud"))
+    }
+
+    @Test
+    fun visualStreamFormatterExtractsProviderFromCncVerseNameWhenDescriptionHasNoSourceMarker() {
+        val parsed = StreamParser.parsed(
+            0,
+            "CNCVerse",
+            RawStream(
+                name = "🌀 CNCVerse | 1080p | VegaMoviesProvider",
+                url = "https://example.com/movie.mkv",
+            ),
+        )
+        val format = StreamFormatSettings(
+            enabled = true,
+            fields = mutableListOf("provider"),
+            showLabels = true,
+        )
+
+        assertEquals("Provider: VegaMoviesProvider", StreamLabels.build(parsed, format))
+    }
+
+    @Test
+    fun visualStreamFormatterDoesNotTreatQualityAsAProviderName() {
+        val parsed = StreamParser.parsed(
+            0,
+            "CNCVerse",
+            RawStream(name = "1080p", url = "https://example.com/movie.mkv"),
+        )
+        val format = StreamFormatSettings(
+            enabled = true,
+            fields = mutableListOf("provider"),
+            showLabels = true,
+        )
+
+        assertFalse(StreamLabels.build(parsed, format).contains("Provider:"))
+    }
+
+    @Test
     fun visualStreamFormatterSkipsUnavailableFieldsAndHasSafePreview() {
         val parsed = StreamParser.parsed(
             0, "Example Addon",
