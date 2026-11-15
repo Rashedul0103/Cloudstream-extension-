@@ -46,7 +46,7 @@ Language filters accept common ISO 639 codes, three-letter codes, regional tags 
 
 ## Backup files
 
-The Backup & restore screen can export preferences-only or full backups as UTF-8 `.txt` files through Android's system file picker. It can also import a saved TXT backup. The file contains the same portable JSON backup format as copy/paste, so existing clipboard backups remain compatible. File import validates the contents and displays the source-privacy warning before replacing settings. Files are limited to 10 MB. Full backups may contain private addon URLs and access keys; store them securely.
+The Backup & restore screen can export preferences-only or full backups as UTF-8 `.txt` files through Android's system file picker. It can also import a saved TXT backup. The file contains the same portable JSON backup format as copy/paste, so existing clipboard backups remain compatible. File import validates the contents and displays the source-privacy warning before replacing settings. Files are limited to 25 MB. Full backups may contain private addon URLs and access keys; store them securely.
 
 ## Backup privacy
 
