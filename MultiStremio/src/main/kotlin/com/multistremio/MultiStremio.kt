@@ -14,6 +14,7 @@ import com.lagradost.cloudstream3.utils.loadExtractor
 import com.lagradost.cloudstream3.utils.newExtractorLink
 import java.util.concurrent.CancellationException
 import kotlinx.coroutines.async
+import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.sync.Semaphore
@@ -295,15 +296,23 @@ class MultiStremio : MainAPI() {
             // Subtitle endpoints continue in parallel, but their completion is not required
             // before the first playable links are made available.
             val subtitleDeferred = async {
-                subAddons.boundedAmap(requestLimiter) { addon ->
-                    try {
-                        StremioClient.subtitles(addon, type, id, diagnosticRunId)
-                    } catch (e: CancellationException) {
-                        throw e
-                    } catch (_: Exception) {
-                        emptyList()
+                subAddons.map { addon ->
+                    async {
+                        val queuedAt = System.nanoTime()
+                        try {
+                            requestLimiter.withPermit {
+                                val queueWaitMs = (System.nanoTime() - queuedAt) / 1_000_000L
+                                StremioClient.subtitles(
+                                    addon, type, id, diagnosticRunId, queueWaitMs,
+                                )
+                            }
+                        } catch (e: CancellationException) {
+                            throw e
+                        } catch (_: Exception) {
+                            emptyList()
+                        }
                     }
-                }.flatten()
+                }.awaitAll().flatten()
             }
 
             val allParsed = ArrayList<ParsedStream>()
