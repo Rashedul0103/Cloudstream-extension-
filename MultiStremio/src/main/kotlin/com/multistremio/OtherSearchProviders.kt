@@ -157,34 +157,48 @@ private class OtherSearchMainAPI(
 
 internal object OtherSearchProviders {
     private val providers = linkedMapOf<String, OtherSearchMainAPI>()
+    @Volatile private var registrar: ((MainAPI) -> Unit)? = null
 
     /**
-     * Register every current searchable homepage catalog once at plugin load. The provider's
-     * display name is fixed here because CloudStream copies APIRepository.name on first creation.
+     * Keep the plugin registrar so providers can also be added after the user installs an addon
+     * or after a manifest finishes downloading. Config settings changes call refresh().
      */
     @Synchronized
     fun attach(settings: Settings, register: (MainAPI) -> Unit) {
-        if (providers.isNotEmpty()) return
+        registrar = register
+        reconcile(settings)
+    }
 
+    /**
+     * Reconcile registered slots with the latest manifests. Existing provider instances/names
+     * are retained because CloudStream may already have cached them; newly discovered rows get
+     * registered immediately instead of being silently missed until the next plugin load.
+     */
+    @Synchronized
+    private fun reconcile(settings: Settings) {
+        val register = registrar ?: return
         val occupiedNames = APIHolder.apis.withLock {
             APIHolder.apis.mapTo(linkedSetOf()) { it.name }
         }
-        val candidates = OtherSearchRows.candidates(settings)
-        for (row in candidates) {
+        for (row in OtherSearchRows.candidates(settings)) {
+            if (row.key in providers) continue
             val displayName = uniqueName(row.title, row.addonName, occupiedNames)
             occupiedNames.add(displayName)
             val provider = OtherSearchMainAPI(row.key, displayName, row.type)
             providers[row.key] = provider
             register(provider)
         }
-        refresh()
+        configureActiveRows(settings)
     }
 
-    /** Called after settings changes. It never adds, removes or renames providers at runtime. */
+    /** Called after settings changes, including addon addition and manifest refresh completion. */
     @Synchronized
     fun refresh() {
-        if (providers.isEmpty()) return
-        val settings = Config.snapshot()
+        if (registrar == null) return
+        reconcile(Config.snapshot())
+    }
+
+    private fun configureActiveRows(settings: Settings) {
         val activeRows = OtherSearchRows.resolve(settings).associateBy { it.key }
         providers.forEach { (key, provider) ->
             provider.configure(activeRows[key])
@@ -194,6 +208,7 @@ internal object OtherSearchProviders {
     @Synchronized
     fun detach() {
         providers.clear()
+        registrar = null
     }
 
     private fun uniqueName(base: String, addonName: String, used: Set<String>): String {
