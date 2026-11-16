@@ -216,27 +216,42 @@ object Config {
         prefs?.edit()?.putString(KEY, Json.toJson(settings))?.apply()
     }
 
-    @Synchronized
     fun update(block: Settings.() -> Unit) {
-        val previousFilter = Json.toJson(settings.filter)
-        val previousSort = Json.toJson(settings.sort)
-        val previousPreset = settings.filterPreset
-        settings.block()
-        if ((previousFilter != Json.toJson(settings.filter) || previousSort != Json.toJson(settings.sort)) &&
-            settings.filterPreset == previousPreset) {
-            settings.filterPreset = "CUSTOM"
+        // Persist the change while holding Config's lock, but invoke the listener afterwards.
+        // Provider reconciliation takes its own lock and reads a fresh Config snapshot; calling
+        // it under this lock would create a lock-order inversion during concurrent manifest refresh.
+        val listener = synchronized(this) {
+            val previousFilter = Json.toJson(settings.filter)
+            val previousSort = Json.toJson(settings.sort)
+            val previousPreset = settings.filterPreset
+            settings.block()
+            if ((previousFilter != Json.toJson(settings.filter) || previousSort != Json.toJson(settings.sort)) &&
+                settings.filterPreset == previousPreset) {
+                settings.filterPreset = "CUSTOM"
+            }
+            pruneManifestCache()
+            save()
+            settingsChangeListener
         }
-        pruneManifestCache()
-        save()
-        settingsChangeListener?.invoke()
+        notifySettingsChanged(listener)
     }
 
-    @Synchronized
     fun replace(newSettings: Settings) {
-        settings = newSettings.sanitized()
-        pruneManifestCache()
-        save()
-        settingsChangeListener?.invoke()
+        val listener = synchronized(this) {
+            settings = newSettings.sanitized()
+            pruneManifestCache()
+            save()
+            settingsChangeListener
+        }
+        notifySettingsChanged(listener)
+    }
+
+    private fun notifySettingsChanged(listener: (() -> Unit)?) {
+        try {
+            listener?.invoke()
+        } catch (error: Exception) {
+            android.util.Log.e("MultiStremio", "Settings-change listener failed", error)
+        }
     }
 
     /** Safe read copy for provider work running alongside UI/settings updates. */

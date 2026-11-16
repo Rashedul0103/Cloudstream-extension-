@@ -9,8 +9,10 @@ class MultiStremioPlugin : Plugin() {
     override fun load(context: Context) {
         Config.init(context)
         registerMainAPI(MultiStremio())
-        OtherSearchProviders.attach(Config.snapshot()) { provider -> registerMainAPI(provider) }
+        // Install the listener before attaching providers. A manifest refresh may finish during
+        // plugin startup; attach() then reads the latest snapshot without losing that update.
         Config.setOnSettingsChanged { OtherSearchProviders.refresh() }
+        OtherSearchProviders.attach { provider -> registerMainAPI(provider) }
         // The gear icon next to the plugin in Settings > Extensions opens this.
         openSettings = { ctx -> SettingsUi.show(ctx) }
     }
