@@ -106,11 +106,11 @@ private class OtherSearchMainAPI(
     /** Activation/deactivation is safe after SearchViewModel creation because the API object and
      * its registered name are unchanged. The host reads supportedTypes from the live API object.
      */
-    fun configure(row: OtherSearchRow?) {
+    fun configure(row: OtherSearchRow?): Boolean {
         // supportedTypes stays fixed for this provider's lifetime. CloudStream snapshots the
         // default provider-selection list; hiding these types while Other is off would prevent
         // a later toggle from participating automatically.
-        currentRow.set(row)
+        return currentRow.getAndSet(row) != row
     }
 
     override suspend fun search(query: String): List<SearchResponse>? {
@@ -203,8 +203,8 @@ internal object OtherSearchProviders {
             }
         }
 
-        configureActiveRows(settings)
-        return registeredAny
+        val activationChanged = configureActiveRows(settings)
+        return registeredAny || activationChanged
     }
 
     /** Called after settings changes, including addon addition and manifest refresh completion. */
@@ -224,11 +224,13 @@ internal object OtherSearchProviders {
         }
     }
 
-    private fun configureActiveRows(settings: Settings) {
+    private fun configureActiveRows(settings: Settings): Boolean {
         val activeRows = OtherSearchRows.resolve(settings).associateBy { it.key }
+        var changed = false
         providers.forEach { (key, provider) ->
-            provider.configure(activeRows[key])
+            if (provider.configure(activeRows[key])) changed = true
         }
+        return changed
     }
 
     @Synchronized
