@@ -1,5 +1,5 @@
 // Use an integer for version numbers; bump it on every release so CloudStream offers the update.
-version = 37
+version = 38
 cloudstream {
     description = "Combine any number of Stremio addons: merged catalogs, separate search rows, metadata, " +
         "subtitles and streams, with filtering, sorting and a no-code visual stream-label designer. " +
