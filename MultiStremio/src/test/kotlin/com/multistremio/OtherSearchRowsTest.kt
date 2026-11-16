@@ -123,6 +123,40 @@ class OtherSearchRowsTest {
     }
 
     @Test
+    fun providerSlotsRemainDiscoverableWhenOtherIsOffButOnlyActivateWhenSelected() {
+        val addon = AddonConfig(
+            id = "audio-reserved",
+            name = "AudioBookBay",
+            enabled = true,
+            useOther = false,
+        )
+        val fixture = manifest(
+            listOf(
+                ManifestCatalog(
+                    type = "audiobook",
+                    id = "latest",
+                    name = "Latest Audiobooks",
+                    extra = listOf(ExtraProp(name = "search")),
+                ),
+            ),
+        )
+        val settings = Settings(addons = mutableListOf(addon))
+
+        // Candidate slots must exist before the user turns Other on so CloudStream can keep
+        // a stable provider identity. An inactive slot must not produce a search section.
+        assertEquals(1, OtherSearchRows.candidates(settings) { fixture }.size)
+        assertTrue(OtherSearchRows.resolve(settings) { fixture }.isEmpty())
+
+        addon.useOther = true
+        assertEquals(1, OtherSearchRows.candidates(settings) { fixture }.size)
+        assertEquals(1, OtherSearchRows.resolve(settings) { fixture }.size)
+
+        addon.useOther = false
+        assertTrue(OtherSearchRows.resolve(settings) { fixture }.isEmpty())
+        assertEquals(1, OtherSearchRows.candidates(settings) { fixture }.size)
+    }
+
+    @Test
     fun audiobookOtherProviderRemainsEligibleWithDefaultMovieAndSeriesSearchChips() {
         val types = OtherSearchRows.searchProviderTypeNames("audiobook")
 
