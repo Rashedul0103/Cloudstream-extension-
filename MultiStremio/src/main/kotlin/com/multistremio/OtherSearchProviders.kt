@@ -1,6 +1,7 @@
 package com.multistremio
 
 import com.lagradost.cloudstream3.*
+import com.lagradost.cloudstream3.MainActivity.Companion.afterPluginsLoadedEvent
 import com.lagradost.cloudstream3.utils.ExtractorLink
 import java.util.concurrent.atomic.AtomicReference
 
@@ -164,38 +165,61 @@ internal object OtherSearchProviders {
      * or after a manifest finishes downloading. Config settings changes call refresh().
      */
     @Synchronized
-    fun attach(settings: Settings, register: (MainAPI) -> Unit) {
+    fun attach(register: (MainAPI) -> Unit) {
         registrar = register
-        reconcile(settings)
+        // Read the snapshot after installing the registrar. Config.init() may already have
+        // completed a background manifest refresh before the plugin finished attaching.
+        reconcile(Config.snapshot(), notifyHost = false)
     }
 
     /**
      * Reconcile registered slots with the latest manifests. Existing provider instances/names
-     * are retained because CloudStream may already have cached them; newly discovered rows get
-     * registered immediately instead of being silently missed until the next plugin load.
+     * are retained because CloudStream may already have cached them. New providers are registered
+     * as one batch and the host is notified once so an open SearchViewModel can rebuild its repos.
      */
     @Synchronized
-    private fun reconcile(settings: Settings) {
+    private fun reconcile(settings: Settings, notifyHost: Boolean) {
         val register = registrar ?: return
         val occupiedNames = APIHolder.apis.withLock {
             APIHolder.apis.mapTo(linkedSetOf()) { it.name }
         }
+        var registeredAny = false
+
         for (row in OtherSearchRows.candidates(settings)) {
             if (row.key in providers) continue
+
             val displayName = uniqueName(row.title, row.addonName, occupiedNames)
-            occupiedNames.add(displayName)
             val provider = OtherSearchMainAPI(row.key, displayName, row.type)
-            providers[row.key] = provider
-            register(provider)
+            try {
+                // Only mark a slot as registered after CloudStream accepts it. A failure remains
+                // eligible for the next settings/manifest refresh instead of becoming stuck.
+                register(provider)
+                providers[row.key] = provider
+                occupiedNames.add(displayName)
+                registeredAny = true
+            } catch (error: Exception) {
+                android.util.Log.e(
+                    "MultiStremio",
+                    "Could not register an Other search provider for ${row.addonName}",
+                    error,
+                )
+            }
         }
+
         configureActiveRows(settings)
+
+        // Initial registration happens during plugin loading; CloudStream will issue its normal
+        // after-plugins-loaded event. This notification is only for providers added later.
+        if (notifyHost && registeredAny) {
+            afterPluginsLoadedEvent.invoke(false)
+        }
     }
 
     /** Called after settings changes, including addon addition and manifest refresh completion. */
     @Synchronized
     fun refresh() {
         if (registrar == null) return
-        reconcile(Config.snapshot())
+        reconcile(Config.snapshot(), notifyHost = true)
     }
 
     private fun configureActiveRows(settings: Settings) {
