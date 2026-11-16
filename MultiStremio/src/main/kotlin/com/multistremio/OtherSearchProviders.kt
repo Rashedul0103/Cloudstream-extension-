@@ -1,8 +1,12 @@
 package com.multistremio
 
+import android.os.Handler
+import android.os.Looper
+import androidx.lifecycle.ViewModelProvider
 import com.lagradost.cloudstream3.*
 import com.lagradost.cloudstream3.MainActivity.Companion.afterPluginsLoadedEvent
 import com.lagradost.cloudstream3.utils.ExtractorLink
+import com.lagradost.cloudstream3.ui.search.SearchViewModel
 import java.util.concurrent.atomic.AtomicReference
 
 /** A Stremio homepage catalog exposed as its own CloudStream search row. */
@@ -213,14 +217,36 @@ internal object OtherSearchProviders {
             if (registrar == null) false else reconcile(Config.snapshot())
         }
 
-        // Notify CloudStream only after releasing our registry lock. The host event refreshes
-        // API repositories held by an already-open SearchViewModel.
+        // Notify CloudStream only after releasing our registry lock. The global event refreshes
+        // active search UI; refreshing the activity-scoped SearchViewModel directly also covers
+        // the case where its SearchFragment was not listening when the provider was registered.
         if (registeredAny) {
+            refreshCloudStreamSearch()
+        }
+    }
+
+    private fun refreshCloudStreamSearch() {
+        val refresh = {
             try {
                 afterPluginsLoadedEvent.invoke(false)
             } catch (error: Exception) {
-                android.util.Log.e("MultiStremio", "Could not refresh CloudStream search providers", error)
+                android.util.Log.e("MultiStremio", "Could not dispatch CloudStream provider refresh", error)
             }
+
+            val activity = CommonActivity.activity as? MainActivity
+            if (activity != null && !activity.isFinishing && !activity.isDestroyed) {
+                try {
+                    ViewModelProvider(activity)[SearchViewModel::class.java].reloadRepos()
+                } catch (error: Exception) {
+                    android.util.Log.e("MultiStremio", "Could not refresh the cached SearchViewModel", error)
+                }
+            }
+        }
+
+        if (Looper.myLooper() == Looper.getMainLooper()) {
+            refresh()
+        } else {
+            Handler(Looper.getMainLooper()).post(refresh)
         }
     }
 
