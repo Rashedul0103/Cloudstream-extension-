@@ -149,6 +149,56 @@ data class ItemRef(
     @JsonProperty("i") val i: String? = null, // stremio id
     @JsonProperty("n") val n: String? = null, // name (fallback if no meta addon answers)
     @JsonProperty("p") val p: String? = null, // poster (fallback)
+    @JsonProperty("o") val otherSource: Boolean = false, // do not mix in unrelated metadata providers
+    @JsonProperty("x") val otherMeta: MetaPreview? = null, // small catalog-owned metadata fallback
+)
+
+@JsonIgnoreProperties(ignoreUnknown = true)
+data class MetaPreview(
+    @JsonProperty("name") val name: String? = null,
+    @JsonProperty("poster") val poster: String? = null,
+    @JsonProperty("background") val background: String? = null,
+    @JsonProperty("logo") val logo: String? = null,
+    @JsonProperty("description") val description: String? = null,
+    @JsonProperty("releaseInfo") val releaseInfo: String? = null,
+    @JsonProperty("runtime") val runtime: String? = null,
+    @JsonProperty("imdbRating") val imdbRating: Any? = null,
+    @JsonProperty("year") val year: Any? = null,
+    @JsonProperty("genres") val genres: List<String>? = null,
+    @JsonProperty("genre") val genre: List<String>? = null,
+    @JsonProperty("cast") val cast: List<String>? = null,
+)
+
+fun Meta.toPreview(): MetaPreview = MetaPreview(
+    name = name,
+    poster = poster,
+    background = background,
+    logo = logo,
+    description = description,
+    releaseInfo = releaseInfo,
+    runtime = runtime,
+    imdbRating = imdbRating,
+    year = year,
+    genres = genres,
+    genre = genre,
+    cast = cast,
+)
+
+fun MetaPreview.toMeta(id: String, type: String): Meta = Meta(
+    id = id,
+    type = type,
+    name = name,
+    poster = poster,
+    background = background,
+    logo = logo,
+    description = description,
+    releaseInfo = releaseInfo,
+    runtime = runtime,
+    imdbRating = imdbRating,
+    year = year,
+    genres = genres,
+    genre = genre,
+    cast = cast,
 )
 
 /** Points at something playable; stored as the loadLinks `data` string. */

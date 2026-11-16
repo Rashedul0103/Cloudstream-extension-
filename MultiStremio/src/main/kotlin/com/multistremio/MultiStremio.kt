@@ -142,6 +142,7 @@ class MultiStremio : MainAPI() {
     override suspend fun search(query: String): List<SearchResponse>? {
         val q = Urls.encodeComponent(query)
         val settings = Config.snapshot()
+        val separateCatalogKeys = OtherSearchRows.dedicatedCatalogKeys(settings)
         val jobs = mutableListOf<Triple<AddonConfig, String, String>>() // addon, type, catalog id
         for (addon in settings.addons) {
             if (!addon.enabled || !addon.useCatalogs) continue
@@ -149,7 +150,12 @@ class MultiStremio : MainAPI() {
             for (c in manifest.catalogs.orEmpty()) {
                 val type = c.type ?: continue
                 val id = c.id ?: continue
-                if (manifest.supports("catalog", type, null) && c.isSearchable()) {
+                val rowKey = catalogOrderKey(addon.id, type, id)
+                if (
+                    rowKey !in separateCatalogKeys &&
+                    manifest.supports("catalog", type, null) &&
+                    c.isSearchable()
+                ) {
                     jobs += Triple(addon, type, id)
                 }
             }
@@ -170,9 +176,11 @@ class MultiStremio : MainAPI() {
         val type = ref.t ?: "movie"
         val id = ref.i ?: throw ErrorLoadingException("Invalid item id")
 
-        val meta = findMeta(ref, type, id)
+        val fetchedMeta = findMeta(ref, type, id)
+        val catalogMeta = ref.otherMeta?.toMeta(id, type)
+        val meta = if (ref.otherSource) mergeOtherMeta(fetchedMeta, catalogMeta) else fetchedMeta
         val title = meta?.name ?: ref.n ?: id
-        val poster = meta?.poster ?: ref.p
+        val poster = if (ref.otherSource) ref.p ?: meta?.poster else meta?.poster ?: ref.p
         val metaId = meta?.id ?: id
         val tvType = StremioMediaTypes.toCloudStream(type)
         val videos = meta?.videos.orEmpty().filter { !it.id.isNullOrBlank() }
@@ -565,12 +573,36 @@ class MultiStremio : MainAPI() {
 
     // ---- helpers ------------------------------------------------------------------------
 
+    private fun mergeOtherMeta(primary: Meta?, catalog: Meta?): Meta? {
+        if (primary == null) return catalog
+        if (catalog == null) return primary
+        return primary.copy(
+            id = primary.id ?: catalog.id,
+            type = primary.type ?: catalog.type,
+            name = primary.name?.takeIf { it.isNotBlank() } ?: catalog.name,
+            // The catalog endpoint is the authoritative source for its search-card poster.
+            poster = catalog.poster?.takeIf { it.isNotBlank() } ?: primary.poster,
+            background = primary.background ?: catalog.background,
+            logo = primary.logo ?: catalog.logo,
+            description = primary.description?.takeIf { it.isNotBlank() } ?: catalog.description,
+            releaseInfo = primary.releaseInfo ?: catalog.releaseInfo,
+            runtime = primary.runtime ?: catalog.runtime,
+            imdbRating = primary.imdbRating ?: catalog.imdbRating,
+            year = primary.year ?: catalog.year,
+            genres = primary.genres?.takeIf { it.isNotEmpty() } ?: catalog.genres,
+            genre = primary.genre?.takeIf { it.isNotEmpty() } ?: catalog.genre,
+            cast = primary.cast?.takeIf { it.isNotEmpty() } ?: catalog.cast,
+        )
+    }
+
     /** Origin addon first, then every other addon that can serve meta for this id. */
     private suspend fun findMeta(ref: ItemRef, type: String, id: String): Meta? {
         val candidates = Config.snapshot().addons
             .filter { it.enabled && it.useMeta && Config.manifestOf(it)?.supports("meta", type, id) == true }
         val origin = candidates.firstOrNull { it.id == ref.a }
         val originMeta = origin?.let { StremioClient.meta(it, type, id) }
+        // Other rows must not borrow unrelated metadata/posters from the movie/series catalog addon.
+        if (ref.otherSource) return originMeta
         if (!originMeta?.name.isNullOrBlank()) return originMeta
 
         // Metadata addons are queried in parallel after the source addon fails to give a named item.
@@ -582,11 +614,21 @@ class MultiStremio : MainAPI() {
         return originMeta ?: alternatives.firstOrNull { it != null }
     }
 
-    private fun Meta.toSearchResponse(addonId: String, fallbackType: String): SearchResponse? {
+    internal fun Meta.toSearchResponse(
+        addonId: String,
+        fallbackType: String,
+        otherSource: Boolean = false,
+    ): SearchResponse? {
         val metaId = id ?: return null
         val title = name ?: return null
         val t = type?.takeIf { it.isNotBlank() } ?: fallbackType
-        val url = Json.toJson(ItemRef(addonId, t, metaId, title, poster))
+        val url = Json.toJson(
+            ItemRef(
+                addonId, t, metaId, title, poster,
+                otherSource = otherSource,
+                otherMeta = if (otherSource) toPreview() else null,
+            ),
+        )
         val tvType = StremioMediaTypes.toCloudStream(t)
         return if (tvType == TvType.Live) {
             newLiveSearchResponse(title, url, tvType, fix = false) { posterUrl = poster }

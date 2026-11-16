@@ -27,6 +27,8 @@ data class AddonConfig(
     var name: String = "",
     var enabled: Boolean = true,
     var useCatalogs: Boolean = true,
+    /** Search this addon's own catalog rows in separate CloudStream search sections. */
+    var useOther: Boolean = false,
     var useMeta: Boolean = true,
     var useStreams: Boolean = true,
     var useSubtitles: Boolean = true,

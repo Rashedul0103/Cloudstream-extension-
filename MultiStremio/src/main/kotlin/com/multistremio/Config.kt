@@ -183,6 +183,11 @@ object Config {
 
     private val parsedCache = ConcurrentHashMap<String, Pair<String, Manifest?>>()
     private val manifestRefreshRunning = AtomicBoolean(false)
+    @Volatile private var settingsChangeListener: (() -> Unit)? = null
+
+    fun setOnSettingsChanged(listener: (() -> Unit)?) {
+        settingsChangeListener = listener
+    }
 
     fun init(context: Context) {
         prefs = context.applicationContext.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
@@ -223,6 +228,7 @@ object Config {
         }
         pruneManifestCache()
         save()
+        settingsChangeListener?.invoke()
     }
 
     @Synchronized
@@ -230,6 +236,7 @@ object Config {
         settings = newSettings.sanitized()
         pruneManifestCache()
         save()
+        settingsChangeListener?.invoke()
     }
 
     /** Safe read copy for provider work running alongside UI/settings updates. */
