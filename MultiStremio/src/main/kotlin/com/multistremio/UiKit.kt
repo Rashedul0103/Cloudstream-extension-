@@ -257,12 +257,16 @@ internal data class StatusColors(val danger: Int, val success: Int, val warning:
         val LIGHT = StatusColors(0xffd32f2f.toInt(), 0xff2e7d32.toInt(), 0xffb26a00.toInt())
         val DARK = StatusColors(0xffff8a80.toInt(), 0xff81c784.toInt(), 0xffffb74d.toInt())
 
-        /** Perceived luminance below the midpoint counts as a dark background. */
+        /**
+         * Perceived luminance below the midpoint counts as a dark background. Whole-number math
+         * avoids floating-point error: the three weights sum to exactly 1000, so mid-gray
+         * (128, 128, 128) is exactly on the boundary and counts as light.
+         */
         fun isDark(background: Int): Boolean {
             val red = (background shr 16) and 0xff
             val green = (background shr 8) and 0xff
             val blue = background and 0xff
-            return (0.299 * red + 0.587 * green + 0.114 * blue) < 128.0
+            return (299 * red + 587 * green + 114 * blue) < 128_000
         }
 
         fun forBackground(background: Int): StatusColors = if (isDark(background)) DARK else LIGHT
