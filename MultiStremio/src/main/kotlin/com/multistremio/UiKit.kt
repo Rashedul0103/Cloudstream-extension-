@@ -226,7 +226,11 @@ internal fun palette(ctx: Context): Palette {
     val accent = namedThemeColor(ctx, "colorAccent")
         ?: namedThemeColor(ctx, "colorPrimary")
         ?: color(ctx, android.R.attr.colorAccent, Color.rgb(70, 110, 230))
-    return Palette(background, primary, secondary, accent, withAlpha(secondary, 54), withAlpha(accent, 42))
+    val statusColors = StatusColors.forBackground(background)
+    return Palette(
+        background, primary, secondary, accent, withAlpha(secondary, 54), withAlpha(accent, 42),
+        danger = statusColors.danger, success = statusColors.success, warning = statusColors.warning,
+    )
 }
 
 internal data class Palette(
@@ -236,7 +240,34 @@ internal data class Palette(
     val accent: Int,
     val outline: Int,
     val ripple: Int,
+    /** Destructive actions and failing status. Not taken from the theme, so it stays recognizable. */
+    val danger: Int = StatusColors.LIGHT.danger,
+    /** Healthy status. */
+    val success: Int = StatusColors.LIGHT.success,
+    /** Slow or needs-attention status. */
+    val warning: Int = StatusColors.LIGHT.warning,
 )
+
+/**
+ * Fixed status colors chosen for readable contrast on light and dark backgrounds. CloudStream
+ * skins do not expose semantic status colors, so these are not read from the theme.
+ */
+internal data class StatusColors(val danger: Int, val success: Int, val warning: Int) {
+    companion object {
+        val LIGHT = StatusColors(0xffd32f2f.toInt(), 0xff2e7d32.toInt(), 0xffb26a00.toInt())
+        val DARK = StatusColors(0xffff8a80.toInt(), 0xff81c784.toInt(), 0xffffb74d.toInt())
+
+        /** Perceived luminance below the midpoint counts as a dark background. */
+        fun isDark(background: Int): Boolean {
+            val red = (background shr 16) and 0xff
+            val green = (background shr 8) and 0xff
+            val blue = background and 0xff
+            return (0.299 * red + 0.587 * green + 0.114 * blue) < 128.0
+        }
+
+        fun forBackground(background: Int): StatusColors = if (isDark(background)) DARK else LIGHT
+    }
+}
 
 private fun namedThemeColor(ctx: Context, name: String): Int? {
     val attribute = ctx.resources.getIdentifier(name, "attr", ctx.packageName)
