@@ -577,7 +577,7 @@ class CoreLogicTest {
             parsed, detailed = true, format = StreamFormatSettings(designPreset = "COMPACT"),
         )
 
-        assertFalse(simple.contains("HDR10"))
+        assertFalse(simple.startsWith("Example Addon ·"))
         assertTrue(detailed.contains("HDR10"))
         assertTrue(compact.contains("4K"))
         assertTrue(compact.contains("HEVC"))
