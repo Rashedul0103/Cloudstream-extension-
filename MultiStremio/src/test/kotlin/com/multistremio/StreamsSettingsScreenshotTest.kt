@@ -40,10 +40,11 @@ class StreamsSettingsScreenshotTest {
     private fun render(
         name: String,
         colors: Palette,
+        widthDp: Int = 360,
         build: (Context, LinearLayout) -> Unit,
     ): Bitmap {
         val ctx = RuntimeEnvironment.getApplication()
-        val widthPx = dp(ctx, 360)
+        val widthPx = dp(ctx, widthDp)
         val body = vertical(ctx, dp(ctx, 12)).apply { setBackgroundColor(colors.background) }
         build(ctx, body)
         body.measure(
@@ -139,6 +140,25 @@ class StreamsSettingsScreenshotTest {
             }
         } finally {
             ctx.resources.displayMetrics.scaledDensity = originalScaledDensity
+        }
+    }
+
+    @Test
+    fun rendersStreamSettingsAtSmallPhoneAndTabletContentWidths() {
+        val settings = Settings()
+        listOf(320, 560).forEach { widthDp ->
+            val filters = render("streams-filters-width-$widthDp", light, widthDp) { ctx, body ->
+                FiltersSettingsScreen.body(ctx, light, settings, body)
+            }
+            val sorting = render("streams-sorting-width-$widthDp", light, widthDp) { ctx, body ->
+                SortingSettingsScreen.body(ctx, light, settings, body)
+            }
+            val design = render("streams-link-design-width-$widthDp", light, widthDp) { ctx, body ->
+                FormatterSettingsScreen.body(ctx, light, settings, body)
+            }
+            assertVisible(filters, light.background)
+            assertVisible(sorting, light.background)
+            assertVisible(design, light.background)
         }
     }
 }
