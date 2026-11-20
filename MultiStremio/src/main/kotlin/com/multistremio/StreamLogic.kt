@@ -577,17 +577,23 @@ object StreamSorter {
     private fun seeders() = compareByDescending<ParsedStream> { it.info.seeders ?: -1 }
     private fun addon() = compareBy<ParsedStream> { it.addonIndex }
 
-    private fun customCriterion(setting: SortCriterionSetting): Comparator<ParsedStream> {
-        val descending = setting.descending
-        return when (setting.id) {
-            "resolution" -> if (descending) res() else compareBy { it.info.resolution }
-            "source" -> if (descending) source() else compareBy { SOURCE_RANK[it.info.source] ?: 0 }
-            "hdr" -> if (descending) hdr() else compareBy { HDR_RANK[it.info.hdr] ?: 0 }
-            "seeders" -> if (descending) seeders() else compareBy { it.info.seeders ?: Int.MAX_VALUE }
-            "size" -> if (descending) sizeDesc() else sizeAsc()
-            "addon" -> if (descending) compareByDescending<ParsedStream> { it.addonIndex } else addon()
-            else -> addon()
-        }
+    private fun sourceRank(value: String?): Int = when (value?.uppercase(Locale.ROOT)) {
+        "REMUX" -> 6
+        "BLURAY" -> 5
+        "WEB-DL" -> 4
+        "WEBRIP" -> 3
+        "HDTV" -> 2
+        "DVD" -> 1
+        "CAM" -> 0
+        else -> -1
+    }
+
+    private fun hdrRank(value: String?): Int = when (value?.uppercase(Locale.ROOT)) {
+        "DV" -> 4
+        "HDR10+" -> 3
+        "HDR10" -> 2
+        "HDR" -> 1
+        else -> 0
     }
 
     private fun canonicalCodec(value: String?): String? = when (value?.trim()?.lowercase(Locale.ROOT)) {
@@ -679,7 +685,18 @@ object StreamSorter {
         }
 
         if (s.preset.equals("CUSTOM", ignoreCase = true)) {
-            chain.addAll(s.customOrder.map(::customCriterion))
+            chain.addAll(s.customOrder.map { criterion ->
+                val ascending = !criterion.descending
+                when (criterion.id) {
+                    "resolution" -> if (ascending) compareBy<ParsedStream> { it.info.resolution } else res()
+                    "source" -> if (ascending) compareBy<ParsedStream> { sourceRank(it.info.source) } else source()
+                    "hdr" -> if (ascending) compareBy<ParsedStream> { hdrRank(it.info.hdr) } else hdr()
+                    "seeders" -> if (ascending) compareBy<ParsedStream> { it.info.seeders ?: Int.MAX_VALUE } else seeders()
+                    "size" -> if (ascending) sizeAsc() else sizeDesc()
+                    "addon" -> if (ascending) addon() else compareByDescending<ParsedStream> { it.addonIndex }
+                    else -> addon()
+                }
+            })
         } else {
             when (SortPreset.from(s.preset)) {
                 SortPreset.BEST_QUALITY -> chain.addAll(listOf(res(), source(), hdr(), sizeDesc()))
@@ -1165,25 +1182,8 @@ object StreamLabels {
     fun build(p: ParsedStream, format: StreamFormatSettings): String =
         build(p, detailed = true, format = format)
 
-    private val compactFormat = StreamFormatSettings(
-        enabled = true,
-        fields = mutableListOf("addon", "quality", "codec", "size", "cache"),
-        separator = " · ",
-        showLabels = false,
-        designPreset = "COMPACT",
-    )
-
     fun build(p: ParsedStream, detailed: Boolean, format: StreamFormatSettings): String {
-        when (format.designPreset.uppercase()) {
-            "SIMPLE" -> return build(p, detailed = false)
-            "DETAILED" -> return build(p, detailed = true)
-            "COMPACT" -> return buildCustom(p, compactFormat)
-        }
         if (!format.enabled) return build(p, detailed = detailed)
-        return buildCustom(p, format)
-    }
-
-    private fun buildCustom(p: ParsedStream, format: StreamFormatSettings): String {
         val pieces = format.fields.asSequence()
             .distinct()
             .mapNotNull { field ->
@@ -1203,32 +1203,25 @@ object StreamLabels {
         return pieces.joinToString(format.separator.take(8)).ifBlank { p.addonName }
     }
 
-    private fun exampleStream(): ParsedStream = StreamParser.parsed(
-        0,
-        "Example Addon",
-        RawStream(
-            name = "🌀 CNCVerse 4K • MovieBoxIN",
-            title = "Example.Movie.2026.2160p.WEB-DL.HDR10.HEVC.Atmos.BENG.ENG\n🛰️ Source: MovieBoxIN • HubCloud",
-            url = "https://example.invalid/movie.mkv",
-            subtitles = listOf(
-                RawSubtitle(url = "https://example.invalid/en.vtt", lang = "eng"),
-                RawSubtitle(url = "https://example.invalid/bn.vtt", lang = "ben"),
+    fun preview(format: StreamFormatSettings): String {
+        val example = StreamParser.parsed(
+            0,
+            "Example Addon",
+            RawStream(
+                name = "🌀 CNCVerse 4K • MovieBoxIN",
+                title = "Example.Movie.2026.2160p.WEB-DL.HDR10.HEVC.Atmos.BENG.ENG\n🛰️ Source: MovieBoxIN • HubCloud",
+                url = "https://example.invalid/movie.mkv",
+                subtitles = listOf(
+                    RawSubtitle(url = "https://example.invalid/en.vtt", lang = "eng"),
+                    RawSubtitle(url = "https://example.invalid/bn.vtt", lang = "ben"),
+                ),
+                behaviorHints = BehaviorHints(
+                    filename = "Example.Movie.2026.2160p.WEB-DL.HDR10.HEVC.Atmos.BENG.ENG.mkv",
+                    videoSize = 1_500_000_000L,
+                ),
             ),
-            behaviorHints = BehaviorHints(
-                filename = "Example.Movie.2026.2160p.WEB-DL.HDR10.HEVC.Atmos.BENG.ENG.mkv",
-                videoSize = 1_500_000_000L,
-            ),
-        ),
-    )
-
-    fun preview(format: StreamFormatSettings): String =
-        build(exampleStream(), format.copy(enabled = true, designPreset = "CUSTOM"))
-
-    fun previewDesign(preset: String, format: StreamFormatSettings): String = when (preset.uppercase()) {
-        "SIMPLE" -> build(exampleStream(), detailed = false)
-        "DETAILED" -> build(exampleStream(), detailed = true)
-        "COMPACT" -> buildCustom(exampleStream(), compactFormat)
-        else -> build(exampleStream(), detailed = true, format = format.copy(enabled = true, designPreset = "CUSTOM"))
+        )
+        return build(example, format.copy(enabled = true))
     }
 
     /** Value for ExtractorLink.quality, or null for "unknown" (caller maps it to Qualities.Unknown). */

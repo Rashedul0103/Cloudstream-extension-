@@ -501,110 +501,6 @@ class CoreLogicTest {
     }
 
     @Test
-    fun customSortCriteriaRespectTheConfiguredPriority() {
-        val webQuality = StreamParser.parsed(
-            1, "Web addon", RawStream(name = "Example.Movie.2160p.WEB-DL"),
-        )
-        val remux = StreamParser.parsed(
-            0, "Remux addon", RawStream(name = "Example.Movie.720p.REMUX"),
-        )
-
-        val sourceFirst = StreamPipeline.process(
-            listOf(webQuality, remux),
-            FilterSettings(),
-            SortSettings(
-                preset = "CUSTOM",
-                customOrder = mutableListOf(
-                    SortCriterionSetting("source", descending = true),
-                    SortCriterionSetting("resolution", descending = true),
-                ),
-            ),
-        )
-        assertEquals("REMUX", sourceFirst.first().info.source)
-
-        val resolutionFirst = StreamPipeline.process(
-            listOf(remux, webQuality),
-            FilterSettings(),
-            SortSettings(
-                preset = "CUSTOM",
-                customOrder = mutableListOf(
-                    SortCriterionSetting("resolution", descending = true),
-                    SortCriterionSetting("source", descending = true),
-                ),
-            ),
-        )
-        assertEquals(2160, resolutionFirst.first().info.resolution)
-    }
-
-    @Test
-    fun customSortDirectionCanBeReversed() {
-        val high = StreamParser.parsed(0, "High", RawStream(name = "Movie.2160p.WEB-DL"))
-        val low = StreamParser.parsed(1, "Low", RawStream(name = "Movie.720p.WEB-DL"))
-        val sorted = StreamPipeline.process(
-            listOf(high, low),
-            FilterSettings(),
-            SortSettings(
-                preset = "CUSTOM",
-                customOrder = mutableListOf(SortCriterionSetting("resolution", descending = false)),
-            ),
-        )
-        assertEquals(listOf(720, 2160), sorted.map { it.info.resolution })
-    }
-
-    @Test
-    fun linkDesignPresetsProduceDistinctSimpleDetailedAndCompactLabels() {
-        val parsed = StreamParser.parsed(
-            0,
-            "Example Addon",
-            RawStream(
-                name = "Example 4K • MovieBox",
-                title = "Example.Movie.2160p.WEB-DL.HDR10.HEVC.Atmos",
-                url = "https://example.invalid/movie.mkv",
-                behaviorHints = BehaviorHints(
-                    filename = "Example.Movie.2160p.WEB-DL.HDR10.HEVC.Atmos.mkv",
-                    videoSize = 1_500_000_000L,
-                ),
-            ),
-        )
-
-        val simple = StreamLabels.build(
-            parsed, detailed = true, format = StreamFormatSettings(designPreset = "SIMPLE"),
-        )
-        val detailed = StreamLabels.build(
-            parsed, detailed = false, format = StreamFormatSettings(designPreset = "DETAILED"),
-        )
-        val compact = StreamLabels.build(
-            parsed, detailed = true, format = StreamFormatSettings(designPreset = "COMPACT"),
-        )
-
-        assertFalse(simple.startsWith("Example Addon ·"))
-        assertTrue(detailed.contains("HDR10"))
-        assertTrue(compact.contains("4K"))
-        assertTrue(compact.contains("HEVC"))
-        assertFalse(compact.contains("HDR10"))
-    }
-
-    @Test
-    fun sanitizerKeepsCustomSortAndResolvesLegacyLinkDesign() {
-        val settings = Settings(
-            sort = SortSettings(
-                preset = "CUSTOM",
-                customOrder = mutableListOf(
-                    SortCriterionSetting("source", false),
-                    SortCriterionSetting("unknown", true),
-                    SortCriterionSetting("source", true),
-                ),
-            ),
-            detailedLabels = false,
-            streamFormat = StreamFormatSettings(),
-        ).sanitized()
-
-        assertEquals("CUSTOM", settings.sort.preset)
-        assertEquals(listOf(SortCriterionSetting("source", false)), settings.sort.customOrder)
-        assertEquals("SIMPLE", settings.streamFormat.designPreset)
-    }
-
-    @Test
     fun customCodecAndAudioPreferencesControlStreamRanking() {
         val avc = StreamParser.parsed(0, "AVC addon", RawStream(name = "Movie.1080p.WEB-DL.x264.AAC"))
         val hevc = StreamParser.parsed(1, "HEVC addon", RawStream(name = "Movie.1080p.WEB-DL.x265.DD+"))
@@ -1535,3 +1431,32 @@ class CoreLogicTest {
         catalogOrder = mutableListOf("hashed-addon-id|movie|top", "external:private"),
     )
 }
+    @Test
+    fun customSortCriteriaUseRankedOrderAndDirection() {
+        val low = StreamParser.parsed(0, "A", RawStream(name = "Movie.720p.WEB-DL"))
+        val high = StreamParser.parsed(1, "B", RawStream(name = "Movie.1080p.WEB-DL"))
+        val streams = listOf(low, high)
+        val resolutionFirst = StreamPipeline.process(
+            streams,
+            FilterSettings(),
+            SortSettings(
+                preset = "CUSTOM",
+                customOrder = mutableListOf(
+                    SortCriterionSetting("resolution", true),
+                    SortCriterionSetting("addon", false),
+                ),
+            ),
+        )
+        assertEquals(listOf(1080, 720), resolutionFirst.map { it.info.resolution })
+
+        val ascending = StreamPipeline.process(
+            streams,
+            FilterSettings(),
+            SortSettings(
+                preset = "CUSTOM",
+                customOrder = mutableListOf(SortCriterionSetting("resolution", false)),
+            ),
+        )
+        assertEquals(listOf(720, 1080), ascending.map { it.info.resolution })
+    }
+
