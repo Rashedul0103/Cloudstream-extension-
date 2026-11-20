@@ -228,3 +228,60 @@ internal fun segmentedControl(
         }, LinearLayout.LayoutParams(0, WRAP, 1f))
     }
 }
+
+
+/**
+ * Compact, wrapping choice chips for option sets that are too wide for a segmented control.
+ * Every chip remains a 44dp touch target and exposes its selected state to accessibility services.
+ */
+internal fun choiceChipGrid(
+    ctx: Context,
+    colors: Palette,
+    options: List<String>,
+    selectedIndices: Set<Int>,
+    columns: Int = 3,
+    onSelect: (Int) -> Unit,
+): LinearLayout = vertical(ctx).apply {
+    val safeColumns = columns.coerceIn(1, 4)
+    options.forEachIndexed { index, label ->
+        val rowIndex = index / safeColumns
+        val columnIndex = index % safeColumns
+        if (columnIndex == 0) {
+            addView(LinearLayout(ctx).apply {
+                orientation = LinearLayout.HORIZONTAL
+                tag = "choice-chip-row:$rowIndex"
+            }, LinearLayout.LayoutParams(MATCH, WRAP).apply {
+                if (rowIndex > 0) topMargin = dp(ctx, 6)
+            })
+        }
+        val row = getChildAt(childCount - 1) as LinearLayout
+        val selected = index in selectedIndices
+        val chip = text(ctx, label, 12f, if (selected) colors.accent else colors.primary, selected).apply {
+            gravity = Gravity.CENTER
+            minHeight = dp(ctx, 44)
+            setPadding(dp(ctx, 6), dp(ctx, 7), dp(ctx, 6), dp(ctx, 7))
+            background = GradientDrawable().apply {
+                setColor(if (selected) withAlpha(colors.accent, 22) else colors.background)
+                cornerRadius = dp(ctx, 10).toFloat()
+                setStroke(dp(ctx, 1), if (selected) colors.accent else colors.outline)
+            }
+            isClickable = true
+            isFocusable = true
+            isSelected = selected
+            contentDescription = if (selected) "$label, selected" else label
+            setOnClickListener { onSelect(index) }
+        }
+        row.addView(chip, LinearLayout.LayoutParams(0, WRAP, 1f).apply {
+            marginEnd = dp(ctx, if (columnIndex < safeColumns - 1) 6 else 0)
+        })
+    }
+    val lastRow = getChildAt(childCount - 1) as? LinearLayout
+    val remainder = options.size % safeColumns
+    if (lastRow != null && remainder != 0) {
+        repeat(safeColumns - remainder) {
+            lastRow.addView(View(ctx), LinearLayout.LayoutParams(0, WRAP, 1f).apply {
+                marginEnd = dp(ctx, 6)
+            })
+        }
+    }
+}

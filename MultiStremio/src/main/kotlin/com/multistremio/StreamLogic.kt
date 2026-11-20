@@ -577,6 +577,19 @@ object StreamSorter {
     private fun seeders() = compareByDescending<ParsedStream> { it.info.seeders ?: -1 }
     private fun addon() = compareBy<ParsedStream> { it.addonIndex }
 
+    private fun customCriterion(setting: SortCriterionSetting): Comparator<ParsedStream> {
+        val descending = setting.descending
+        return when (setting.id) {
+            "resolution" -> if (descending) res() else compareBy { it.info.resolution }
+            "source" -> if (descending) source() else compareBy { SOURCE_RANK[it.info.source] ?: 0 }
+            "hdr" -> if (descending) hdr() else compareBy { HDR_RANK[it.info.hdr] ?: 0 }
+            "seeders" -> if (descending) seeders() else compareBy { it.info.seeders ?: Int.MAX_VALUE }
+            "size" -> if (descending) sizeDesc() else sizeAsc()
+            "addon" -> if (descending) compareByDescending<ParsedStream> { it.addonIndex } else addon()
+            else -> addon()
+        }
+    }
+
     private fun canonicalCodec(value: String?): String? = when (value?.trim()?.lowercase(Locale.ROOT)) {
         "hevc", "h265", "h.265", "x265" -> "HEVC"
         "av1" -> "AV1"
@@ -665,13 +678,17 @@ object StreamSorter {
             }
         }
 
-        when (SortPreset.from(s.preset)) {
-            SortPreset.BEST_QUALITY -> chain.addAll(listOf(res(), source(), hdr(), sizeDesc()))
-            SortPreset.QUALITY_SEEDERS -> chain.addAll(listOf(res(), seeders(), sizeDesc()))
-            SortPreset.LARGEST -> chain.addAll(listOf(sizeDesc(), res()))
-            SortPreset.SMALLEST -> chain.addAll(listOf(sizeAsc(), res()))
-            SortPreset.MOST_SEEDERS -> chain.addAll(listOf(seeders(), res()))
-            SortPreset.ADDON_ORDER -> chain.addAll(listOf(addon(), res(), sizeDesc()))
+        if (s.preset.equals("CUSTOM", ignoreCase = true)) {
+            chain.addAll(s.customOrder.map(::customCriterion))
+        } else {
+            when (SortPreset.from(s.preset)) {
+                SortPreset.BEST_QUALITY -> chain.addAll(listOf(res(), source(), hdr(), sizeDesc()))
+                SortPreset.QUALITY_SEEDERS -> chain.addAll(listOf(res(), seeders(), sizeDesc()))
+                SortPreset.LARGEST -> chain.addAll(listOf(sizeDesc(), res()))
+                SortPreset.SMALLEST -> chain.addAll(listOf(sizeAsc(), res()))
+                SortPreset.MOST_SEEDERS -> chain.addAll(listOf(seeders(), res()))
+                SortPreset.ADDON_ORDER -> chain.addAll(listOf(addon(), res(), sizeDesc()))
+            }
         }
         chain += addon() // final, deterministic tie-break
         return chain.reduce { a, b -> a.then(b) }

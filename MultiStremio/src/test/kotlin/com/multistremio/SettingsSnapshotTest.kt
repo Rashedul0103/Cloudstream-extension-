@@ -106,6 +106,7 @@ class SettingsSnapshotTest {
         assertEquals(mapOf("a|movie/top" to "Mine"), snapshot.customCatalogNames)
         assertFalse(snapshot.filter.allowedResolutions.isEmpty())
         assertTrue(snapshot.sort.preferCodecs.isEmpty())
+        assertEquals(SortCriteria.defaults(), snapshot.sort.customOrder)
         assertFalse(snapshot.streamFormat.fields.isEmpty())
         assertEquals(listOf("en"), snapshot.subtitleLanguages)
     }

@@ -82,14 +82,44 @@ data class FilterSettings(
     var maxTotal: Int = 0,
 )
 
+data class SortCriterionDefinition(val id: String, val title: String, val description: String)
+
+data class SortCriterionSetting(
+    /** Stable identifier from [SortCriteria.all]. */
+    var id: String = "resolution",
+    /** true sorts high-to-low; false sorts low-to-high (addon order uses earlier/later). */
+    var descending: Boolean = true,
+)
+
+object SortCriteria {
+    val all = listOf(
+        SortCriterionDefinition("resolution", "Resolution", "Higher resolutions first"),
+        SortCriterionDefinition("source", "Source", "REMUX, BluRay, WEB-DL and similar"),
+        SortCriterionDefinition("hdr", "HDR", "Dolby Vision, HDR10+ and HDR10"),
+        SortCriterionDefinition("seeders", "Seeders", "More seeders or fewer seeders"),
+        SortCriterionDefinition("size", "File size", "Larger or smaller files"),
+        SortCriterionDefinition("addon", "Addon order", "Earlier or later in your addon priority"),
+    )
+
+    fun defaults(): MutableList<SortCriterionSetting> = mutableListOf(
+        SortCriterionSetting("resolution", true),
+        SortCriterionSetting("source", true),
+        SortCriterionSetting("hdr", true),
+        SortCriterionSetting("seeders", true),
+        SortCriterionSetting("size", true),
+        SortCriterionSetting("addon", false),
+    )
+}
+
 data class SortSettings(
+    /** One of the existing presets, or CUSTOM for the ranked criteria below. */
     var preset: String = SortPreset.BEST_QUALITY.name,
     var cachedFirst: Boolean = false,
     var preferKeywords: MutableList<String> = mutableListOf(),
     var preferLanguages: MutableList<String> = mutableListOf(),
     /** Preferred codec order, e.g. HEVC, AV1, AVC. Empty means do not apply an extra codec preference. */
     var preferCodecs: MutableList<String> = mutableListOf(),
-    /** Preferred audio format order, e.g. Atmos, TrueHD, DTS-HD, DD+, AAC. */
+    /** Preferred audio format order, e.g. Atmos, TrueHD, DTS-HD, DD+. */
     var preferAudio: MutableList<String> = mutableListOf(),
     /**
      * CloudStream orders links by its own quality profile first and only keeps arrival order for
@@ -97,6 +127,8 @@ data class SortSettings(
      * resolution is still shown in the link name.
      */
     var overrideAppQuality: Boolean = false,
+    /** Ranked custom criteria. The first criterion wins; later entries break ties. */
+    var customOrder: MutableList<SortCriterionSetting> = SortCriteria.defaults(),
 )
 
 /**
@@ -308,6 +340,8 @@ data class StreamFormatSettings(
     var fields: MutableList<String> = StreamFormatFields.defaultOrder.toMutableList(),
     var separator: String = " · ",
     var showLabels: Boolean = false,
+    /** AUTO is used only by older settings/backups and is resolved during sanitization. */
+    var designPreset: String = "AUTO",
 )
 
 data class Settings(
@@ -354,6 +388,7 @@ fun Settings.snapshot(): Settings = copy(
         preferLanguages = sort.preferLanguages.toMutableList(),
         preferCodecs = sort.preferCodecs.toMutableList(),
         preferAudio = sort.preferAudio.toMutableList(),
+        customOrder = sort.customOrder.map { it.copy() }.toMutableList(),
     ),
     subtitleLanguages = subtitleLanguages.toMutableList(),
     streamFormat = streamFormat.copy(fields = streamFormat.fields.toMutableList()),
@@ -388,16 +423,33 @@ fun Settings.sanitized(): Settings {
     filter.requireKeywords = filter.requireKeywords.map { it.trim() }.filter { it.isNotEmpty() }.distinct().toMutableList()
     filter.requireLanguages = filter.requireLanguages.map { it.trim() }.filter { it.isNotEmpty() }.distinct().toMutableList()
 
-    sort.preset = SortPreset.from(sort.preset).name
+    sort.preset = if (sort.preset.equals("CUSTOM", ignoreCase = true)) "CUSTOM" else SortPreset.from(sort.preset).name
     sort.preferKeywords = sort.preferKeywords.map { it.trim() }.filter { it.isNotEmpty() }.distinct().toMutableList()
     sort.preferLanguages = sort.preferLanguages.map { it.trim() }.filter { it.isNotEmpty() }.distinct().toMutableList()
     sort.preferCodecs = sort.preferCodecs.map { it.trim() }.filter { it.isNotEmpty() }.distinct().toMutableList()
     sort.preferAudio = sort.preferAudio.map { it.trim() }.filter { it.isNotEmpty() }.distinct().toMutableList()
+    val validSortIds = SortCriteria.all.map { it.id }.toSet()
+    sort.customOrder = sort.customOrder
+        .filter { it.id in validSortIds }
+        .distinctBy { it.id }
+        .map { it.copy() }
+        .toMutableList()
+    if (sort.customOrder.isEmpty()) sort.customOrder = SortCriteria.defaults()
 
     val validFieldIds = StreamFormatFields.all.map { it.id }.toSet()
     streamFormat.fields = streamFormat.fields.filter { it in validFieldIds }.distinct().toMutableList()
     if (streamFormat.separator !in setOf(" · ", " | ", " • ", " — ", " / ", "\n")) {
         streamFormat.separator = " · "
+    }
+    streamFormat.designPreset = streamFormat.designPreset.uppercase().takeIf {
+        it in setOf("AUTO", "SIMPLE", "DETAILED", "COMPACT", "CUSTOM")
+    } ?: "AUTO"
+    if (streamFormat.designPreset == "AUTO") {
+        streamFormat.designPreset = when {
+            streamFormat.enabled -> "CUSTOM"
+            detailedLabels -> "DETAILED"
+            else -> "SIMPLE"
+        }
     }
 
     addons = addons.asSequence()
