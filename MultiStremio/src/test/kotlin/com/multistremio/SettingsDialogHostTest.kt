@@ -227,6 +227,27 @@ class SettingsDialogHostTest {
     }
 
     @Test
+    fun settingsHubUsesTheSpecifiedTopLevelGroups() {
+        val ctx = RuntimeEnvironment.getApplication()
+        val previous = Config.snapshot()
+        try {
+            Config.replace(Settings())
+            MainMenuSettingsScreen.show(ctx)
+            val root = SettingsDialogHost.currentScreenRoot()!!
+
+            assertTrue(containsText(root, "SOURCES"))
+            assertTrue(containsText(root, "STREAMS"))
+            assertTrue(containsText(root, "BEHAVIOR"))
+            assertTrue(containsText(root, "DATA"))
+            assertTrue("The reset entry belongs in Data", containsText(root, "Danger zone"))
+            assertTrue("The old App group should not remain", !containsText(root, "APP"))
+        } finally {
+            SettingsDialogHost.dismiss()
+            Config.replace(previous)
+        }
+    }
+
+    @Test
     fun addonPromptSuggestsClipboardManifestAndShowsInlineUrlValidation() {
         val ctx = RuntimeEnvironment.getApplication()
         val clipboard = ctx.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager

@@ -130,13 +130,13 @@ internal object SettingsSearchIndex {
         add("Preview stream names", "Custom link design", "preview", listOf("example")) {
             FormatterSettingsScreen.show(ctx)
         }
-        add("Backup and restore", "App", "backup", listOf("copy", "export", "import", "restore")) {
+        add("Backup and restore", "Data", "backup", listOf("copy", "export", "import", "restore")) {
             BackupSettingsScreen.show(ctx)
         }
-        add("Diagnostics", "App", "diagnostics", listOf("debug", "requests", "performance")) {
+        add("Diagnostics", "Data", "diagnostics", listOf("debug", "requests", "performance")) {
             DiagnosticsSettingsScreen.show(ctx)
         }
-        add("Danger zone", "App · Destructive actions", "danger", listOf("remove all", "factory reset", "delete")) {
+        add("Danger zone", "Data · Destructive actions", "danger", listOf("remove all", "factory reset", "delete")) {
             DangerZoneSettingsScreen.show(ctx)
         }
         return results
