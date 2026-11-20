@@ -434,7 +434,15 @@ fun Settings.sanitized(): Settings {
         .distinctBy { it.id }
         .map { it.copy() }
         .toMutableList()
-    if (sort.customOrder.isEmpty()) sort.customOrder = SortCriteria.defaults()
+    val savedOrder = sort.customOrder
+    val presentCriteria = savedOrder.mapTo(mutableSetOf()) { it.id }
+    sort.customOrder = (savedOrder + SortCriteria.defaults().filter { it.id !in presentCriteria })
+        .map { it.copy() }
+        .toMutableList()
+
+    val validDesignPresets = setOf("AUTO", "SIMPLE", "DETAILED", "COMPACT", "CUSTOM")
+    streamFormat.designPreset = streamFormat.designPreset.uppercase(Locale.ROOT)
+        .takeIf { it in validDesignPresets } ?: "AUTO"
 
     val validFieldIds = StreamFormatFields.all.map { it.id }.toSet()
     streamFormat.fields = streamFormat.fields.filter { it in validFieldIds }.distinct().toMutableList()
