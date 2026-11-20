@@ -131,7 +131,11 @@ class MultiStremio : MainAPI() {
         if (page <= 1) skipOffsets.remove(key)
         // Page > 1 without a known offset (e.g. after a process restart) would repeat page 1.
         val skip = if (page <= 1) 0 else skipOffsets.get(key) ?: return newHomePageResponse(request, emptyList(), false)
-        val metas = StremioClient.catalog(addon, type, catalogId, if (skip > 0) "skip=$skip" else null)
+        val metas = StremioClient.catalog(
+            addon, type, catalogId, if (skip > 0) "skip=$skip" else null,
+            timeoutSec = addon.timeoutSec ?: settings.timeoutSec,
+            retryOnce = settings.retryFailedAddonOnce,
+        )
         val hasNext = supportsSkip && metas.isNotEmpty()
         if (hasNext) skipOffsets.put(key, skip + metas.size) else skipOffsets.remove(key)
 
@@ -162,8 +166,11 @@ class MultiStremio : MainAPI() {
         }
         if (jobs.isEmpty()) return emptyList()
 
-        val results = jobs.boundedAmap(8) { (addon, type, id) ->
-            StremioClient.catalog(addon, type, id, "search=$q").map { Triple(addon.id, type, it) }
+        val results = jobs.boundedAmap(settings.maxParallelAddonRequests) { (addon, type, id) ->
+            StremioClient.catalog(
+                addon, type, id, "search=$q", timeoutSec = addon.timeoutSec ?: settings.timeoutSec,
+                retryOnce = settings.retryFailedAddonOnce,
+            ).map { Triple(addon.id, type, it) }
         }
         return SearchMetaDeduplication.unique(results.flatten())
             .mapNotNull { (addonId, fallbackType, meta) ->
@@ -256,7 +263,7 @@ class MultiStremio : MainAPI() {
 
         // Stream and subtitle providers retain the shared connection cap. Stream jobs are
         // launched first, so their queued permits remain ahead of the subtitle branch.
-        val requestLimiter = Semaphore(8)
+        val requestLimiter = Semaphore(settings.maxParallelAddonRequests)
         StreamDiagnostics.setExpectedStreamAddons(diagnosticRunId, streamAddons.size)
 
         return coroutineScope {
@@ -271,6 +278,8 @@ class MultiStremio : MainAPI() {
                             val queueWaitMs = (System.nanoTime() - queuedAt) / 1_000_000L
                             val raw = StremioClient.streams(
                                 addon, type, id, diagnosticRunId, queueWaitMs,
+                                timeoutSec = addon.timeoutSec ?: settings.timeoutSec,
+                                retryOnce = settings.retryFailedAddonOnce,
                             )
                             val parseStarted = System.nanoTime()
                             val parsed = raw.mapNotNull { stream ->
@@ -305,7 +314,10 @@ class MultiStremio : MainAPI() {
             var subtitleDeferred: Deferred<List<RawSubtitle>>? = null
 
             val allParsed = ArrayList<ParsedStream>()
-            val emissionTracker = StreamEmissionTracker(settings.filter)
+            val addonLimits = settings.addons.withIndex().mapNotNull { (index, addon) ->
+                addon.maxLinks.takeIf { it > 0 }?.let { index to it }
+            }.toMap()
+            val emissionTracker = StreamEmissionTracker(settings.filter, addonLimits)
             val wantedSubs = settings.subtitleLanguages.map { subtitleKey(it) }.toSet()
             val sentSubs = HashSet<String>()
             var emitted = false
@@ -329,6 +341,8 @@ class MultiStremio : MainAPI() {
                                         StreamDiagnostics.markSubtitleRequestsStarted(diagnosticRunId)
                                         StremioClient.subtitles(
                                             addon, type, id, diagnosticRunId, queueWaitMs,
+                                            timeoutSec = addon.timeoutSec ?: settings.timeoutSec,
+                                            retryOnce = settings.retryFailedAddonOnce,
                                         )
                                     }
                                 } catch (e: CancellationException) {
@@ -400,6 +414,7 @@ class MultiStremio : MainAPI() {
                     completedAddons++
                     allParsed.addAll(result)
                     if (
+                        settings.progressiveLinks &&
                         !firstBatchEmitted &&
                         firstPlayableDeadlineNanos == null &&
                         allParsed.any { it.isDirect || it.isMagnet }
@@ -517,6 +532,7 @@ class MultiStremio : MainAPI() {
                 playableCandidates = playable.size,
                 keptAfterFilters = keptAfterFilters,
                 emittedLinks = emittedLinks,
+                filterCandidates = playable,
             )
             emitted
         }
@@ -597,17 +613,24 @@ class MultiStremio : MainAPI() {
 
     /** Origin addon first, then every other addon that can serve meta for this id. */
     private suspend fun findMeta(ref: ItemRef, type: String, id: String): Meta? {
-        val candidates = Config.snapshot().addons
+        val settings = Config.snapshot()
+        val candidates = settings.addons
             .filter { it.enabled && it.useMeta && Config.manifestOf(it)?.supports("meta", type, id) == true }
         val origin = candidates.firstOrNull { it.id == ref.a }
-        val originMeta = origin?.let { StremioClient.meta(it, type, id) }
+        val originMeta = origin?.let {
+            StremioClient.meta(it, type, id, it.timeoutSec ?: settings.timeoutSec, settings.retryFailedAddonOnce)
+        }
         // Other rows must not borrow unrelated metadata/posters from the movie/series catalog addon.
         if (ref.otherSource) return originMeta
         if (!originMeta?.name.isNullOrBlank()) return originMeta
 
         // Metadata addons are queried in parallel after the source addon fails to give a named item.
         val alternatives = candidates.filter { it.id != origin?.id }
-            .boundedAmap(8) { addon -> StremioClient.meta(addon, type, id) }
+            .boundedAmap(settings.maxParallelAddonRequests) { addon ->
+                StremioClient.meta(
+                    addon, type, id, addon.timeoutSec ?: settings.timeoutSec, settings.retryFailedAddonOnce,
+                )
+            }
         alternatives.firstOrNull { !it?.name.isNullOrBlank() }?.let { return it }
 
         // Preserve useful sparse metadata (e.g. videos) instead of throwing it away.

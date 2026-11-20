@@ -253,7 +253,7 @@ object StreamParser {
         """\b(camrip|hd[ .\-_]?cam|hdts|hd[ .\-_]?tc|telesync|telecine|dvdscr|screener|workprint|predvd|pdvd)\b""",
     )
     private val CAM_WEAK = Regex(
-        """(?<=[\s._\-\[(])(cam|ts|scr|r5)(?=[\s._\-\])])""",
+        """(?<=[\s._\-\[(])(cam|ts|scr|r5)(?=$|[\s._\-\])])""",
     )
     private val CACHED_TAG = Regex("""\[[a-z]{2,4}\+\]""")
     private val UNCACHED_TAG = Regex("""\[[a-z]{2,4}\s?download\]""")
@@ -519,43 +519,58 @@ object StreamFilter {
         f: FilterSettings,
         wantedLanguages: Set<String>,
         validRequiredKeywords: List<String>,
-    ): Boolean {
-        val i = p.info
-        if (p.isMagnet && f.hideMagnets) return false
-        if (f.hideCam && i.isCam) return false
-        if (f.hideUncachedDebrid && i.cached == false) return false
-        if (f.allowedResolutions.isNotEmpty() && i.resolution !in f.allowedResolutions) return false
+    ): Boolean = failureReason(p, f, wantedLanguages, validRequiredKeywords) == null
 
-        if (f.hevcMode == MODE_HIDE && i.codec == "HEVC") return false
-        if (f.hevcMode == MODE_ONLY && i.codec != "HEVC") return false
+    /** First matching exclusion reason, shared by runtime filtering and the diagnostics preview. */
+    fun failureReason(p: ParsedStream, f: FilterSettings): String? = failureReason(
+        p,
+        f,
+        f.requireLanguages.map { Langs.normalize(it) }.toSet(),
+        validRequiredKeywords(f.requireKeywords),
+    )
+
+    private fun failureReason(
+        p: ParsedStream,
+        f: FilterSettings,
+        wantedLanguages: Set<String>,
+        validRequiredKeywords: List<String>,
+    ): String? {
+        val i = p.info
+        if (p.isMagnet && f.hideMagnets) return "Magnet links"
+        if (f.hideCam && i.isCam) return "CAM / telesync"
+        if (f.hideUncachedDebrid && i.cached == false) return "Uncached debrid"
+        if (f.allowedResolutions.isNotEmpty() && i.resolution !in f.allowedResolutions) return "Resolution"
+
+        if (f.hevcMode == MODE_HIDE && i.codec == "HEVC") return "HEVC mode"
+        if (f.hevcMode == MODE_ONLY && i.codec != "HEVC") return "HEVC mode"
         val hasHdr = i.hdr != null
-        if (f.hdrMode == MODE_HIDE && hasHdr) return false
-        if (f.hdrMode == MODE_ONLY && !hasHdr) return false
+        if (f.hdrMode == MODE_HIDE && hasHdr) return "HDR mode"
+        if (f.hdrMode == MODE_ONLY && !hasHdr) return "HDR mode"
 
         val size = i.sizeBytes
         if (size != null) {
-            if (f.minSizeMb > 0 && size < f.minSizeMb * MB) return false
-            if (f.maxSizeGb > 0 && size > f.maxSizeGb * GB) return false
+            if (f.minSizeMb > 0 && size < f.minSizeMb * MB) return "File size"
+            if (f.maxSizeGb > 0 && size > f.maxSizeGb * GB) return "File size"
         }
         val seeders = i.seeders
-        if (f.minSeeders > 0 && seeders != null && seeders < f.minSeeders) return false
+        if (f.minSeeders > 0 && seeders != null && seeders < f.minSeeders) return "Seeders"
 
-        if (f.excludeKeywords.isNotEmpty() && anyMatch(p.text, f.excludeKeywords)) return false
+        if (f.excludeKeywords.isNotEmpty() && anyMatch(p.text, f.excludeKeywords)) return "Excluded keyword"
         // Invalid regexes may exist in older backups. Ignore them at runtime rather than allowing
         // one malformed "require" pattern to hide every stream after an upgrade.
-        if (validRequiredKeywords.isNotEmpty() && !anyMatch(p.text, validRequiredKeywords)) return false
+        if (validRequiredKeywords.isNotEmpty() && !anyMatch(p.text, validRequiredKeywords)) return "Required keyword"
 
         val have = i.languages
-        if (f.strictLanguage && have.isEmpty()) return false
+        if (f.strictLanguage && have.isEmpty()) return "Unknown language"
         if (f.requireLanguages.isNotEmpty()) {
             val ok = when {
                 "multi" in have -> true
                 have.isEmpty() -> !f.strictLanguage
                 else -> have.any { it in wantedLanguages }
             }
-            if (!ok) return false
+            if (!ok) return "Language"
         }
-        return true
+        return null
     }
 }
 // ---------------------------------------------------------------------------------------------
@@ -903,7 +918,10 @@ object StreamPipeline {
  * Tracks which playable links have already been handed to CloudStream across progressively
  * arriving addon batches. Limits are cumulative even though each update is re-sorted.
  */
-internal class StreamEmissionTracker(private val filter: FilterSettings) {
+internal class StreamEmissionTracker(
+    private val filter: FilterSettings,
+    private val perAddonLimits: Map<Int, Int> = emptyMap(),
+) {
     private val emittedKeys = HashSet<String>()
     private val emittedPerAddon = HashMap<Int, Int>()
     var emittedCount: Int = 0
@@ -921,7 +939,11 @@ internal class StreamEmissionTracker(private val filter: FilterSettings) {
             if (filter.maxTotal > 0 && emittedCount >= filter.maxTotal) continue
 
             val addonCount = emittedPerAddon[stream.addonIndex] ?: 0
-            if (filter.maxPerAddon > 0 && addonCount >= filter.maxPerAddon) continue
+            val addonLimit = listOfNotNull(
+                filter.maxPerAddon.takeIf { it > 0 },
+                perAddonLimits[stream.addonIndex]?.takeIf { it > 0 },
+            ).minOrNull() ?: 0
+            if (addonLimit > 0 && addonCount >= addonLimit) continue
 
             emittedPerAddon[stream.addonIndex] = addonCount + 1
             emittedCount++
@@ -1224,8 +1246,11 @@ object StreamLabels {
     fun preview(format: StreamFormatSettings): String =
         build(previewExample(), format.copy(enabled = true))
 
-    fun previewDesign(preset: String, format: StreamFormatSettings): String {
-        val example = previewExample()
+    fun previewDesign(
+        preset: String,
+        format: StreamFormatSettings,
+        example: ParsedStream = previewExample(),
+    ): String {
         return when (preset.uppercase(Locale.ROOT)) {
             "SIMPLE" -> build(example, detailed = false)
             "DETAILED" -> build(example, detailed = true)
@@ -1238,7 +1263,7 @@ object StreamLabels {
                     showLabels = false,
                 ),
             )
-            else -> preview(format)
+            else -> build(example, format.copy(enabled = true))
         }
     }
 
@@ -1304,6 +1329,20 @@ object Urls {
         }
         val query = uri.rawQuery?.let { "?$it" }.orEmpty()
         return "$scheme://$authority${path.trimEnd('/')}$query"
+    }
+
+    /** Checks the URL shape before an addon manifest request is started. */
+    fun isValidAddonUrl(input: String): Boolean {
+        if (input.isBlank() || input.any(Char::isWhitespace)) return false
+        val explicitScheme = Regex("^([a-z][a-z0-9+.-]*):", RegexOption.IGNORE_CASE)
+            .find(input.trim())?.groupValues?.getOrNull(1)?.lowercase(Locale.ROOT)
+        if (explicitScheme != null && explicitScheme !in setOf("http", "https", "stremio")) return false
+        val normalized = normalizeAddonUrl(input)
+        val uri = runCatching { URI(normalized) }.getOrNull() ?: return false
+        val scheme = uri.scheme?.lowercase(Locale.ROOT)
+        return scheme in setOf("http", "https") &&
+            !uri.host.isNullOrBlank() &&
+            (uri.port == -1 || uri.port in 1..65535)
     }
 
     /** Builds a manifest URL without placing its path after a query string. */

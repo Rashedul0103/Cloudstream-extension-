@@ -1,5 +1,9 @@
 package com.multistremio
 
+import android.content.Context
+import android.content.Context.MODE_PRIVATE
+import com.fasterxml.jackson.core.type.TypeReference
+
 /**
  * Portable settings backup envelope.
  *
@@ -77,5 +81,43 @@ object SettingsBackupManager {
             includesAddonUrls = true,
             settings = legacy.sanitized(),
         )
+    }
+}
+
+data class AutomaticBackupEntry(
+    val createdAt: Long,
+    val reason: String,
+    val payload: String,
+)
+
+object AutomaticBackupHistory {
+    const val MAX_BACKUPS = 5
+    fun append(current: List<AutomaticBackupEntry>, entry: AutomaticBackupEntry): List<AutomaticBackupEntry> =
+        (current + entry).takeLast(MAX_BACKUPS)
+}
+
+/** Private on-device rolling snapshots, created immediately before high-impact settings changes. */
+class AutomaticBackupStore(context: Context) {
+    private val preferences = context.applicationContext.getSharedPreferences("multistremio_auto_backups", MODE_PRIVATE)
+
+    fun list(): List<AutomaticBackupEntry> {
+        val json = preferences.getString(KEY, null) ?: return emptyList()
+        return runCatching {
+            Json.mapper.readValue(json, object : TypeReference<List<AutomaticBackupEntry>>() {})
+        }.getOrDefault(emptyList())
+    }
+
+    fun create(reason: String, settings: Settings): AutomaticBackupEntry? = runCatching {
+        val entry = AutomaticBackupEntry(
+            createdAt = System.currentTimeMillis(),
+            reason = reason.take(80),
+            payload = SettingsBackupManager.export(settings, includeAddonUrls = true),
+        )
+        preferences.edit().putString(KEY, Json.toJson(AutomaticBackupHistory.append(list(), entry))).apply()
+        entry
+    }.getOrNull()
+
+    companion object {
+        private const val KEY = "snapshots"
     }
 }

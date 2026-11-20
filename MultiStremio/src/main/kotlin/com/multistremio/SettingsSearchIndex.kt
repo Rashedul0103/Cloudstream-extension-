@@ -15,14 +15,16 @@ internal object SettingsSearchIndex {
             section: String,
             query: String,
             keywords: List<String> = emptyList(),
+            seedQuery: Boolean = true,
             navigate: () -> Unit,
         ) {
             results += SettingItem(
                 title = title,
-                summary = section,
+                summary = breadcrumb(section, title),
                 type = SettingItemType.Navigate,
                 onClick = {
-                    SettingsDialogHost.setNextMenuSearch(query)
+                    if (seedQuery) SettingsDialogHost.setNextMenuSearch(query)
+                    else SettingsDialogHost.consumeNextMenuSearch()
                     navigate()
                 },
                 searchKeywords = (listOf(title, section, query) + keywords).distinct(),
@@ -36,7 +38,8 @@ internal object SettingsSearchIndex {
                 "Addons · ${if (addon.enabled) "Enabled" else "Disabled"}",
                 addon.name,
                 listOf("addon", "source", "catalogs", "streams", "metadata", "subtitles"),
-            ) { AddonsSettingsScreen.show(ctx) }
+                seedQuery = false,
+            ) { AddonsSettingsScreen.showAddon(ctx, addon) }
         }
         add("Add addon", "Sources", "add", listOf("manifest", "URL", "paste")) {
             AddonsSettingsScreen.show(ctx)
@@ -103,6 +106,9 @@ internal object SettingsSearchIndex {
         add("Link design", "Streams · Simple / Detailed / Custom", "link name", listOf("formatter", "labels", "custom layout", "simple", "detailed", "custom design", "detailed default names")) {
             GeneralSettingsScreen.showLinkNameDesign(ctx)
         }
+        add("Profiles", "Streams · Active profile", "profile", listOf("home", "mobile data", "switch settings", "save snapshot")) {
+            ProfileSettingsScreen.show(ctx)
+        }
         add("Fetch subtitles", "Behavior · Subtitles", "subtitle", listOf("captions", "addons")) {
             GeneralSettingsScreen.showSubtitles(ctx)
         }
@@ -124,15 +130,26 @@ internal object SettingsSearchIndex {
         add("Preview stream names", "Custom link design", "preview", listOf("example")) {
             FormatterSettingsScreen.show(ctx)
         }
-        add("Backup and restore", "App", "backup", listOf("copy", "export", "import", "restore")) {
+        add("Backup and restore", "Data", "backup", listOf("copy", "export", "import", "restore")) {
             BackupSettingsScreen.show(ctx)
         }
-        add("Diagnostics", "App", "diagnostics", listOf("debug", "requests", "performance")) {
+        add("Diagnostics", "Data", "diagnostics", listOf("debug", "requests", "performance")) {
             DiagnosticsSettingsScreen.show(ctx)
         }
-        add("Danger zone", "App · Destructive actions", "danger", listOf("remove all", "factory reset", "delete")) {
+        add("Danger zone", "Data · Destructive actions", "danger", listOf("remove all", "factory reset", "delete")) {
             DangerZoneSettingsScreen.show(ctx)
         }
         return results
+    }
+
+    private fun breadcrumb(section: String, title: String): String = when {
+        section == "Filters" -> "Streams › Filters › $title"
+        section == "Sorting" -> "Streams › Sorting › $title"
+        section.startsWith("Custom link design") -> "Streams › Link names › $title"
+        section.startsWith("Streams") -> "Streams › $title"
+        section.startsWith("Homepage row") || section == "Sources" -> "Sources › ${if (section.startsWith("Homepage row")) "Homepage rows › " else ""}$title"
+        section.startsWith("Behavior") -> "Behavior › $title"
+        section == "App" -> "Data › $title"
+        else -> "$section › $title"
     }
 }

@@ -166,7 +166,8 @@ object Config {
     private const val PREFS = "multistremio"
     private const val KEY = "settings_v1"
     const val CINEMETA_URL = "https://v3-cinemeta.strem.io"
-    private const val REFRESH_AFTER_MS = 24L * 60 * 60 * 1000
+    private const val DAILY_REFRESH_MS = 24L * 60 * 60 * 1000
+    private const val WEEKLY_REFRESH_MS = 7L * DAILY_REFRESH_MS
 
     // Small built-in copy so the home page works on first launch; replaced by the live manifest.
     private const val CINEMETA_MANIFEST =
@@ -224,7 +225,11 @@ object Config {
             val previousFilter = Json.toJson(settings.filter)
             val previousSort = Json.toJson(settings.sort)
             val previousPreset = settings.filterPreset
+            val previousProfileState = settings.profileSnapshot()
             settings.block()
+            if (previousProfileState != settings.profileSnapshot() && settings.activeProfile.isNotBlank()) {
+                settings.profiles[settings.activeProfile] = settings.profileSnapshot()
+            }
             if ((previousFilter != Json.toJson(settings.filter) || previousSort != Json.toJson(settings.sort)) &&
                 settings.filterPreset == previousPreset) {
                 settings.filterPreset = "CUSTOM"
@@ -281,7 +286,8 @@ object Config {
 
     /** Downloads and stores a fresh manifest. Blocking; call off the main thread. */
     fun refreshManifest(addon: AddonConfig): Boolean {
-        val text = SimpleHttp.get(Urls.manifest(addon.url)) ?: return false
+        val timeoutMs = ((addon.timeoutSec ?: snapshot().timeoutSec) * 1_000).coerceIn(5_000, 180_000)
+        val text = SimpleHttp.get(Urls.manifest(addon.url), timeoutMs = timeoutMs) ?: return false
         val m = Json.parse<Manifest>(text) ?: return false
         if (!m.isUsableByMultiStremio()) return false
         var updated = false
@@ -299,9 +305,14 @@ object Config {
     }
 
     private fun refreshStaleManifestsInBackground() {
-        val snapshot = synchronized(this) { settings.addons.toList() }
+        val settingsSnapshot = snapshot()
+        val refreshAfterMs = when (settingsSnapshot.manifestRefreshSchedule) {
+            "WEEKLY" -> WEEKLY_REFRESH_MS
+            "DAILY" -> DAILY_REFRESH_MS
+            else -> return
+        }
         val now = System.currentTimeMillis()
-        val stale = snapshot.filter { now - it.manifestFetchedAt > REFRESH_AFTER_MS }
+        val stale = settingsSnapshot.addons.filter { now - it.manifestFetchedAt > refreshAfterMs }
         if (stale.isEmpty() || !manifestRefreshRunning.compareAndSet(false, true)) return
 
         thread(start = true, isDaemon = true, name = "multistremio-refresh") {
@@ -319,4 +330,6 @@ object Config {
             }
         }
     }
+
+    fun refreshManifestsIfDue() = refreshStaleManifestsInBackground()
 }

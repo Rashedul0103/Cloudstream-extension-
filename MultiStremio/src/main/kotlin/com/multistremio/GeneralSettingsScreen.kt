@@ -1,6 +1,7 @@
 package com.multistremio
 
 import android.content.Context
+import android.view.View
 import android.widget.LinearLayout
 
 /**
@@ -52,10 +53,11 @@ internal fun behaviorBody(
         settings.fetchSubtitles,
     ) { enabled ->
         if (enabled != Config.settings.fetchSubtitles) {
-            updateAndReopen({ again() }) { fetchSubtitles = enabled }
+            saveSettings(ctx) { fetchSubtitles = enabled }
         }
     })
-    addCardRow(ctx, colors, subtitles, valueRow(
+    lateinit var subtitleLanguagesRow: View
+    subtitleLanguagesRow = valueRow(
         ctx, colors, "Languages", "Leave empty to accept every language",
         BehaviorOptions.subtitleLanguagesValue(settings.subtitleLanguages),
     ) {
@@ -64,49 +66,105 @@ internal fun behaviorBody(
             "Select the subtitle languages to keep. Leave all unchecked to accept every language. Add custom for a regional tag.",
             SettingsChoiceLists.languages, settings.subtitleLanguages,
             onCancel = again,
-        ) { values -> updateAndReopen({ again() }) { subtitleLanguages = values } }
-    })
+        ) { values ->
+            saveSettings(ctx) { subtitleLanguages = values }
+            updateValueRow(subtitleLanguagesRow, "Languages", BehaviorOptions.subtitleLanguagesValue(values))
+        }
+    }
+    addCardRow(ctx, colors, subtitles, subtitleLanguagesRow)
     body.addView(subtitles)
 
     body.addView(sectionLabel(ctx, colors, "Requests"))
     val requests = settingsCard(ctx, colors)
     val timeoutIndex = BehaviorOptions.timeoutIndex(settings.timeoutSec)
-    addCardRow(ctx, colors, requests, controlBlock(
+    val timeoutOptions = BehaviorOptions.TIMEOUT_LABELS
+    lateinit var timeoutSegment: View
+    lateinit var timeoutBlock: View
+    timeoutSegment = segmentedControl(ctx, colors, timeoutOptions, timeoutIndex) { index ->
+        val preset = BehaviorOptions.timeoutSeconds(index)
+        if (preset != null) {
+            saveSettings(ctx) { timeoutSec = preset }
+            updateControlValue(timeoutBlock, "Addon timeout", BehaviorOptions.timeoutValueLabel(preset))
+            updateSegmentedControl(ctx, colors, timeoutSegment, timeoutOptions, index)
+        } else {
+            boundedNumber(
+                ctx, "Custom request timeout", Config.snapshot().timeoutSec, 5, 180,
+                "Enter a value from 5 to 180 seconds.",
+                onCancel = again,
+            ) { value ->
+                saveSettings(ctx) { timeoutSec = value }
+                updateControlValue(timeoutBlock, "Addon timeout", BehaviorOptions.timeoutValueLabel(value))
+                updateSegmentedControl(ctx, colors, timeoutSegment, timeoutOptions, BehaviorOptions.timeoutIndex(value))
+            }
+        }
+    }
+    timeoutBlock = controlBlock(
         ctx, colors, "Addon timeout", BehaviorOptions.timeoutValueLabel(settings.timeoutSec),
         "How long each addon may take to answer",
-        segmentedControl(ctx, colors, BehaviorOptions.TIMEOUT_LABELS, timeoutIndex) { index ->
-            val preset = BehaviorOptions.timeoutSeconds(index)
-            if (preset != null) {
-                if (preset != Config.settings.timeoutSec) {
-                    updateAndReopen({ again() }) { timeoutSec = preset }
-                }
-            } else {
-                boundedNumber(
-                    ctx, "Custom request timeout", settings.timeoutSec, 5, 180,
-                    "Enter a value from 5 to 180 seconds.",
-                    onCancel = again,
-                ) { value -> updateAndReopen({ again() }) { timeoutSec = value } }
-            }
-        },
-    ))
+        timeoutSegment,
+    )
+    addCardRow(ctx, colors, requests, timeoutBlock)
+    addCardRow(ctx, colors, requests, switchRow(
+        ctx, colors, "Retry a failed addon once", "Retry timeouts and failed requests once", settings.retryFailedAddonOnce,
+    ) { enabled -> saveSettings(ctx) { retryFailedAddonOnce = enabled } })
+    addCardRow(ctx, colors, requests, switchRow(
+        ctx, colors, "Show links as they arrive", "Progressively send playable links before every addon finishes", settings.progressiveLinks,
+    ) { enabled -> saveSettings(ctx) { progressiveLinks = enabled } })
+    val parallelOptions = listOf(1, 2, 4, 8, 16)
+    lateinit var parallelGrid: View
+    lateinit var parallelBlock: View
+    parallelGrid = choiceChipGrid(
+        ctx, colors, parallelOptions.map(Int::toString),
+        setOf(parallelOptions.indexOf(settings.maxParallelAddonRequests).coerceAtLeast(0)),
+        columns = 5,
+    ) { index ->
+        saveSettings(ctx) { maxParallelAddonRequests = parallelOptions[index] }
+        updateControlValue(parallelBlock, "Parallel addon requests", "${parallelOptions[index]} at a time")
+        updateChoiceChipGrid(ctx, colors, parallelGrid, parallelOptions.map(Int::toString), setOf(index))
+    }
+    parallelBlock = controlBlock(
+        ctx, colors, "Parallel addon requests", "${settings.maxParallelAddonRequests} at a time",
+        "Limit simultaneous stream and search requests.",
+        parallelGrid,
+    )
+    addCardRow(ctx, colors, requests, parallelBlock)
+    val refreshLabels = listOf("Manual", "Weekly", "Daily")
+    val refreshValues = listOf("MANUAL", "WEEKLY", "DAILY")
+    val refreshIndex = refreshValues.indexOf(settings.manifestRefreshSchedule).coerceAtLeast(0)
+    lateinit var refreshBlock: View
+    lateinit var refreshSegment: View
+    refreshSegment = segmentedControl(ctx, colors, refreshLabels, refreshIndex) { index ->
+        saveSettings(ctx) { manifestRefreshSchedule = refreshValues[index] }
+        Config.refreshManifestsIfDue()
+        updateControlValue(refreshBlock, "Refresh addon manifests", refreshLabels[index])
+        updateSegmentedControl(ctx, colors, refreshSegment, refreshLabels, index)
+    }
+    refreshBlock = controlBlock(
+        ctx, colors, "Refresh addon manifests", refreshLabels[refreshIndex],
+        "Automatic refresh runs when CloudStream opens.",
+        refreshSegment,
+    )
+    addCardRow(ctx, colors, requests, refreshBlock)
     body.addView(requests)
 
     body.addView(sectionLabel(ctx, colors, "Homepage"))
     val homepage = settingsCard(ctx, colors)
+    val rowTitleOptions = BehaviorOptions.ROW_TITLE_LABELS
+    lateinit var rowTitleSegment: View
+    rowTitleSegment = segmentedControl(
+        ctx, colors, rowTitleOptions, BehaviorOptions.rowTitleIndex(settings.rowTitleMode),
+    ) { index ->
+        val mode = BehaviorOptions.rowTitleMode(index)
+        if (mode != Config.settings.rowTitleMode.uppercase()) {
+            saveSettings(ctx) { rowTitleMode = mode }
+            HomeRefreshNotice.mark()
+        }
+        updateSegmentedControl(ctx, colors, rowTitleSegment, rowTitleOptions, index)
+    }
     addCardRow(ctx, colors, homepage, controlBlock(
         ctx, colors, "Addon name in row titles", null,
         "Off keeps current titles. Prefix or Suffix adds the addon name.",
-        segmentedControl(
-            ctx, colors, BehaviorOptions.ROW_TITLE_LABELS,
-            BehaviorOptions.rowTitleIndex(settings.rowTitleMode),
-        ) { index ->
-            val mode = BehaviorOptions.rowTitleMode(index)
-            if (mode != Config.settings.rowTitleMode.uppercase()) {
-                Config.update { rowTitleMode = mode }
-                HomeRefreshNotice.mark()
-            }
-            again()
-        },
+        rowTitleSegment,
     ))
     body.addView(homepage)
 }

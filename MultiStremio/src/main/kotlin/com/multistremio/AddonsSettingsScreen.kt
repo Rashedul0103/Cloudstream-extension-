@@ -11,66 +11,158 @@ import android.widget.TextView
 import java.net.URL
 import java.util.concurrent.Executors
 import kotlin.concurrent.thread
+import kotlinx.coroutines.runBlocking
 
 internal object AddonsSettingsScreen {
     fun show(ctx: Context) = addonsMenu(ctx)
     fun showAddon(ctx: Context, addon: AddonConfig) = addonMenu(ctx, addon)
 
     private fun addonsMenu(ctx: Context) {
-        val addons = Config.snapshot().addons
-        val items = addons.map { addon ->
-            val capabilities = listOfNotNull(
-                if (addon.useCatalogs) "catalogs" else null,
-                if (addon.useOther) "other" else null,
-                if (addon.useMeta) "meta" else null,
-                if (addon.useStreams) "streams" else null,
-                if (addon.useSubtitles) "subs" else null,
-            ).joinToString(" / ").ifBlank { "No capabilities enabled" }
-            SettingItem(
-                title = addon.name,
-                summary = "$capabilities · Tap name for options and removal",
-                type = SettingItemType.Switch,
-                onClick = { addonMenu(ctx, Config.snapshot().addons.firstOrNull { it.id == addon.id } ?: addon) },
-                onToggle = { enabled ->
-                    Config.update { this.setAddonEnabled(addon.id, enabled) }
+        val initialQuery = SettingsDialogHost.consumeNextMenuSearch()
+        val settings = Config.snapshot()
+        val addons = settings.addons
+        val addonRows = linkedMapOf<String, LinearLayout>()
+        val colors = palette(ctx)
+        val root = shell(ctx, "Addons", "Drag a grip to change priority. Tap an addon for details; switches update availability immediately.")
+        HomeRefreshNotice.addTo(ctx, root)
+        val pageSize = 50
+        var renderedCount = 0
+        lateinit var appendNextPage: () -> Unit
+        val scroll = IncrementalScrollView(ctx, dp(ctx, 240)) { appendNextPage() }.apply { clipToPadding = false }
+        val list = vertical(ctx)
+        if (addons.isEmpty()) {
+            list.addView(text(ctx, "No addons yet. Add a Stremio manifest URL to get started.", 13f, colors.secondary).apply {
+                setPadding(dp(ctx, 12), dp(ctx, 12), dp(ctx, 12), dp(ctx, 12))
+            })
+        }
+        appendNextPage = {
+          val pageEnd = minOf(renderedCount + pageSize, addons.size)
+          while (renderedCount < pageEnd) {
+            val addon = addons[renderedCount++]
+            val handle = text(ctx, "☰", 19f, colors.accent, true).apply {
+                gravity = Gravity.CENTER
+                contentDescription = "Drag to change priority for ${addon.name}"
+                isFocusable = true
+            }
+            val state = text(ctx, addonSummary(addon), 11.5f, colors.secondary).apply {
+                setPadding(0, dp(ctx, 3), 0, 0)
+                tag = "addon-health:${addon.id}"
+                setTextColor(addonHealthColor(ctx, addon))
+            }
+            val labels = vertical(ctx).apply {
+                addView(text(ctx, addon.name, 14f, colors.primary, true))
+                addView(state)
+                setOnClickListener {
+                    commitAddonListOrder(ctx, list)
+                    addonMenu(ctx, Config.snapshot().addons.firstOrNull { it.id == addon.id } ?: addon)
+                }
+                isClickable = true
+                isFocusable = true
+                contentDescription = "${addon.name}, ${addonSummary(addon)}"
+            }
+            val toggle = android.widget.Switch(ctx).apply {
+                isChecked = addon.enabled
+                isFocusable = true
+                contentDescription = "${addon.name}, ${if (addon.enabled) "enabled" else "disabled"}"
+                setOnCheckedChangeListener { _, enabled ->
+                    saveSettings(ctx) { this.setAddonEnabled(addon.id, enabled) }
                     HomeRefreshNotice.mark()
-                    addonsMenu(ctx)
-                },
-                checked = addon.enabled,
-                searchKeywords = listOf(addon.name, capabilities, "enabled", "disabled", "catalogs", "other", "separate search", "metadata", "streams", "subtitles"),
-            )
-        } + listOf(
-            SettingItem(
-                "Reorder addon priority",
-                "Drag addons to change source priority. Homepage rows can also reorder whole addon sections.",
-                SettingItemType.Navigate,
-                onClick = { addonPriorityDialog(ctx) },
-                searchKeywords = listOf("priority", "reorder", "drag", "move", "order"),
-            ),
-            SettingItem(
-                "Check all addon connections",
-                "Test manifest reachability and response time",
-                SettingItemType.Navigate,
-                onClick = { checkAddonConnections(ctx) },
-                searchKeywords = listOf("check", "connection", "test", "manifest", "status"),
-            ),
-            SettingItem(
-                "Add addon",
-                "Enter or paste a Stremio addon manifest URL",
-                SettingItemType.Navigate,
-                onClick = { addAddon(ctx) },
-                searchKeywords = listOf("add", "new", "URL", "manifest", "paste"),
-            ),
-        )
-        settingMenu(
-            ctx,
-            "Addons",
-            items,
-            { MainMenuSettingsScreen.show(ctx) },
-            "Manage addon availability, capabilities and priority.",
-            showRefreshNotice = true,
-            forceSearch = true,
-        )
+                    contentDescription = "${addon.name}, ${if (enabled) "enabled" else "disabled"}"
+                    val current = Config.snapshot().addons.firstOrNull { it.id == addon.id } ?: addon.copy(enabled = enabled)
+                    state.text = addonSummary(current)
+                    state.setTextColor(addonHealthColor(ctx, current))
+                }
+            }
+            val row = LinearLayout(ctx).apply {
+                orientation = LinearLayout.HORIZONTAL
+                gravity = Gravity.CENTER_VERTICAL
+                setPadding(dp(ctx, 6), dp(ctx, 7), dp(ctx, 7), dp(ctx, 7))
+                background = rounded(ctx, colors.background, colors.outline)
+                minimumHeight = dp(ctx, 64)
+                tag = addon.id
+                addView(handle, LinearLayout.LayoutParams(dp(ctx, 38), dp(ctx, 48)))
+                addView(labels, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
+                addView(toggle, LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT))
+            }
+            addonRows[addon.id] = row
+            list.addView(row, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply {
+                bottomMargin = dp(ctx, 5)
+            })
+            installDragReordering(ctx, handle, row, list, scroll, colors,
+                onDrop = { saveAddonPriority(ctx, list) }, onMoved = {})
+          }
+        }
+
+        appendNextPage()
+        if (initialQuery.isNotBlank()) while (renderedCount < addons.size) appendNextPage()
+        fun matchesQuery(addon: AddonConfig, query: String): Boolean = query.isBlank() ||
+            query.trim().lowercase() in setOf("priority", "order", "reorder", "drag") ||
+            listOf(addon.name, addon.url, addonHealthLabel(addon), addonCapabilities(addon))
+                .any { it.contains(query.trim(), ignoreCase = true) }
+        val search = searchBox(ctx, "Search addons", colors) { query ->
+            if (query.isNotBlank()) while (renderedCount < addons.size) appendNextPage()
+            addons.forEach { addon ->
+                addonRows[addon.id]?.visibility = if (matchesQuery(addon, query)) android.view.View.VISIBLE else android.view.View.GONE
+            }
+        }
+        root.addView(search, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(ctx, 42)).apply {
+            bottomMargin = dp(ctx, 7)
+        })
+        if (initialQuery.isNotBlank()) search.setText(initialQuery)
+        scroll.addView(list, ViewGroup.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT))
+        root.addView(scroll, LinearLayout.LayoutParams(
+            ViewGroup.LayoutParams.MATCH_PARENT,
+            minOf(dp(ctx, 440), dp(ctx, maxOf(100, addons.size * 72))),
+        ).apply { topMargin = dp(ctx, 2) })
+        addFooter(ctx, root, "Add addon", { addAddon(ctx) }, "Test all", {
+            checkAddonConnections(ctx) {
+                addons.forEach { addon ->
+                    val summary = list.findViewWithTag<TextView>("addon-health:${addon.id}")
+                    val current = Config.snapshot().addons.firstOrNull { it.id == addon.id } ?: addon
+                    summary?.text = addonSummary(current)
+                    summary?.setTextColor(addonHealthColor(ctx, current))
+                }
+            }
+        })
+        SettingsDialogHost.show(ctx, "menu:Addons", root) { MainMenuSettingsScreen.show(ctx) }
+    }
+
+    private fun addonHealthLabel(addon: AddonConfig): String {
+        val health = AddonHealthStore.get(addon.id)
+        return health?.label(disabled = !addon.enabled) ?: if (addon.enabled) "Not checked" else "Disabled"
+    }
+
+    private fun addonCapabilities(addon: AddonConfig): String = listOfNotNull(
+        if (addon.useCatalogs) "catalogs" else null,
+        if (addon.useOther) "other" else null,
+        if (addon.useMeta) "metadata" else null,
+        if (addon.useStreams) "streams" else null,
+        if (addon.useSubtitles) "subtitles" else null,
+    ).joinToString(" / ").ifBlank { "No capabilities enabled" }
+
+    private fun addonSummary(addon: AddonConfig): String = buildString {
+        append("● ").append(addonHealthLabel(addon))
+        AddonHealthStore.get(addon.id)?.let { append(" · ${it.elapsedMs} ms") }
+        append(" · ").append(addonCapabilities(addon))
+    }
+
+    private fun addonHealthColor(ctx: Context, addon: AddonConfig): Int = when (addonHealthLabel(addon)) {
+        "OK" -> palette(ctx).accent
+        "Slow" -> 0xffffa000.toInt()
+        "Failing" -> palette(ctx).danger
+        else -> palette(ctx).secondary
+    }
+
+    private fun commitAddonListOrder(ctx: Context, list: LinearLayout) {
+        val ids = (0 until list.childCount).mapNotNull { list.getChildAt(it).tag as? String }
+        val currentIds = Config.snapshot().addons.map { it.id }
+        if (ids.isNotEmpty() && ids.size <= currentIds.size && ids.toSet() == currentIds.take(ids.size).toSet()) {
+            Config.update {
+                val byId = addons.associateBy { it.id }
+                val loaded = ids.toSet()
+                addons = (ids + currentIds.filter { it !in loaded }).mapNotNull { byId[it] }.toMutableList()
+            }
+        }
     }
 
     private fun addonPriorityDialog(ctx: Context) {
@@ -169,13 +261,15 @@ internal object AddonsSettingsScreen {
 
     private fun saveAddonPriority(ctx: Context, list: LinearLayout) {
         val ids = (0 until list.childCount).mapNotNull { list.getChildAt(it).tag as? String }
-        if (ids.size != Config.settings.addons.size || ids.toSet() != Config.settings.addons.map { it.id }.toSet()) {
+        val currentIds = Config.snapshot().addons.map { it.id }
+        if (ids.isEmpty() || ids.size > currentIds.size || ids.toSet() != currentIds.take(ids.size).toSet()) {
             toast(ctx, "Could not save addon priority.")
             return
         }
         Config.update {
             val byId = addons.associateBy { it.id }
-            addons = ids.mapNotNull { byId[it] }.toMutableList()
+            val loaded = ids.toSet()
+            addons = (ids + currentIds.filter { it !in loaded }).mapNotNull { byId[it] }.toMutableList()
         }
         toast(ctx, "Addon priority saved.")
     }
@@ -188,7 +282,7 @@ internal object AddonsSettingsScreen {
     )
 
     /** Checks addon manifests off the UI thread, with bounded concurrency and no URL/token exposure. */
-    private fun checkAddonConnections(ctx: Context) {
+    private fun checkAddonConnections(ctx: Context, onComplete: (() -> Unit)? = null) {
         val installed = Config.snapshot().addons
         if (installed.isEmpty()) {
             toast(ctx, "Add an addon before running a connection check.")
@@ -213,6 +307,7 @@ internal object AddonsSettingsScreen {
                         val assessment = AddonHealthClassifier.assess(response, manifest)
                         val success = assessment.success
                         val elapsed = (System.nanoTime() - started) / 1_000_000L
+                        AddonHealthStore.record(addon.id, success, elapsed)
 
                         if (success && response.body != null && manifest != null) {
                             Config.update {
@@ -249,8 +344,11 @@ internal object AddonsSettingsScreen {
                 if (hidden) {
                     val usable = results.count { it.success }
                     toast(ctx, "Addon check complete: $usable of ${results.size} returned usable manifests.")
+                    if (SettingsDialogHost.isCurrent("menu:Addons")) onComplete?.invoke() ?: addonsMenu(ctx)
                 } else {
-                    showAddonHealthReport(ctx, results)
+                    val usable = results.count { it.success }
+                    toast(ctx, "Addon check complete: $usable of ${results.size} returned usable manifests.")
+                    onComplete?.invoke() ?: addonsMenu(ctx)
                 }
             }
         }
@@ -318,6 +416,9 @@ internal object AddonsSettingsScreen {
             "", false,
             onCancel = { addonsMenu(ctx) },
             showPasteButton = true,
+            validate = { raw ->
+                if (Urls.isValidAddonUrl(raw)) null else "Enter a valid HTTP, HTTPS, or Stremio addon link."
+            },
         ) { raw ->
             val url = Urls.normalizeAddonUrl(raw)
             if (url.isEmpty()) {
@@ -325,17 +426,21 @@ internal object AddonsSettingsScreen {
                 addonsMenu(ctx)
                 return@prompt
             }
-            if (Config.snapshot().addons.any { it.url == url }) {
-                toast(ctx, "That addon is already added.")
-                addonsMenu(ctx)
+            val existing = Config.snapshot().addons.firstOrNull { it.url == url }
+            if (existing != null) {
+                choose(ctx, "Addon already added", listOf("Open ${existing.name}", "Cancel"), 0,
+                    onCancel = { addonsMenu(ctx) }) { action ->
+                    if (action == 0) addonMenu(ctx, existing) else addonsMenu(ctx)
+                }
                 return@prompt
             }
 
             var hidden = false
+            val startedAt = System.nanoTime()
             val progressDialog = progress(
                 ctx,
                 "Checking addon",
-                "Fetching and validating its manifest. Hide this dialog to leave settings; the add operation will continue.",
+                "Fetching and validating its manifest. You will review the result before it is saved.",
             ) { hidden = true }
 
             thread(start = true, name = "multistremio-add-addon") {
@@ -344,7 +449,7 @@ internal object AddonsSettingsScreen {
                 settingsMainHandler.post {
                     progressDialog.dismiss()
                     if (manifestText == null || manifest == null || !manifest.isUsableByMultiStremio()) {
-                        toast(ctx, "Could not add this addon: its manifest is invalid or unreachable.")
+                        toast(ctx, "Couldn't reach that address. Check the link and try again.")
                         if (!hidden) addonsMenu(ctx)
                         return@post
                     }
@@ -354,31 +459,89 @@ internal object AddonsSettingsScreen {
                         url = url,
                         name = manifest.name?.takeIf { it.isNotBlank() } ?: host(url),
                         useCatalogs = manifest.hasResource("catalog") && manifest.catalogs.orEmpty().isNotEmpty(),
+                        useOther = manifest.hasResource("catalog") && manifest.catalogs.orEmpty().any { it.isSearchable() },
                         useMeta = manifest.hasResource("meta"),
                         useStreams = manifest.hasResource("stream"),
                         useSubtitles = manifest.hasResource("subtitles"),
                         manifest = manifestText,
                         manifestFetchedAt = System.currentTimeMillis(),
                     )
-                    var added = false
-                    // Structural mutations happen on the UI thread, where the settings menus read
-                    // this list. This avoids racing a menu iteration against a background append.
-                    Config.update {
-                        if (addons.none { it.url == url }) {
-                            addons.add(addon)
-                            added = true
-                        }
+                    if (hidden) {
+                        toast(ctx, "Manifest checked. Reopen Add addon to review and save it.")
+                        return@post
                     }
-                    if (added) HomeRefreshNotice.mark()
-                    toast(ctx, if (added) {
-                        "Added ${addon.name}."
-                    } else {
-                        "That addon was added by another request."
-                    })
-                    if (!hidden) addonsMenu(ctx)
+                    reviewAddon(ctx, addon, manifest, ((System.nanoTime() - startedAt) / 1_000_000L).coerceAtLeast(0))
                 }
             }
         }
+    }
+
+    private fun reviewAddon(ctx: Context, addon: AddonConfig, manifest: Manifest, elapsedMs: Long) {
+        val colors = palette(ctx)
+        val root = shell(ctx, "Review addon", "Check the manifest details and capabilities before adding this source.")
+        val card = settingsCard(ctx, colors)
+        listOf(
+            "Name" to addon.name,
+            "Version" to (manifest.version?.takeIf { it.isNotBlank() } ?: "Not provided"),
+            "Response" to "${elapsedMs} ms",
+            "Catalogs" to manifest.catalogs.orEmpty().size.toString(),
+        ).forEach { (label, value) ->
+            addCardRow(ctx, colors, card, LinearLayout(ctx).apply {
+                orientation = LinearLayout.VERTICAL
+                setPadding(dp(ctx, 12), dp(ctx, 9), dp(ctx, 12), dp(ctx, 9))
+                addView(text(ctx, label, 11f, colors.secondary, true))
+                addView(text(ctx, value, 13f, colors.primary).apply { setPadding(0, dp(ctx, 2), 0, 0) })
+            })
+        }
+        addCardRow(ctx, colors, card, sectionLabel(ctx, colors, "Use this addon for"))
+        listOf(
+            Triple("Catalogs and search", "Show catalog rows on the homepage and use them in search", "useCatalogs"),
+            Triple("Separate search rows", "Give searchable catalogs their own search section", "useOther"),
+            Triple("Metadata", "Use this addon for title details and episode lists", "useMeta"),
+            Triple("Streams", "Use this addon to find playable links", "useStreams"),
+            Triple("Subtitles", "Use this addon to find subtitles", "useSubtitles"),
+        ).forEach { (title, summary, capability) ->
+            val checked = when (capability) {
+                "useCatalogs" -> addon.useCatalogs
+                "useOther" -> addon.useOther
+                "useMeta" -> addon.useMeta
+                "useStreams" -> addon.useStreams
+                else -> addon.useSubtitles
+            }
+            addCardRow(ctx, colors, card, switchRow(ctx, colors, title, summary, checked) { enabled ->
+                when (capability) {
+                    "useCatalogs" -> addon.useCatalogs = enabled
+                    "useOther" -> addon.useOther = enabled
+                    "useMeta" -> addon.useMeta = enabled
+                    "useStreams" -> addon.useStreams = enabled
+                    else -> addon.useSubtitles = enabled
+                }
+            })
+        }
+        root.addView(card)
+        addFooter(ctx, root, "Add addon", {
+            var added = false
+            Config.update {
+                if (addons.none { it.url == addon.url }) {
+                    addons.add(addon)
+                    added = true
+                }
+            }
+            if (added) {
+                HomeRefreshNotice.mark()
+                toast(ctx, "Added ${addon.name}.")
+                addonsMenu(ctx)
+            } else {
+                val existing = Config.snapshot().addons.firstOrNull { it.url == addon.url }
+                if (existing != null) {
+                    choose(ctx, "Addon already added", listOf("Open ${existing.name}", "Close"), 0,
+                        onCancel = { addonsMenu(ctx) }) { action ->
+                        if (action == 0) addonMenu(ctx, existing) else addonsMenu(ctx)
+                    }
+                } else addonsMenu(ctx)
+            }
+        }, "Cancel", { addonsMenu(ctx) })
+        SettingsDialogHost.show(ctx, "addon-review", root) { addonsMenu(ctx) }
     }
 
     private fun addonMenu(ctx: Context, addon: AddonConfig) {
@@ -387,57 +550,94 @@ internal object AddonsSettingsScreen {
         val again = { addonMenu(ctx, a) }
         val items = listOf(
             SettingItem(
-                if (a.enabled) "Disable addon" else "Enable addon",
+                "Addon enabled",
                 "Keep this addon saved; change only whether it is used",
                 SettingItemType.Switch,
                 onToggle = { enabled ->
-                    Config.update { this.setAddonEnabled(a.id, enabled) }
+                    saveSettings(ctx) { this.setAddonEnabled(a.id, enabled) }
                     HomeRefreshNotice.mark()
-                    val updated = Config.snapshot().addons.firstOrNull { it.id == a.id }
-                    if (updated != null) addonMenu(ctx, updated) else addonsMenu(ctx)
                 },
                 checked = a.enabled,
                 searchKeywords = listOf("enable", "disable", "active", "addon"),
             ),
             SettingItem(
-                "Choose addon capabilities",
-                listOfNotNull(
-                    if (a.useCatalogs) "Catalogs" else null,
-                    if (a.useOther) "Other" else null,
-                    if (a.useMeta) "Metadata" else null,
-                    if (a.useStreams) "Streams" else null,
-                    if (a.useSubtitles) "Subtitles" else null,
-                ).joinToString(", ").ifBlank { "None enabled" },
-                SettingItemType.Value,
-                valueLabel = listOfNotNull(
-                    if (a.useCatalogs) "Catalogs" else null,
-                    if (a.useOther) "Other" else null,
-                    if (a.useMeta) "Meta" else null,
-                    if (a.useStreams) "Streams" else null,
-                    if (a.useSubtitles) "Subs" else null,
-                ).joinToString(" / ").ifBlank { "None" },
+                "Catalogs and search", "Use this addon for homepage catalogs and search", SettingItemType.Switch,
+                onToggle = { enabled ->
+                    updateCapability(ctx, a) { useCatalogs = enabled }
+                    a.useCatalogs = enabled
+                    // Rebuild this screen in place so its conditional catalog control follows the
+                    // capability switch while keeping the dialog, scroll position and focus.
+                    addonMenu(ctx, a)
+                },
+                checked = a.useCatalogs, searchKeywords = listOf("catalogs", "search", "homepage"),
+            ),
+            SettingItem(
+                "Separate search rows", "Include this addon's catalogs in its own search section", SettingItemType.Switch,
+                onToggle = { enabled -> updateCapability(ctx, a) { useOther = enabled } },
+                checked = a.useOther, searchKeywords = listOf("other", "separate", "search rows"),
+            ),
+            SettingItem(
+                "Metadata", "Use this addon for titles, details and episode lists", SettingItemType.Switch,
+                onToggle = { enabled -> updateCapability(ctx, a) { useMeta = enabled } },
+                checked = a.useMeta, searchKeywords = listOf("metadata", "details", "episodes"),
+            ),
+            SettingItem(
+                "Streams", "Use this addon to find playable links", SettingItemType.Switch,
+                onToggle = { enabled -> updateCapability(ctx, a) { useStreams = enabled } },
+                checked = a.useStreams, searchKeywords = listOf("streams", "links", "playback"),
+            ),
+            SettingItem(
+                "Subtitles", "Use this addon to find subtitles", SettingItemType.Switch,
+                onToggle = { enabled -> updateCapability(ctx, a) { useSubtitles = enabled } },
+                checked = a.useSubtitles, searchKeywords = listOf("subtitles", "captions"),
+            ),
+            SettingItem(
+                "Manifest URL", "Hidden by default because it may contain private keys", SettingItemType.Value,
+                valueLabel = "••••${host(a.url)}",
                 onClick = {
-                    multi(
-                        ctx,
-                        "${a.name} is used for",
-                        listOf("Catalogs & search", "Other (separate search rows)", "Metadata (details/episodes)", "Streams", "Subtitles"),
-                        listOf(a.useCatalogs, a.useOther, a.useMeta, a.useStreams, a.useSubtitles),
-                        onCancel = again,
-                    ) { selected ->
-                        Config.update {
-                            addons.firstOrNull { it.id == a.id }?.let { saved ->
-                                saved.useCatalogs = selected[0]
-                                saved.useOther = selected[1]
-                                saved.useMeta = selected[2]
-                                saved.useStreams = selected[3]
-                                saved.useSubtitles = selected[4]
-                            }
+                    choose(ctx, "Manifest URL", listOf("Show URL", "Copy URL"), 0, onCancel = again) { action ->
+                        if (action == 0) {
+                            confirm(ctx, "Private manifest URL", a.url, onCancel = again) { again() }
+                        } else {
+                            val clipboard = ctx.getSystemService(Context.CLIPBOARD_SERVICE) as? ClipboardManager
+                            clipboard?.setPrimaryClip(ClipData.newPlainText("Addon manifest URL", a.url))
+                            toast(ctx, "Manifest URL copied. Keep it private.")
+                            again()
                         }
-                        HomeRefreshNotice.mark()
+                    }
+                },
+                searchKeywords = listOf("manifest", "URL", "copy", "private key", "endpoint"),
+            ),
+            SettingItem(
+                "Request timeout",
+                "Current: ${a.timeoutSec?.let { "$it seconds" } ?: "Global (${Config.snapshot().timeoutSec}s)"}",
+                SettingItemType.InlineChoice,
+                valueLabel = a.timeoutSec?.let { "$it seconds" } ?: "Global (${Config.snapshot().timeoutSec}s)",
+                choiceLabels = listOf("Global", "10s", "30s", "60s"),
+                selectedChoice = listOf<Int?>(null, 10, 30, 60).indexOf(a.timeoutSec),
+                onChoice = { index ->
+                    val values = listOf<Int?>(null, 10, 30, 60)
+                    saveSettings(ctx) { addons.firstOrNull { it.id == a.id }?.timeoutSec = values[index] }
+                    addonMenu(ctx, Config.snapshot().addons.firstOrNull { it.id == a.id } ?: a)
+                },
+                searchKeywords = listOf("timeout", "slow", "request", "seconds", "global"),
+            ),
+            SettingItem(
+                "Maximum links from this addon",
+                "0 means no per-addon limit",
+                SettingItemType.Value,
+                valueLabel = limit(a.maxLinks, ""),
+                onClick = {
+                    boundedNumber(
+                        ctx, "Maximum links from ${a.name}", a.maxLinks, 0, 50_000,
+                        "Enter a whole number from 0 to 50,000. 0 means no per-addon limit.",
+                        onCancel = again,
+                    ) { value ->
+                        saveSettings(ctx) { addons.firstOrNull { it.id == a.id }?.maxLinks = value }
                         again()
                     }
                 },
-                searchKeywords = listOf("catalogs", "search", "other", "separate rows", "metadata", "streams", "subtitles", "capabilities"),
+                searchKeywords = listOf("maximum", "links", "limit", "results", "per-addon"),
             ),
             SettingItem(
                 "Home catalogs to show",
@@ -501,7 +701,8 @@ internal object AddonsSettingsScreen {
                     ) { hidden = true }
                     thread(start = true, name = "multistremio-refresh-addon") {
                         val ok = Config.refreshManifest(a)
-                        val manifest = Config.manifestOf(a)
+                        val refreshedAddon = Config.snapshot().addons.firstOrNull { it.id == a.id && it.url == a.url } ?: a
+                        val manifest = Config.manifestOf(refreshedAddon)
                         val resources = manifest?.resources.orEmpty().mapNotNull {
                             if (it is String) it else (it as? Map<*, *>)?.get("name") as? String
                         }.distinct()
@@ -524,6 +725,13 @@ internal object AddonsSettingsScreen {
                 searchKeywords = listOf("refresh", "manifest", "test", "connection", "capabilities"),
             ),
             SettingItem(
+                "Test with an IMDb ID",
+                "Run a stream lookup against this addon only",
+                SettingItemType.Navigate,
+                onClick = { testAddonWithTitle(ctx, a, again) },
+                searchKeywords = listOf("test", "title", "IMDb", "lookup", "streams"),
+            ),
+            SettingItem(
                 "Remove addon",
                 "Delete this addon and its saved homepage rows from MultiStremio",
                 SettingItemType.Navigate,
@@ -534,15 +742,26 @@ internal object AddonsSettingsScreen {
                         "This only removes it from MultiStremio. Its catalog rows and saved row-order entries will also be removed.",
                         onCancel = again,
                     ) {
+                        val beforeRemoval = Config.snapshot()
+                        if (AutomaticBackupStore(ctx).create("Before removing ${a.name}", beforeRemoval) == null) {
+                            toast(ctx, "Addon removal cancelled because an automatic backup could not be saved.")
+                            again()
+                            return@confirm
+                        }
                         Config.update { removeAddon(a.id) }
                         HomeRefreshNotice.mark()
-                        toast(ctx, "${a.name} removed from MultiStremio.")
                         addonsMenu(ctx)
+                        showUndoSnackbar(ctx, "${a.name} removed") {
+                            Config.replace(beforeRemoval)
+                            HomeRefreshNotice.mark()
+                            toast(ctx, "${a.name} restored.")
+                            addonsMenu(ctx)
+                        }
                     }
                 },
                 searchKeywords = listOf("remove", "delete", "source", "addon"),
             ),
-        )
+        ).filterNot { it.title == "Home catalogs to show" && !a.useCatalogs }
         settingMenu(
             ctx,
             a.name,
@@ -561,6 +780,62 @@ internal object AddonsSettingsScreen {
         if (i < 0 || j !in list.indices) return false
         Config.update { list[i] = list[j].also { list[j] = list[i] } }
         return true
+    }
+
+    private fun updateCapability(ctx: Context, addon: AddonConfig, update: AddonConfig.() -> Unit) {
+        saveSettings(ctx) { addons.firstOrNull { it.id == addon.id }?.update() }
+        HomeRefreshNotice.mark()
+    }
+
+    private fun testAddonWithTitle(ctx: Context, addon: AddonConfig, onBack: () -> Unit) {
+        prompt(
+            ctx,
+            "Test ${addon.name} with an IMDb ID",
+            "Enter a movie IMDb ID such as tt1234567. This sends one stream request to this addon only.",
+            "",
+            false,
+            onCancel = onBack,
+        ) { rawId ->
+            val id = rawId.trim()
+            if (!id.matches(Regex("tt[0-9]{5,12}"))) {
+                toast(ctx, "Enter a valid IMDb ID beginning with tt.")
+                addonMenu(ctx, addon)
+                return@prompt
+            }
+            val settings = Config.snapshot()
+            val current = settings.addons.firstOrNull { it.id == addon.id && it.enabled && it.useStreams }
+            if (current == null || Config.manifestOf(current)?.supports("stream", "movie", id) != true) {
+                toast(ctx, "This addon is disabled or does not support movie streams for that ID.")
+                addonMenu(ctx, addon)
+                return@prompt
+            }
+            var hidden = false
+            val dialog = progress(ctx, "Testing addon", "Requesting streams for $id.") { hidden = true }
+            thread(start = true, name = "multistremio-addon-title-test") {
+                val result = runCatching {
+                    runBlocking {
+                        StremioClient.streams(
+                            current,
+                            "movie",
+                            id,
+                            timeoutSec = current.timeoutSec ?: settings.timeoutSec,
+                            retryOnce = settings.retryFailedAddonOnce,
+                        )
+                    }
+                }
+                settingsMainHandler.post {
+                    dialog.dismiss()
+                    val summary = result.fold(
+                        onSuccess = { streams ->
+                            val playable = streams.count { !it.url.isNullOrBlank() || !it.infoHash.isNullOrBlank() }
+                            "Received ${streams.size} stream response(s), including $playable playable candidate(s)."
+                        },
+                        onFailure = { "The stream request failed: ${it.javaClass.simpleName}." },
+                    )
+                    if (hidden) toast(ctx, summary) else confirm(ctx, "${addon.name} test", summary, onCancel = onBack) { onBack() }
+                }
+            }
+        }
     }
 
     private fun catalogPicker(ctx: Context, a: AddonConfig) {

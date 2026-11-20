@@ -2,6 +2,7 @@ package com.multistremio
 
 import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.atomic.AtomicLong
+import kotlin.math.roundToInt
 
 /** Safe, in-memory diagnostics. URLs, request headers and addon credentials are never stored. */
 data class StreamRequestDiagnostic(
@@ -51,6 +52,18 @@ data class StreamDiagnosticSnapshot(
     val keptAfterFilters: Int,
     val emittedLinks: Int,
     val requests: List<StreamRequestDiagnostic>,
+) {
+    /** Playable links removed by filters or deduplication before the CloudStream callback. */
+    val hiddenBeforeEmission: Int
+        get() = (playableCandidates - keptAfterFilters).coerceAtLeast(0)
+}
+
+data class FilterImpactEstimate(
+    val sampledCandidates: Int,
+    val totalCandidates: Int,
+    val hidden: Int,
+    val reasons: Map<String, Int>,
+    val sampled: Boolean,
 )
 
 object StreamDiagnostics {
@@ -83,6 +96,12 @@ object StreamDiagnostics {
 
     @Volatile
     private var latestCompletedRunId: Long = 0L
+
+    /** Bounded, URL-free metadata used to preview filter changes for the last lookup. */
+    @Volatile
+    private var latestFilterCandidates: List<ParsedStream>? = null
+
+    private const val MAX_FILTER_PREVIEW_CANDIDATES = 2_000
 
     private fun elapsedMs(run: ActiveRun): Long =
         ((System.nanoTime() - run.startedNanos) / 1_000_000L).coerceAtLeast(0L)
@@ -237,6 +256,7 @@ object StreamDiagnostics {
         playableCandidates: Int,
         keptAfterFilters: Int,
         emittedLinks: Int,
+        filterCandidates: List<ParsedStream> = emptyList(),
     ) {
         val run = active.remove(runId) ?: return
         val requests = synchronized(run.requests) { run.requests.toList() }
@@ -272,9 +292,67 @@ object StreamDiagnostics {
             if (runId > latestCompletedRunId) {
                 latestSnapshot = snapshot
                 latestCompletedRunId = runId
+                val sample = if (filterCandidates.size <= MAX_FILTER_PREVIEW_CANDIDATES) {
+                    filterCandidates
+                } else {
+                    List(MAX_FILTER_PREVIEW_CANDIDATES) { index ->
+                        filterCandidates[index * filterCandidates.size / MAX_FILTER_PREVIEW_CANDIDATES]
+                    }
+                }
+                latestFilterCandidates = sample.map(::safeFilterCandidate)
             }
         }
     }
 
     fun latest(): StreamDiagnosticSnapshot? = latestSnapshot
+
+    /** A sanitized representative stream for UI previews; URLs and headers are stripped. */
+    fun latestPreview(): ParsedStream? = latestFilterCandidates?.firstOrNull()
+
+    /** Re-evaluates the bounded last-lookup sample with exactly the same checks as stream filtering. */
+    fun filterImpact(filter: FilterSettings): FilterImpactEstimate? {
+        val candidates = latestFilterCandidates ?: return null
+        if (candidates.isEmpty()) return FilterImpactEstimate(0, 0, 0, emptyMap(), sampled = false)
+        val reasons = linkedMapOf<String, Int>()
+        candidates.forEach { candidate ->
+            StreamFilter.failureReason(candidate, filter)?.let { reason -> reasons[reason] = (reasons[reason] ?: 0) + 1 }
+        }
+        val fullCount = latestSnapshot?.playableCandidates ?: candidates.size
+        val sampleHidden = reasons.values.sum()
+        val sampled = fullCount > candidates.size
+        val estimatedHidden = if (sampled) {
+            (sampleHidden.toDouble() * fullCount / candidates.size).roundToInt().coerceIn(0, fullCount)
+        } else sampleHidden
+        return FilterImpactEstimate(candidates.size, fullCount, estimatedHidden, reasons, sampled)
+    }
+
+    /** Keep only the text and parsed attributes needed by StreamFilter; discard every target/header. */
+    private fun safeFilterCandidate(stream: ParsedStream): ParsedStream {
+        fun clean(value: String?): String? = value
+            ?.replace(Regex("(?i)(?:https?|stremio)://\\S+|magnet:\\?\\S+"), " ")
+            ?.replace(Regex("(?i)(?:access[_-]?token|refresh[_-]?token|token|api[_-]?key|key|secret|password)=\\S+"), "[redacted]")
+            ?.take(4_096)
+        val safeName = clean(stream.raw.name)
+        val safeTitle = clean(stream.raw.title)
+        val safeDescription = clean(stream.raw.description)
+        val safeFilename = clean(stream.raw.behaviorHints?.filename)
+        val safeText = listOfNotNull(safeName, safeTitle, safeDescription, safeFilename)
+            .joinToString(" ").ifBlank { clean(stream.text).orEmpty() }.take(4_096)
+        val raw = RawStream(
+            name = safeName,
+            title = safeTitle,
+            description = safeDescription,
+            url = if (stream.isDirect) "https://preview.invalid/" else null,
+            infoHash = if (stream.isMagnet) "preview-hash" else null,
+            subtitles = stream.raw.subtitles.orEmpty().mapNotNull { it.lang?.let { lang -> RawSubtitle(lang = lang) } },
+            behaviorHints = BehaviorHints(filename = safeFilename, videoSize = stream.info.sizeBytes),
+        )
+        return ParsedStream(
+            addonIndex = stream.addonIndex,
+            addonName = safeAddonName(stream.addonName),
+            raw = raw,
+            text = safeText,
+            info = stream.info.copy(languages = stream.info.languages.toSet()),
+        )
+    }
 }

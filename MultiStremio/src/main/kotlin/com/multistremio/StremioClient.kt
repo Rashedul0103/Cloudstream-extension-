@@ -21,9 +21,16 @@ object StremioClient {
         val errorType: String? = null,
     )
 
-    private suspend fun fetch(url: String): FetchResult =
+    private suspend fun fetch(url: String, timeoutSec: Int? = null, retryOnce: Boolean = false): FetchResult {
+        val first = fetchAttempt(url, timeoutSec)
+        if (!retryOnce || first.status == "RECEIVED") return first
+        return fetchAttempt(url, timeoutSec)
+    }
+
+    private suspend fun fetchAttempt(url: String, timeoutSec: Int? = null): FetchResult =
         try {
-            val res = app.get(url, timeout = Config.settings.timeoutSec.toLong())
+            val timeout = timeoutSec ?: Config.snapshot().timeoutSec
+            val res = app.get(url, timeout = timeout.coerceIn(5, 180).toLong())
             try {
                 val contentLength = res.size
                 val httpCode = res.okhttpResponse.code
@@ -77,13 +84,13 @@ object StremioClient {
         )
     }
 
-    suspend fun catalog(addon: AddonConfig, type: String, catalogId: String, extra: String?): List<Meta> {
-        val response = fetch(Urls.resource(addon.url, "catalog", type, catalogId, extra))
+    suspend fun catalog(addon: AddonConfig, type: String, catalogId: String, extra: String?, timeoutSec: Int? = addon.timeoutSec, retryOnce: Boolean = false): List<Meta> {
+        val response = fetch(Urls.resource(addon.url, "catalog", type, catalogId, extra), timeoutSec, retryOnce)
         return Json.parseArray<Meta>(response.body, "metas")
     }
 
-    suspend fun meta(addon: AddonConfig, type: String, id: String): Meta? {
-        val response = fetch(Urls.resource(addon.url, "meta", type, id))
+    suspend fun meta(addon: AddonConfig, type: String, id: String, timeoutSec: Int? = addon.timeoutSec, retryOnce: Boolean = false): Meta? {
+        val response = fetch(Urls.resource(addon.url, "meta", type, id), timeoutSec, retryOnce)
         return Json.parse<MetaResponse>(response.body)?.meta
     }
 
@@ -93,9 +100,11 @@ object StremioClient {
         id: String,
         diagnosticRunId: Long? = null,
         queueWaitMs: Long = 0L,
+        timeoutSec: Int? = addon.timeoutSec,
+        retryOnce: Boolean = false,
     ): List<RawStream> {
         val started = System.nanoTime()
-        val response = fetch(Urls.resource(addon.url, "stream", type, id))
+        val response = fetch(Urls.resource(addon.url, "stream", type, id), timeoutSec, retryOnce)
         if (diagnosticRunId != null) {
             StreamDiagnostics.markFirstStreamRequestCompleted(diagnosticRunId)
         }
@@ -117,9 +126,11 @@ object StremioClient {
         id: String,
         diagnosticRunId: Long? = null,
         queueWaitMs: Long = 0L,
+        timeoutSec: Int? = addon.timeoutSec,
+        retryOnce: Boolean = false,
     ): List<RawSubtitle> {
         val started = System.nanoTime()
-        val response = fetch(Urls.resource(addon.url, "subtitles", type, id))
+        val response = fetch(Urls.resource(addon.url, "subtitles", type, id), timeoutSec, retryOnce)
         val parsed = if (response.body == null) ArrayParseResult<RawSubtitle>(emptyList(), response.status)
             else Json.parseArrayDetailed<RawSubtitle>(response.body, "subtitles")
         StreamDiagnostics.record(

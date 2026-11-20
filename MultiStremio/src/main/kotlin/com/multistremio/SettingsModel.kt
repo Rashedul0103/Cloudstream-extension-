@@ -39,6 +39,10 @@ data class AddonConfig(
     /** Raw manifest.json text, cached so the home page can be built without a network call. */
     var manifest: String? = null,
     var manifestFetchedAt: Long = 0L,
+    /** Null inherits the global timeout. */
+    var timeoutSec: Int? = null,
+    /** Zero means no per-addon cap. */
+    var maxLinks: Int = 0,
 )
 
 /** Updates an addon's persisted enabled state without mutating a menu snapshot. */
@@ -114,6 +118,21 @@ object SortCriteria {
         SortCriterionSetting("size", true),
         SortCriterionSetting("addon", false),
     )
+
+    fun forPreset(preset: SortPreset): MutableList<SortCriterionSetting> = when (preset) {
+        SortPreset.BEST_QUALITY -> listOf("resolution", "source", "hdr", "size", "addon")
+            .map { SortCriterionSetting(it, it != "addon") }.toMutableList()
+        SortPreset.QUALITY_SEEDERS -> listOf("resolution", "seeders", "size", "addon")
+            .map { SortCriterionSetting(it, it != "addon") }.toMutableList()
+        SortPreset.LARGEST -> listOf("size", "resolution", "addon")
+            .map { SortCriterionSetting(it, it != "addon") }.toMutableList()
+        SortPreset.SMALLEST -> listOf("size", "resolution", "addon")
+            .map { SortCriterionSetting(it, it != "addon") }.toMutableList()
+        SortPreset.MOST_SEEDERS -> listOf("seeders", "resolution", "addon")
+            .map { SortCriterionSetting(it, it != "addon") }.toMutableList()
+        SortPreset.ADDON_ORDER -> listOf("addon", "resolution", "size")
+            .map { SortCriterionSetting(it, it != "addon") }.toMutableList()
+    }
 }
 
 data class SortSettings(
@@ -347,6 +366,56 @@ data class StreamFormatSettings(
     var designPreset: String = "AUTO",
 )
 
+/** A profile contains only personal playback preferences; addon sources and homepage rows stay shared. */
+data class ProfileSnapshot(
+    var filter: FilterSettings = FilterSettings(),
+    var sort: SortSettings = SortSettings(),
+    var detailedLabels: Boolean = true,
+    var streamFormat: StreamFormatSettings = StreamFormatSettings(),
+    var fetchSubtitles: Boolean = true,
+    var subtitleLanguages: MutableList<String> = mutableListOf(),
+)
+
+fun Settings.profileSnapshot(): ProfileSnapshot = ProfileSnapshot(
+    filter = filter.copy(
+        allowedResolutions = filter.allowedResolutions.toMutableList(),
+        excludeKeywords = filter.excludeKeywords.toMutableList(),
+        requireKeywords = filter.requireKeywords.toMutableList(),
+        requireLanguages = filter.requireLanguages.toMutableList(),
+    ),
+    sort = sort.copy(
+        preferKeywords = sort.preferKeywords.toMutableList(),
+        preferLanguages = sort.preferLanguages.toMutableList(),
+        preferCodecs = sort.preferCodecs.toMutableList(),
+        preferAudio = sort.preferAudio.toMutableList(),
+        customOrder = sort.customOrder.map { it.copy() }.toMutableList(),
+    ),
+    detailedLabels = detailedLabels,
+    streamFormat = streamFormat.copy(fields = streamFormat.fields.toMutableList()),
+    fetchSubtitles = fetchSubtitles,
+    subtitleLanguages = subtitleLanguages.toMutableList(),
+)
+
+fun Settings.applyProfile(profile: ProfileSnapshot) {
+    filter = profile.filter.copy(
+        allowedResolutions = profile.filter.allowedResolutions.toMutableList(),
+        excludeKeywords = profile.filter.excludeKeywords.toMutableList(),
+        requireKeywords = profile.filter.requireKeywords.toMutableList(),
+        requireLanguages = profile.filter.requireLanguages.toMutableList(),
+    )
+    sort = profile.sort.copy(
+        preferKeywords = profile.sort.preferKeywords.toMutableList(),
+        preferLanguages = profile.sort.preferLanguages.toMutableList(),
+        preferCodecs = profile.sort.preferCodecs.toMutableList(),
+        preferAudio = profile.sort.preferAudio.toMutableList(),
+        customOrder = profile.sort.customOrder.map { it.copy() }.toMutableList(),
+    )
+    detailedLabels = profile.detailedLabels
+    streamFormat = profile.streamFormat.copy(fields = profile.streamFormat.fields.toMutableList())
+    fetchSubtitles = profile.fetchSubtitles
+    subtitleLanguages = profile.subtitleLanguages.toMutableList()
+}
+
 data class Settings(
     var addons: MutableList<AddonConfig> = mutableListOf(),
     /** Stable keys defining the user's global order for all homepage rows. */
@@ -360,6 +429,10 @@ data class Settings(
     var subtitleLanguages: MutableList<String> = mutableListOf(),
     var detailedLabels: Boolean = true,
     var streamFormat: StreamFormatSettings = StreamFormatSettings(),
+    var retryFailedAddonOnce: Boolean = false,
+    var progressiveLinks: Boolean = true,
+    var maxParallelAddonRequests: Int = 8,
+    var manifestRefreshSchedule: String = "DAILY",
     /** Last selected quick filter profile; manual edits are marked CUSTOM by Config.update. */
     var filterPreset: String = "BALANCED",
     /** Optional user labels keyed by stable homepage-row identity. */
@@ -367,6 +440,8 @@ data class Settings(
     /** OFF, PREFIX or SUFFIX. */
     var rowTitleMode: String = "OFF",
     var seeded: Boolean = false,
+    var profiles: MutableMap<String, ProfileSnapshot> = mutableMapOf(),
+    var activeProfile: String = "Default",
 )
 
 /**
@@ -395,6 +470,17 @@ fun Settings.snapshot(): Settings = copy(
     ),
     subtitleLanguages = subtitleLanguages.toMutableList(),
     streamFormat = streamFormat.copy(fields = streamFormat.fields.toMutableList()),
+    profiles = profiles.mapValues { (_, profile) ->
+        val settings = Settings(
+            filter = profile.filter,
+            sort = profile.sort,
+            detailedLabels = profile.detailedLabels,
+            streamFormat = profile.streamFormat,
+            fetchSubtitles = profile.fetchSubtitles,
+            subtitleLanguages = profile.subtitleLanguages,
+        )
+        settings.profileSnapshot()
+    }.toMutableMap(),
 )
 
 
@@ -402,13 +488,18 @@ fun Settings.snapshot(): Settings = copy(
  * Normalizes persisted/imported preferences before they reach network and playback code.
  * This keeps old backups and hand-edited JSON from creating invalid timeouts or filter states.
  */
-fun Settings.sanitized(): Settings {
+fun Settings.sanitized(): Settings = sanitizeSettings(includeProfiles = true)
+
+private fun Settings.sanitizeSettings(includeProfiles: Boolean): Settings {
     // Older settings files predate the preset label. Preserve manually customised values as Custom.
     if (filterPreset == "BALANCED" && (filter != FilterSettings() || sort != SortSettings())) {
         filterPreset = "CUSTOM"
     }
 
     timeoutSec = timeoutSec.coerceIn(5, 180)
+    maxParallelAddonRequests = maxParallelAddonRequests.coerceIn(1, 16)
+    manifestRefreshSchedule = manifestRefreshSchedule.uppercase(Locale.ROOT)
+        .takeIf { it in setOf("MANUAL", "WEEKLY", "DAILY") } ?: "DAILY"
 
     val validResolutions = setOf(2160, 1440, 1080, 720, 576, 480, 360, 240, 0)
     filter.allowedResolutions = filter.allowedResolutions
@@ -460,6 +551,8 @@ fun Settings.sanitized(): Settings {
             if (addon.name.isBlank()) {
                 addon.name = runCatching { java.net.URI(addon.url).host }.getOrNull().orEmpty().ifBlank { addon.url }
             }
+            addon.timeoutSec = addon.timeoutSec?.coerceIn(5, 180)
+            addon.maxLinks = addon.maxLinks.coerceIn(0, 50_000)
             addon.hiddenCatalogs = addon.hiddenCatalogs.filter { it.isNotBlank() }.distinct().toMutableList()
         }
         .toMutableList()
@@ -470,5 +563,26 @@ fun Settings.sanitized(): Settings {
     rowTitleMode = rowTitleMode.uppercase().takeIf { it in setOf("OFF", "PREFIX", "SUFFIX") } ?: "OFF"
     customCatalogNames = customCatalogNames.mapValues { it.value.trim() }
         .filterValues { it.isNotBlank() }.toMutableMap()
+    if (includeProfiles) {
+        if (profiles.isEmpty()) profiles["Default"] = profileSnapshot()
+        profiles = profiles.entries.asSequence()
+            .map { (rawName, profile) -> rawName.trim().take(32) to profile }
+            .filter { (name, _) -> name.isNotBlank() }
+            .distinctBy { it.first.lowercase(Locale.ROOT) }
+            .take(10)
+            .associate { (name, profile) ->
+                val profileSettings = Settings(
+                    filter = profile.filter,
+                    sort = profile.sort,
+                    detailedLabels = profile.detailedLabels,
+                    streamFormat = profile.streamFormat,
+                    fetchSubtitles = profile.fetchSubtitles,
+                    subtitleLanguages = profile.subtitleLanguages,
+                ).sanitizeSettings(includeProfiles = false)
+                name to profileSettings.profileSnapshot()
+            }.toMutableMap()
+        if (profiles.isEmpty()) profiles["Default"] = profileSnapshot()
+        if (activeProfile !in profiles) activeProfile = profiles.keys.first()
+    }
     return this
 }

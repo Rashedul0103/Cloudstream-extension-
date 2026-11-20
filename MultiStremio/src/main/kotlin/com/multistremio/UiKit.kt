@@ -9,6 +9,7 @@ import android.graphics.Color
 import android.graphics.Typeface
 import android.graphics.drawable.GradientDrawable
 import android.graphics.drawable.RippleDrawable
+import android.graphics.drawable.StateListDrawable
 import android.os.Handler
 import android.os.Looper
 import android.text.Editable
@@ -23,6 +24,7 @@ import android.widget.CheckBox
 import android.widget.EditText
 import android.widget.FrameLayout
 import android.widget.LinearLayout
+import android.widget.ImageView
 import android.widget.ScrollView
 import android.widget.Switch
 import android.widget.TextView
@@ -32,7 +34,7 @@ import java.net.URL
 
 internal val settingsMainHandler = Handler(Looper.getMainLooper())
 
-internal enum class SettingItemType { Navigate, Switch, Value }
+internal enum class SettingItemType { Navigate, Switch, Value, InlineChoice }
 
 internal data class SettingItem(
     val title: String,
@@ -45,15 +47,11 @@ internal data class SettingItem(
     val section: String? = null,
     val onToggle: ((Boolean) -> Unit)? = null,
     val danger: Boolean = false,
+    val icon: String? = null,
+    val choiceLabels: List<String> = emptyList(),
+    val selectedChoice: Int = -1,
+    val onChoice: ((Int) -> Unit)? = null,
 )
-
-internal inline fun updateAndReopen(
-    reopen: () -> Unit,
-    crossinline update: Settings.() -> Unit,
-) {
-    Config.update { update() }
-    reopen()
-}
 
 internal fun toast(ctx: Context, message: String) =
         settingsMainHandler.post { Toast.makeText(ctx, message, Toast.LENGTH_LONG).show() }
@@ -71,7 +69,7 @@ internal object HomeRefreshNotice {
             gravity = Gravity.CENTER_VERTICAL
             setPadding(dp(ctx, 12), dp(ctx, 9), dp(ctx, 8), dp(ctx, 9))
             background = rounded(ctx, withAlpha(colors.accent, 16), colors.accent)
-            addView(text(ctx, "Changes saved. Refresh the home page to apply.", 12f, colors.primary),
+            addView(text(ctx, "Refresh the home page to apply changes.", 12f, colors.primary),
                 LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
             addView(text(ctx, "Dismiss", 11f, colors.accent, true).apply {
                 setPadding(dp(ctx, 8), dp(ctx, 6), dp(ctx, 6), dp(ctx, 6))
@@ -128,16 +126,43 @@ internal fun vertical(ctx: Context, padding: Int = 0) =
             if (padding > 0) setPadding(padding, padding, padding, padding)
         }
 
-internal fun shell(ctx: Context, title: String, description: String? = null): LinearLayout {
+internal fun shell(
+    ctx: Context,
+    title: String,
+    description: String? = null,
+    helpAction: (() -> Unit)? = null,
+): LinearLayout {
         val colors = palette(ctx)
         val root = vertical(ctx, dp(ctx, 16)).apply { background = rounded(ctx, colors.background) }
         val header = vertical(ctx).apply {
             addView(text(ctx, "MULTISTREMIO  /  SETTINGS", 10f, colors.accent, true).apply {
                 letterSpacing = 0.11f
             })
-            addView(text(ctx, title, 20f, colors.primary, true).apply {
-                setPadding(0, dp(ctx, 4), 0, 0)
-            })
+            val titleRow = LinearLayout(ctx).apply {
+                orientation = LinearLayout.HORIZONTAL
+                gravity = Gravity.CENTER_VERTICAL
+                addView(text(ctx, title, 20f, colors.primary, true).apply {
+                    setPadding(0, dp(ctx, 4), 0, 0)
+                }, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
+                helpAction?.let { action ->
+                    addView(text(ctx, "?", 16f, colors.accent, true).apply {
+                        gravity = Gravity.CENTER
+                        contentDescription = "Help for $title"
+                        isFocusable = true
+                        minimumWidth = dp(ctx, 48)
+                        minimumHeight = dp(ctx, 48)
+                        setPadding(dp(ctx, 11), dp(ctx, 4), dp(ctx, 11), dp(ctx, 4))
+                        background = StateListDrawable().apply {
+                            addState(intArrayOf(android.R.attr.state_focused), rounded(ctx, withAlpha(colors.accent, 14), colors.accent).apply {
+                                setStroke(dp(ctx, 2), colors.accent)
+                            })
+                            addState(intArrayOf(), rounded(ctx, withAlpha(colors.accent, 14), colors.outline))
+                        }
+                        setOnClickListener { action() }
+                    })
+                }
+            }
+            addView(titleRow)
             if (!description.isNullOrBlank()) {
                 addView(text(ctx, description, 12f, colors.secondary).apply {
                     setPadding(0, dp(ctx, 4), 0, dp(ctx, 2))
@@ -193,7 +218,7 @@ internal fun window(dialog: AlertDialog, ctx: Context) {
         dialog.setCanceledOnTouchOutside(false)
         dialog.window?.let { window ->
             window.setBackgroundDrawableResource(android.R.color.transparent)
-            window.setLayout(minOf(dp(ctx, 520), ctx.resources.displayMetrics.widthPixels - dp(ctx, 36)), ViewGroup.LayoutParams.WRAP_CONTENT)
+            window.setLayout(minOf(dp(ctx, 560), ctx.resources.displayMetrics.widthPixels - dp(ctx, 24)), ViewGroup.LayoutParams.WRAP_CONTENT)
         }
     }
 
@@ -330,6 +355,8 @@ internal object SettingsDialogHost {
     private var dialog: Dialog? = null
     private var container: FrameLayout? = null
 
+    internal fun currentScreenRoot(): View? = stack.lastOrNull()?.root
+
     private fun findScroll(root: View): ScrollView? {
         if (root is ScrollView) return root
         if (root !is ViewGroup) return null
@@ -346,6 +373,82 @@ internal object SettingsDialogHost {
             findSearch(root.getChildAt(index))?.let { return it }
         }
         return null
+    }
+
+    private fun findFocusedDescription(root: View): CharSequence? {
+        if (root.isFocused && root.contentDescription != null) return root.contentDescription
+        if (root !is ViewGroup) return null
+        for (index in 0 until root.childCount) {
+            findFocusedDescription(root.getChildAt(index))?.let { return it }
+        }
+        return null
+    }
+
+    private fun findFocusedTag(root: View): Any? {
+        if (root.isFocused && root.tag != null) return root.tag
+        if (root !is ViewGroup) return null
+        for (index in 0 until root.childCount) {
+            findFocusedTag(root.getChildAt(index))?.let { return it }
+        }
+        return null
+    }
+
+    private fun findByDescription(root: View, description: CharSequence): View? {
+        if (root.contentDescription == description) return root
+        if (root !is ViewGroup) return null
+        for (index in 0 until root.childCount) {
+            findByDescription(root.getChildAt(index), description)?.let { return it }
+        }
+        return null
+    }
+
+    private fun findByTag(root: View, tag: Any): View? {
+        if (root.tag == tag) return root
+        if (root !is ViewGroup) return null
+        for (index in 0 until root.childCount) {
+            findByTag(root.getChildAt(index), tag)?.let { return it }
+        }
+        return null
+    }
+
+    /** Replace a screen's content while retaining its attached root and scroll container. */
+    private fun updateInPlace(entry: SettingsScreenEntry, newRoot: View): Boolean {
+        val oldRoot = entry.root as? LinearLayout ?: return false
+        val replacementRoot = newRoot as? LinearLayout ?: return false
+        val oldScroll = findScroll(oldRoot) ?: return false
+        val newScroll = findScroll(replacementRoot) ?: return false
+        val focusDescription = findFocusedDescription(oldRoot)
+        val focusTag = findFocusedTag(oldRoot)
+        val savedScrollY = entry.scrollY
+        findSearch(replacementRoot)?.let { search ->
+            if (search.text.toString() != entry.searchText) search.setText(entry.searchText)
+        }
+
+        val newContent = newScroll.getChildAt(0)
+        if (newContent != null) {
+            newScroll.removeView(newContent)
+            oldScroll.removeAllViews()
+            oldScroll.addView(newContent, ViewGroup.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT,
+                ViewGroup.LayoutParams.WRAP_CONTENT,
+            ))
+        }
+
+        val replacements = (0 until replacementRoot.childCount).map { replacementRoot.getChildAt(it) }
+        oldRoot.removeAllViews()
+        replacements.forEach { child ->
+            val params = child.layoutParams
+            replacementRoot.removeView(child)
+            oldRoot.addView(if (child === newScroll) oldScroll else child, params)
+        }
+        oldScroll.post { oldScroll.scrollTo(0, savedScrollY.coerceAtLeast(0)) }
+        if (focusTag != null || focusDescription != null) {
+            oldRoot.post {
+                (focusTag?.let { findByTag(oldRoot, it) }
+                    ?: focusDescription?.let { findByDescription(oldRoot, it) })?.requestFocus()
+            }
+        }
+        return true
     }
 
     private fun capture(entry: SettingsScreenEntry?) {
@@ -396,7 +499,7 @@ internal object SettingsDialogHost {
             hostDialog.window?.let { window ->
                 window.setBackgroundDrawableResource(android.R.color.transparent)
                 val density = ctx.resources.displayMetrics.density
-                val width = minOf((520 * density + 0.5f).toInt(), ctx.resources.displayMetrics.widthPixels - (36 * density + 0.5f).toInt())
+                val width = minOf((560 * density + 0.5f).toInt(), ctx.resources.displayMetrics.widthPixels - (24 * density + 0.5f).toInt())
                 window.setLayout(width.coerceAtLeast(1), ViewGroup.LayoutParams.WRAP_CONTENT)
             }
         }
@@ -412,13 +515,16 @@ internal object SettingsDialogHost {
         if (existingIndex >= 0) {
             val existing = stack[existingIndex]
             capture(existing)
-            existing.root = root
-            existing.onBack = onBack
             if (requestedSearch.isNotBlank() && requestedSearch != existing.searchText) {
                 existing.searchText = requestedSearch
                 existing.scrollY = 0
             }
+            val canUpdateInPlace = existingIndex == stack.lastIndex &&
+                existing.root !== root && updateInPlace(existing, root)
+            if (!canUpdateInPlace) existing.root = root
+            existing.onBack = onBack
             while (stack.size > existingIndex + 1) stack.removeAt(stack.lastIndex)
+            if (canUpdateInPlace) return
         } else {
             capture(stack.lastOrNull())
             val entry = SettingsScreenEntry(key, root, onBack)
@@ -463,9 +569,10 @@ internal fun settingMenu(
     forceSearch: Boolean = false,
     globalSearchItems: List<SettingItem> = emptyList(),
     showRefreshNotice: Boolean = false,
+    helpAction: (() -> Unit)? = null,
 ) {
     val colors = palette(ctx)
-    val root = shell(ctx, title, description ?: "Choose an item to manage this section.")
+    val root = shell(ctx, title, description ?: "Choose an item to manage this section.", helpAction)
     if (showRefreshNotice) HomeRefreshNotice.addTo(ctx, root)
     val list = vertical(ctx)
     val scroll = ScrollView(ctx).apply {
@@ -486,9 +593,9 @@ internal fun settingMenu(
                     setPadding(0, dp(ctx, 2), 0, 0)
                 })
             }
-            setOnClickListener { item.onClick?.invoke() }
         }
-        val row = LinearLayout(ctx).apply {
+        lateinit var row: LinearLayout
+        row = LinearLayout(ctx).apply {
             orientation = LinearLayout.HORIZONTAL
             gravity = Gravity.CENTER_VERTICAL
             setPadding(
@@ -497,25 +604,62 @@ internal fun settingMenu(
                 dp(ctx, 8),
                 dp(ctx, if (item.section == "Overview") 11 else 8),
             )
-            background = when {
+            val normalBackground = when {
                 item.section == "Overview" -> rounded(ctx, withAlpha(colors.accent, 14), colors.outline)
                 item.danger -> ripple(ctx, withAlpha(0xffd32f2f.toInt(), 10), colors)
                 else -> ripple(ctx, colors.background, colors)
             }
+            background = StateListDrawable().apply {
+                addState(intArrayOf(android.R.attr.state_focused), rounded(ctx, colors.background).apply {
+                    setStroke(dp(ctx, 2), colors.accent)
+                })
+                addState(intArrayOf(), normalBackground)
+            }
+            isClickable = true
+            isFocusable = true
+            isFocusableInTouchMode = false
+            contentDescription = buildString {
+                append(item.title)
+                item.valueLabel?.let { append(", ").append(it) }
+                if (item.type == SettingItemType.Switch) append(if (item.checked == true) ", on" else ", off")
+                if (item.type == SettingItemType.InlineChoice) {
+                    item.choiceLabels.getOrNull(item.selectedChoice)?.let { append(", ").append(it) }
+                }
+            }
             minimumHeight = dp(ctx, if (item.section == "Overview") 66 else 48)
+            item.icon?.let { iconName ->
+                SettingsIcons.ALL[iconName]?.let { path ->
+                    val tile = FrameLayout(ctx).apply {
+                        background = rounded(ctx, withAlpha(colors.accent, 17), colors.outline)
+                        isFocusable = false
+                        addView(ImageView(ctx).apply {
+                            setImageDrawable(IconDrawable(path, colors.accent))
+                            setPadding(dp(ctx, 8), dp(ctx, 8), dp(ctx, 8), dp(ctx, 8))
+                            importantForAccessibility = View.IMPORTANT_FOR_ACCESSIBILITY_NO
+                        }, FrameLayout.LayoutParams(dp(ctx, 34), dp(ctx, 34), Gravity.CENTER))
+                    }
+                    addView(tile, LinearLayout.LayoutParams(dp(ctx, 34), dp(ctx, 34)).apply {
+                        marginEnd = dp(ctx, 10)
+                    })
+                }
+            }
             addView(body, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
             when (item.type) {
                 SettingItemType.Switch -> {
-                    val toggle = Switch(ctx).apply {
+                    val switchView = Switch(ctx).apply {
                         isChecked = item.checked ?: false
                         isClickable = true
                         isFocusable = true
                         thumbTintList = ColorStateList.valueOf(if (isChecked) colors.accent else colors.secondary)
                         trackTintList = ColorStateList.valueOf(withAlpha(if (isChecked) colors.accent else colors.secondary, 90))
-                        contentDescription = item.title
+                        contentDescription = "${item.title}, ${if (isChecked) "on" else "off"}"
                         setOnCheckedChangeListener { _, checked ->
-                            val toggle = item.onToggle
-                            if (toggle != null) toggle(checked) else item.onClick?.invoke()
+                            thumbTintList = ColorStateList.valueOf(if (checked) colors.accent else colors.secondary)
+                            trackTintList = ColorStateList.valueOf(withAlpha(if (checked) colors.accent else colors.secondary, 90))
+                            contentDescription = "${item.title}, ${if (checked) "on" else "off"}"
+                            row.contentDescription = "${item.title}, ${if (checked) "on" else "off"}"
+                            val onToggle = item.onToggle
+                            if (onToggle != null) onToggle(checked) else item.onClick?.invoke()
                         }
                     }
                     if (item.onClick != null && item.onToggle != null) {
@@ -525,13 +669,12 @@ internal fun settingMenu(
                             setOnClickListener { item.onClick.invoke() }
                         }, LinearLayout.LayoutParams(dp(ctx, 20), ViewGroup.LayoutParams.MATCH_PARENT))
                     }
-                    addView(toggle, LinearLayout.LayoutParams(
+                    addView(switchView, LinearLayout.LayoutParams(
                         ViewGroup.LayoutParams.WRAP_CONTENT,
                         ViewGroup.LayoutParams.WRAP_CONTENT,
                     ))
                     setOnClickListener {
-                        val toggle = item.onToggle
-                        if (toggle != null) toggle(!(item.checked ?: false)) else item.onClick?.invoke()
+                        if (item.onToggle != null) switchView.toggle() else item.onClick?.invoke()
                     }
                 }
                 SettingItemType.Value -> {
@@ -550,6 +693,25 @@ internal fun settingMenu(
                     addView(text(ctx, "›", 24f, colors.secondary).apply { gravity = Gravity.CENTER },
                         LinearLayout.LayoutParams(dp(ctx, 24), ViewGroup.LayoutParams.MATCH_PARENT))
                     setOnClickListener { item.onClick?.invoke() }
+                }
+                SettingItemType.InlineChoice -> {
+                    removeView(body)
+                    orientation = LinearLayout.VERTICAL
+                    addView(body, LinearLayout.LayoutParams(
+                        ViewGroup.LayoutParams.MATCH_PARENT,
+                        ViewGroup.LayoutParams.WRAP_CONTENT,
+                    ))
+                    val choices = segmentedControl(
+                        ctx,
+                        colors,
+                        item.choiceLabels,
+                        item.selectedChoice,
+                    ) { index -> item.onChoice?.invoke(index) }
+                    addView(choices, LinearLayout.LayoutParams(
+                        ViewGroup.LayoutParams.MATCH_PARENT,
+                        ViewGroup.LayoutParams.WRAP_CONTENT,
+                    ).apply { topMargin = dp(ctx, 7) })
+                    setOnClickListener(null)
                 }
             }
         }
@@ -626,6 +788,7 @@ internal fun prompt(
     ctx: Context, title: String, message: String?, initial: String, numeric: Boolean,
     onCancel: (() -> Unit)? = null,
     showPasteButton: Boolean = false,
+    validate: ((String) -> String?)? = null,
     onOk: (String) -> Unit,
 ) {
     val colors = palette(ctx)
@@ -644,19 +807,63 @@ internal fun prompt(
         ViewGroup.LayoutParams.MATCH_PARENT,
         ViewGroup.LayoutParams.WRAP_CONTENT,
     ).apply { topMargin = dp(ctx, 6) })
+    val validationError = text(ctx, "", 12f, colors.danger).apply {
+        visibility = View.GONE
+        tag = "settings.validation-error"
+        setPadding(dp(ctx, 2), dp(ctx, 4), dp(ctx, 2), dp(ctx, 2))
+    }
+    root.addView(validationError)
+    input.addTextChangedListener(object : android.text.TextWatcher {
+        override fun beforeTextChanged(s: CharSequence?, start: Int, count: Int, after: Int) = Unit
+        override fun onTextChanged(s: CharSequence?, start: Int, before: Int, count: Int) {
+            validationError.visibility = View.GONE
+        }
+        override fun afterTextChanged(s: android.text.Editable?) = Unit
+    })
     if (showPasteButton) {
-        root.addView(text(ctx, "Paste from clipboard", 12f, colors.accent, true).apply {
-            setPadding(0, dp(ctx, 10), 0, dp(ctx, 4))
+        val clipboard = ctx.getSystemService(Context.CLIPBOARD_SERVICE) as? ClipboardManager
+        val clipboardText = runCatching {
+            clipboard?.primaryClip?.takeIf { it.itemCount > 0 }
+                ?.getItemAt(0)?.coerceToText(ctx)?.toString()?.trim().orEmpty()
+        }.getOrDefault("")
+        val manifestSuggestion = clipboardText.isNotBlank() &&
+            Urls.isValidAddonUrl(clipboardText) &&
+            (clipboardText.startsWith("stremio://", ignoreCase = true) ||
+                clipboardText.substringBefore('?').substringBefore('#').endsWith("/manifest.json", ignoreCase = true))
+        root.addView(text(
+            ctx,
+            if (manifestSuggestion) "Manifest link found in clipboard · Use" else "Paste from clipboard",
+            12f,
+            colors.accent,
+            true,
+        ).apply {
+            isFocusable = true
+            contentDescription = if (manifestSuggestion) "Use detected addon manifest link from clipboard" else "Paste from clipboard"
+            setPadding(dp(ctx, 10), dp(ctx, 8), dp(ctx, 10), dp(ctx, 8))
+            minHeight = dp(ctx, 40)
+            background = StateListDrawable().apply {
+                addState(intArrayOf(android.R.attr.state_focused), rounded(ctx, colors.background).apply {
+                    setStroke(dp(ctx, 2), colors.accent)
+                })
+                addState(intArrayOf(), ripple(ctx, colors.background, colors))
+            }
             setOnClickListener {
-                val clipboard = ctx.getSystemService(Context.CLIPBOARD_SERVICE) as? ClipboardManager
-                val clip = clipboard?.primaryClip
-                val pasted = runCatching { clip?.getItemAt(0)?.coerceToText(ctx)?.toString().orEmpty() }.getOrDefault("")
+                val pasted = if (manifestSuggestion) clipboardText else runCatching {
+                    clipboard?.primaryClip?.takeIf { it.itemCount > 0 }
+                        ?.getItemAt(0)?.coerceToText(ctx)?.toString().orEmpty()
+                }.getOrDefault("")
                 if (pasted.isNotBlank()) input.setText(pasted) else toast(ctx, "Clipboard is empty.")
             }
         })
     }
     addFooter(ctx, root, "Save", {
-        onOk(input.text.toString().trim())
+        val value = input.text.toString().trim()
+        val error = validate?.invoke(value)
+        if (error != null) {
+            validationError.text = error
+            validationError.visibility = View.VISIBLE
+            input.requestFocus()
+        } else onOk(value)
     }, "Cancel", {
         if (onCancel != null) onCancel() else SettingsDialogHost.back()
     })

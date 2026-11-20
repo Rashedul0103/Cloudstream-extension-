@@ -32,9 +32,12 @@ android {
 dependencies {
     // Compile against the Activity Result API supplied by CloudStream's AndroidX host app.
     compileOnly("androidx.activity:activity:1.9.3")
+    // Icon paths use AndroidX's SVG path parser supplied by the CloudStream host app.
+    compileOnly("androidx.core:core:1.15.0")
     // Linear-time matching prevents user-defined stream filters from stalling playback.
     implementation("com.google.re2j:re2j:1.8")
     testImplementation("junit:junit:4.13.2")
+    testImplementation("androidx.core:core:1.15.0")
     // Renders Android views on the JVM to produce screenshots of settings pages for review.
     testImplementation("org.robolectric:robolectric:4.14.1")
     testImplementation("org.jetbrains.kotlinx:kotlinx-coroutines-core-jvm:1.11.0")
