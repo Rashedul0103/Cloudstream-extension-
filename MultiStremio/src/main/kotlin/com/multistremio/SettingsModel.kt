@@ -1,5 +1,7 @@
 package com.multistremio
 
+import java.util.Locale
+
 // Plain data that is persisted as JSON (see Config). No Android dependencies here.
 
 const val MODE_ANY = 0
