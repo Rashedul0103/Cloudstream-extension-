@@ -58,7 +58,7 @@ internal object SettingsSearchIndex {
                 CatalogRowsSettingsScreen.show(ctx)
             }
         }
-        add("Show addon name in row titles", "General · Homepage rows", "row title", listOf("prefix", "suffix")) {
+        add("Show addon name in row titles", "Behavior · Homepage", "row title", listOf("prefix", "suffix")) {
             GeneralSettingsScreen.show(ctx)
         }
 
@@ -97,16 +97,16 @@ internal object SettingsSearchIndex {
             add(title, "Sorting", query, keywords) { SortingSettingsScreen.show(ctx) }
         }
 
-        add("Request timeout", "General · 5–180 seconds", "timeout", listOf("Fast 10s", "Normal 30s", "Patient 60s")) {
+        add("Request timeout", "Behavior · 5–180 seconds", "timeout", listOf("Fast 10s", "Normal 30s", "Patient 60s")) {
             GeneralSettingsScreen.show(ctx)
         }
         add("Link design", "Streams · Simple / Detailed / Custom", "link name", listOf("formatter", "labels", "custom layout", "simple", "detailed", "custom design", "detailed default names")) {
             GeneralSettingsScreen.showLinkNameDesign(ctx)
         }
-        add("Fetch subtitles", "Subtitles", "subtitle", listOf("captions", "addons")) {
+        add("Fetch subtitles", "Behavior · Subtitles", "subtitle", listOf("captions", "addons")) {
             GeneralSettingsScreen.showSubtitles(ctx)
         }
-        add("Subtitle languages", "Subtitles", "language", listOf("captions", "English", "Bengali")) {
+        add("Subtitle languages", "Behavior · Subtitles", "language", listOf("captions", "English", "Bengali")) {
             GeneralSettingsScreen.showSubtitles(ctx)
         }
         add("Choose formatter fields", "Custom link design", "fields", listOf("quality", "source", "HDR", "codec")) {

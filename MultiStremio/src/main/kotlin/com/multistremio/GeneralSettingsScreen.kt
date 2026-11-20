@@ -2,42 +2,16 @@ package com.multistremio
 
 import android.content.Context
 
+/**
+ * The Behavior page: subtitles, request timeout and homepage row titles on one screen, using
+ * inline controls instead of a popup per choice. The object keeps its old name so existing
+ * callers (the main menu and the search index) do not change.
+ */
 internal object GeneralSettingsScreen {
-    fun show(ctx: Context) = generalMenu(ctx)
-    fun showSubtitles(ctx: Context) = subtitlesMenu(ctx)
+    fun show(ctx: Context) = behaviorPage(ctx)
 
-    private fun subtitlesMenu(ctx: Context) {
-        val settings = Config.settings
-        val again = { subtitlesMenu(ctx) }
-        val items = listOf(
-            SettingItem(
-                "Fetch from subtitle addons",
-                "Query enabled addons that provide subtitles",
-                SettingItemType.Switch,
-                onClick = { updateAndReopen({ again() }) { fetchSubtitles = !fetchSubtitles } },
-                searchKeywords = listOf("subtitle", "captions", "fetch", "addons"),
-                checked = settings.fetchSubtitles,
-            ),
-            SettingItem(
-                "Subtitle languages",
-                csv(settings.subtitleLanguages),
-                SettingItemType.Value,
-                onClick = {
-                    stringListPicker(
-                        ctx, "Subtitle languages",
-                        "Select the subtitle languages to keep. Leave all unchecked to accept every language. Add custom for a regional tag.",
-                        SettingsChoiceLists.languages, settings.subtitleLanguages,
-                        onCancel = again,
-                    ) { values -> updateAndReopen({ again() }) { subtitleLanguages = values } }
-                },
-                searchKeywords = listOf("subtitle", "language", "English", "Bengali"),
-                valueLabel = if (settings.subtitleLanguages.isEmpty()) "All" else "${settings.subtitleLanguages.size} selected",
-            ),
-        )
-        settingMenu(ctx, "Subtitles", items, { generalMenu(ctx) },
-            "Choose whether subtitle addons are queried and which languages are allowed.",
-            forceSearch = true)
-    }
+    /** Subtitles now live on the Behavior page, so the old sub-menu entry points open it. */
+    fun showSubtitles(ctx: Context) = behaviorPage(ctx)
 
     fun showLinkNameDesign(ctx: Context) {
         // This is a choice dialog rather than a searchable settings menu; consume the routed query.
@@ -78,88 +52,83 @@ internal object GeneralSettingsScreen {
         }
     }
 
-    private fun generalMenu(ctx: Context) {
-        val settings = Config.settings
-        val again = { generalMenu(ctx) }
-        val timeoutPreset = when (settings.timeoutSec) {
-            10 -> "Fast"
-            30 -> "Normal"
-            60 -> "Patient"
-            else -> "Custom"
-        }
-        val rowTitle = when (settings.rowTitleMode.uppercase()) {
-            "PREFIX" -> "Addon name first"
-            "SUFFIX" -> "Addon name last"
-            else -> "Off"
-        }
-        val items = listOf(
-            SettingItem(
-                "Subtitles",
-                if (settings.fetchSubtitles) "Fetching enabled · ${if (settings.subtitleLanguages.isEmpty()) "all languages" else settings.subtitleLanguages.size.toString() + " selected"}"
-                else "Fetching disabled",
-                SettingItemType.Navigate,
-                onClick = { showSubtitles(ctx) },
-                section = "Subtitles",
-                searchKeywords = listOf("subtitle", "captions", "fetch", "language"),
-            ),
-            SettingItem(
-                "Addon request timeout",
-                "Each addon can take up to this long to respond",
-                SettingItemType.Value,
-                onClick = {
-                    val choices = listOf("Fast · 10 seconds", "Normal · 30 seconds", "Patient · 60 seconds", "Custom · 5–180 seconds")
-                    val selected = when (settings.timeoutSec) {
-                        10 -> 0
-                        30 -> 1
-                        60 -> 2
-                        else -> 3
-                    }
-                    choose(ctx, "Request timeout", choices, selected, onCancel = again) { index ->
-                        when (index) {
-                            0 -> updateAndReopen({ again() }) { timeoutSec = 10 }
-                            1 -> updateAndReopen({ again() }) { timeoutSec = 30 }
-                            2 -> updateAndReopen({ again() }) { timeoutSec = 60 }
-                            else -> boundedNumber(
-                                ctx, "Custom request timeout", settings.timeoutSec, 5, 180,
-                                "Enter a value from 5 to 180 seconds.",
-                                onCancel = again,
-                            ) { value -> updateAndReopen({ again() }) { timeoutSec = value } }
-                        }
-                    }
-                },
-                searchKeywords = listOf("timeout", "request", "seconds", "network"),
-                valueLabel = "${settings.timeoutSec}s · $timeoutPreset",
-            ),
+    private fun behaviorPage(ctx: Context) {
+        val again = { behaviorPage(ctx) }
+        settingsPage(
+            ctx,
+            key = "page:behavior",
+            title = "Behavior",
+            description = "Subtitles, request limits and homepage titles. Changes save instantly.",
+            back = { MainMenuSettingsScreen.show(ctx) },
+            showRefreshNotice = true,
+        ) { body, colors ->
+            // Read inside the builder so a rebuild after a change always shows current values.
+            val settings = Config.snapshot()
 
-            SettingItem(
-                "Show addon name in homepage row titles",
-                "Off keeps current titles; Prefix or Suffix adds the addon name",
-                SettingItemType.Value,
-                onClick = {
-                    val choices = listOf("Off", "Prefix", "Suffix")
-                    val index = when (settings.rowTitleMode.uppercase()) {
-                        "PREFIX" -> 1
-                        "SUFFIX" -> 2
-                        else -> 0
-                    }
-                    choose(ctx, "Addon name in row titles", choices, index, onCancel = again) { selected ->
-                        Config.update {
-                            rowTitleMode = when (selected) {
-                                1 -> "PREFIX"
-                                2 -> "SUFFIX"
-                                else -> "OFF"
-                            }
+            body.addView(sectionLabel(ctx, colors, "Subtitles").apply { setPadding(dp(ctx, 8), 0, 0, dp(ctx, 6)) })
+            val subtitles = settingsCard(ctx, colors)
+            addCardRow(ctx, colors, subtitles, switchRow(
+                ctx, colors, "Fetch subtitles", "Ask subtitle addons for captions",
+                settings.fetchSubtitles,
+            ) { enabled ->
+                if (enabled != Config.settings.fetchSubtitles) {
+                    updateAndReopen({ again() }) { fetchSubtitles = enabled }
+                }
+            })
+            addCardRow(ctx, colors, subtitles, valueRow(
+                ctx, colors, "Languages", "Leave empty to accept every language",
+                BehaviorOptions.subtitleLanguagesValue(settings.subtitleLanguages),
+            ) {
+                stringListPicker(
+                    ctx, "Subtitle languages",
+                    "Select the subtitle languages to keep. Leave all unchecked to accept every language. Add custom for a regional tag.",
+                    SettingsChoiceLists.languages, settings.subtitleLanguages,
+                    onCancel = again,
+                ) { values -> updateAndReopen({ again() }) { subtitleLanguages = values } }
+            })
+            body.addView(subtitles)
+
+            body.addView(sectionLabel(ctx, colors, "Requests"))
+            val requests = settingsCard(ctx, colors)
+            val timeoutIndex = BehaviorOptions.timeoutIndex(settings.timeoutSec)
+            addCardRow(ctx, colors, requests, controlBlock(
+                ctx, colors, "Addon timeout", BehaviorOptions.timeoutValueLabel(settings.timeoutSec),
+                "How long each addon may take to answer",
+                segmentedControl(ctx, colors, BehaviorOptions.TIMEOUT_LABELS, timeoutIndex) { index ->
+                    val preset = BehaviorOptions.timeoutSeconds(index)
+                    if (preset != null) {
+                        if (preset != Config.settings.timeoutSec) {
+                            updateAndReopen({ again() }) { timeoutSec = preset }
                         }
-                        HomeRefreshNotice.mark()
-                        again()
+                    } else {
+                        boundedNumber(
+                            ctx, "Custom request timeout", settings.timeoutSec, 5, 180,
+                            "Enter a value from 5 to 180 seconds.",
+                            onCancel = again,
+                        ) { value -> updateAndReopen({ again() }) { timeoutSec = value } }
                     }
                 },
-                searchKeywords = listOf("row title", "addon name", "prefix", "suffix", "homepage"),
-                valueLabel = rowTitle,
-            ),
-        )
-        settingMenu(ctx, "General", items, { MainMenuSettingsScreen.show(ctx) },
-            "Tune request limits and homepage row labels. Link name design is under Streams.",
-            forceSearch = true)
+            ))
+            body.addView(requests)
+
+            body.addView(sectionLabel(ctx, colors, "Homepage"))
+            val homepage = settingsCard(ctx, colors)
+            addCardRow(ctx, colors, homepage, controlBlock(
+                ctx, colors, "Addon name in row titles", null,
+                "Off keeps current titles. Prefix or Suffix adds the addon name.",
+                segmentedControl(
+                    ctx, colors, BehaviorOptions.ROW_TITLE_LABELS,
+                    BehaviorOptions.rowTitleIndex(settings.rowTitleMode),
+                ) { index ->
+                    val mode = BehaviorOptions.rowTitleMode(index)
+                    if (mode != Config.settings.rowTitleMode.uppercase()) {
+                        Config.update { rowTitleMode = mode }
+                        HomeRefreshNotice.mark()
+                    }
+                    again()
+                },
+            ))
+            body.addView(homepage)
+        }
     }
 }
