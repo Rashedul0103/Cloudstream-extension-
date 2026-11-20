@@ -701,7 +701,8 @@ internal object AddonsSettingsScreen {
                     ) { hidden = true }
                     thread(start = true, name = "multistremio-refresh-addon") {
                         val ok = Config.refreshManifest(a)
-                        val manifest = Config.manifestOf(a)
+                        val refreshedAddon = Config.snapshot().addons.firstOrNull { it.id == a.id && it.url == a.url } ?: a
+                        val manifest = Config.manifestOf(refreshedAddon)
                         val resources = manifest?.resources.orEmpty().mapNotNull {
                             if (it is String) it else (it as? Map<*, *>)?.get("name") as? String
                         }.distinct()
@@ -790,7 +791,7 @@ internal object AddonsSettingsScreen {
         prompt(
             ctx,
             "Test ${addon.name} with an IMDb ID",
-            "Enter a movie or episode ID such as tt1234567. This sends one stream request to this addon only.",
+            "Enter a movie IMDb ID such as tt1234567. This sends one stream request to this addon only.",
             "",
             false,
             onCancel = onBack,
