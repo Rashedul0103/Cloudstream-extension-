@@ -1,0 +1,27 @@
+[
+    {
+        "iconUrl": "https://raw.githubusercontent.com/Stremio/stremio-web/development/images/icon.png",
+        "fileHash": "sha256-d5214dbaefc285e79bc50be3547f1737657294f80f75696b986ba86c255cd6c8",
+        "apiVersion": 1,
+        "repositoryUrl": "https://github.com/Rashedul0103/Cloudstream-extension-",
+        "fileSize": 435471,
+        "status": 3,
+        "language": "en",
+        "authors": [
+            "MultiStremio"
+        ],
+        "tvTypes": [
+            "Movie",
+            "TvSeries",
+            "Anime",
+            "Live",
+            "AudioBook",
+            "Others"
+        ],
+        "version": 42,
+        "internalName": "MultiStremio",
+        "description": "Combine any number of Stremio addons: merged catalogs, separate search rows, metadata, subtitles and streams, with filtering, sorting and a no-code visual stream-label designer. Open the plugin settings to add addons.",
+        "url": "https://raw.githubusercontent.com/Rashedul0103/Cloudstream-extension-/builds/MultiStremio.cs3",
+        "name": "MultiStremio"
+    }
+]
