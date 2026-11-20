@@ -78,10 +78,12 @@ internal object DiagnosticsSettingsScreen {
         val summary = vertical(ctx, dp(ctx, 12)).apply {
             background = rounded(ctx, withAlpha(colors.accent, 12), colors.outline)
             listOf(
-                "Raw streams returned: ${snapshot.rawStreams}",
+                "Found: ${snapshot.rawStreams} raw streams",
                 "Addon subtitle tracks: ${snapshot.addonSubtitles}",
                 "Playable candidates before filters: ${snapshot.playableCandidates}",
                 "Streams kept after filters and deduplication: ${snapshot.keptAfterFilters}",
+                "Hidden by filters or deduplication: ${snapshot.hiddenBeforeEmission}",
+                "Shown to CloudStream: ${snapshot.emittedLinks}",
                 "First stream request completed: ${snapshot.timeToFirstStreamRequestCompletedMs?.let { "$it ms" } ?: "—"}",
                 "First playable result parsed: ${snapshot.timeToFirstPlayableResultMs?.let { "$it ms" } ?: "—"}",
                 "First playable link sent to CloudStream: ${snapshot.timeToFirstPlayableLinkMs?.let { "$it ms" } ?: "—"}",
@@ -190,10 +192,11 @@ internal object DiagnosticsSettingsScreen {
             appendLine("MultiStremio streaming diagnostics")
             appendLine("Time: $time")
             appendLine("Duration: ${snapshot.durationMs} ms")
-            appendLine("Raw streams: ${snapshot.rawStreams}")
+            appendLine("Found: ${snapshot.rawStreams} raw streams")
             appendLine("Addon subtitles: ${snapshot.addonSubtitles}")
             appendLine("Playable before filters: ${snapshot.playableCandidates}")
             appendLine("Kept after filters/deduplication: ${snapshot.keptAfterFilters}")
+            appendLine("Hidden by filters or deduplication: ${snapshot.hiddenBeforeEmission}")
             appendLine("First stream request completed: ${snapshot.timeToFirstStreamRequestCompletedMs?.let { "$it ms" } ?: "not recorded"}")
             appendLine("First playable result parsed: ${snapshot.timeToFirstPlayableResultMs?.let { "$it ms" } ?: "not recorded"}")
             appendLine("First playable link handed to CloudStream: ${snapshot.timeToFirstPlayableLinkMs?.let { "$it ms" } ?: "not recorded"}")

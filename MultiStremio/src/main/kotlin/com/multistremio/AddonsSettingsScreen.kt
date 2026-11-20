@@ -416,6 +416,9 @@ internal object AddonsSettingsScreen {
             "", false,
             onCancel = { addonsMenu(ctx) },
             showPasteButton = true,
+            validate = { raw ->
+                if (Urls.isValidAddonUrl(raw)) null else "Enter a valid HTTP, HTTPS, or Stremio addon link."
+            },
         ) { raw ->
             val url = Urls.normalizeAddonUrl(raw)
             if (url.isEmpty()) {
@@ -559,7 +562,13 @@ internal object AddonsSettingsScreen {
             ),
             SettingItem(
                 "Catalogs and search", "Use this addon for homepage catalogs and search", SettingItemType.Switch,
-                onToggle = { enabled -> updateCapability(a) { useCatalogs = enabled } },
+                onToggle = { enabled ->
+                    updateCapability(a) { useCatalogs = enabled }
+                    a.useCatalogs = enabled
+                    // Rebuild this screen in place so its conditional catalog control follows the
+                    // capability switch while keeping the dialog, scroll position and focus.
+                    addonMenu(ctx, a)
+                },
                 checked = a.useCatalogs, searchKeywords = listOf("catalogs", "search", "homepage"),
             ),
             SettingItem(
@@ -753,7 +762,7 @@ internal object AddonsSettingsScreen {
                 },
                 searchKeywords = listOf("remove", "delete", "source", "addon"),
             ),
-        )
+        ).filterNot { it.title == "Home catalogs to show" && !a.useCatalogs }
         settingMenu(
             ctx,
             a.name,

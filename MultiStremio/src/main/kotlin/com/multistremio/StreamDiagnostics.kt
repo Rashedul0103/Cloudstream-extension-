@@ -52,7 +52,11 @@ data class StreamDiagnosticSnapshot(
     val keptAfterFilters: Int,
     val emittedLinks: Int,
     val requests: List<StreamRequestDiagnostic>,
-)
+) {
+    /** Playable links removed by filters or deduplication before the CloudStream callback. */
+    val hiddenBeforeEmission: Int
+        get() = (playableCandidates - keptAfterFilters).coerceAtLeast(0)
+}
 
 data class FilterImpactEstimate(
     val sampledCandidates: Int,

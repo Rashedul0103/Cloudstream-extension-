@@ -763,6 +763,7 @@ internal fun prompt(
     ctx: Context, title: String, message: String?, initial: String, numeric: Boolean,
     onCancel: (() -> Unit)? = null,
     showPasteButton: Boolean = false,
+    validate: ((String) -> String?)? = null,
     onOk: (String) -> Unit,
 ) {
     val colors = palette(ctx)
@@ -781,19 +782,58 @@ internal fun prompt(
         ViewGroup.LayoutParams.MATCH_PARENT,
         ViewGroup.LayoutParams.WRAP_CONTENT,
     ).apply { topMargin = dp(ctx, 6) })
+    val validationError = text(ctx, "", 12f, colors.danger).apply {
+        visibility = View.GONE
+        tag = "settings.validation-error"
+        setPadding(dp(ctx, 2), dp(ctx, 4), dp(ctx, 2), dp(ctx, 2))
+    }
+    root.addView(validationError)
+    input.addTextChangedListener(object : android.text.TextWatcher {
+        override fun beforeTextChanged(s: CharSequence?, start: Int, count: Int, after: Int) = Unit
+        override fun onTextChanged(s: CharSequence?, start: Int, before: Int, count: Int) {
+            validationError.visibility = View.GONE
+        }
+        override fun afterTextChanged(s: android.text.Editable?) = Unit
+    })
     if (showPasteButton) {
-        root.addView(text(ctx, "Paste from clipboard", 12f, colors.accent, true).apply {
-            setPadding(0, dp(ctx, 10), 0, dp(ctx, 4))
+        val clipboard = ctx.getSystemService(Context.CLIPBOARD_SERVICE) as? ClipboardManager
+        val clipboardText = runCatching {
+            clipboard?.primaryClip?.takeIf { it.itemCount > 0 }
+                ?.getItemAt(0)?.coerceToText(ctx)?.toString()?.trim().orEmpty()
+        }.getOrDefault("")
+        val manifestSuggestion = clipboardText.isNotBlank() &&
+            Urls.isValidAddonUrl(clipboardText) &&
+            (clipboardText.startsWith("stremio://", ignoreCase = true) ||
+                clipboardText.substringBefore('?').substringBefore('#').endsWith("/manifest.json", ignoreCase = true))
+        root.addView(text(
+            ctx,
+            if (manifestSuggestion) "Manifest link found in clipboard · Use" else "Paste from clipboard",
+            12f,
+            colors.accent,
+            true,
+        ).apply {
+            isFocusable = true
+            contentDescription = if (manifestSuggestion) "Use detected addon manifest link from clipboard" else "Paste from clipboard"
+            setPadding(dp(ctx, 10), dp(ctx, 8), dp(ctx, 10), dp(ctx, 8))
+            minHeight = dp(ctx, 40)
+            background = focusAwareBackground(ctx, colors, plainRipple(ctx, colors))
             setOnClickListener {
-                val clipboard = ctx.getSystemService(Context.CLIPBOARD_SERVICE) as? ClipboardManager
-                val clip = clipboard?.primaryClip
-                val pasted = runCatching { clip?.getItemAt(0)?.coerceToText(ctx)?.toString().orEmpty() }.getOrDefault("")
+                val pasted = if (manifestSuggestion) clipboardText else runCatching {
+                    clipboard?.primaryClip?.takeIf { it.itemCount > 0 }
+                        ?.getItemAt(0)?.coerceToText(ctx)?.toString().orEmpty()
+                }.getOrDefault("")
                 if (pasted.isNotBlank()) input.setText(pasted) else toast(ctx, "Clipboard is empty.")
             }
         })
     }
     addFooter(ctx, root, "Save", {
-        onOk(input.text.toString().trim())
+        val value = input.text.toString().trim()
+        val error = validate?.invoke(value)
+        if (error != null) {
+            validationError.text = error
+            validationError.visibility = View.VISIBLE
+            input.requestFocus()
+        } else onOk(value)
     }, "Cancel", {
         if (onCancel != null) onCancel() else SettingsDialogHost.back()
     })

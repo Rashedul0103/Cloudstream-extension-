@@ -1,7 +1,11 @@
 package com.multistremio
 
+import android.content.ClipData
+import android.content.ClipboardManager
+import android.content.Context
 import android.view.View
 import android.view.ViewGroup
+import android.widget.EditText
 import android.widget.LinearLayout
 import android.widget.ScrollView
 import android.widget.Switch
@@ -172,10 +176,51 @@ class SettingsDialogHostTest {
 
             assertTrue("Capability change should persist immediately", !Config.snapshot().addons.single().useCatalogs)
             assertSame(root, SettingsDialogHost.currentScreenRoot())
-            assertSame(toggle, root?.let { findSwitch(it, "Catalogs and search, off") })
+            assertTrue("The updated switch should remain visible", root?.let { findSwitch(it, "Catalogs and search, off") } != null)
+            assertTrue("Catalog visibility should disappear when catalogs are disabled", !containsText(root!!, "Home catalogs to show"))
         } finally {
             SettingsDialogHost.dismiss()
             Config.replace(previous)
+        }
+    }
+
+    @Test
+    fun addonPromptSuggestsClipboardManifestAndShowsInlineUrlValidation() {
+        val ctx = RuntimeEnvironment.getApplication()
+        val clipboard = ctx.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
+        clipboard.setPrimaryClip(ClipData.newPlainText("manifest", "stremio://example.test/addon/manifest.json?token=secret"))
+        var saved: String? = null
+        try {
+            prompt(
+                ctx,
+                "Add addon",
+                "Paste a manifest URL.",
+                "",
+                false,
+                showPasteButton = true,
+                validate = { value -> if (Urls.isValidAddonUrl(value)) null else "Enter a valid addon link." },
+            ) { value -> saved = value }
+
+            val root = SettingsDialogHost.currentScreenRoot()!!
+            val suggestion = findText(root, "Manifest link found in clipboard · Use")
+            assertTrue("A manifest-looking clipboard link should be offered without displaying it", suggestion != null)
+            suggestion!!.performClick()
+            val input = findTag<EditText>(root, "settings.input")!!
+            assertEquals("stremio://example.test/addon/manifest.json?token=secret", input.text.toString())
+
+            input.setText("ftp://example.test/addon")
+            findText(root, "SAVE")!!.performClick()
+            val validation = findTag<TextView>(root, "settings.validation-error")!!
+            assertEquals(View.VISIBLE, validation.visibility)
+            assertEquals("Enter a valid addon link.", validation.text.toString())
+
+            input.setText("https://example.test/addon/manifest.json?token=secret")
+            findText(root, "SAVE")!!.performClick()
+            assertEquals(View.GONE, validation.visibility)
+            assertEquals("https://example.test/addon/manifest.json?token=secret", saved)
+        } finally {
+            SettingsDialogHost.dismiss()
+            clipboard.setPrimaryClip(ClipData.newPlainText("", ""))
         }
     }
 
@@ -198,6 +243,21 @@ class SettingsDialogHostTest {
         if (view.contentDescription == description) return view
         if (view !is ViewGroup) return null
         for (index in 0 until view.childCount) findByDescription(view.getChildAt(index), description)?.let { return it }
+        return null
+    }
+
+    private fun findText(view: View, value: String): TextView? {
+        if (view is TextView && view.text.toString() == value) return view
+        if (view !is ViewGroup) return null
+        for (index in 0 until view.childCount) findText(view.getChildAt(index), value)?.let { return it }
+        return null
+    }
+
+    @Suppress("UNCHECKED_CAST")
+    private fun <T : View> findTag(view: View, value: String): T? {
+        if (view.tag == value) return view as? T
+        if (view !is ViewGroup) return null
+        for (index in 0 until view.childCount) findTag<T>(view.getChildAt(index), value)?.let { return it }
         return null
     }
 

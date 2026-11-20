@@ -1331,6 +1331,20 @@ object Urls {
         return "$scheme://$authority${path.trimEnd('/')}$query"
     }
 
+    /** Checks the URL shape before an addon manifest request is started. */
+    fun isValidAddonUrl(input: String): Boolean {
+        if (input.isBlank() || input.any(Char::isWhitespace)) return false
+        val explicitScheme = Regex("^([a-z][a-z0-9+.-]*):", RegexOption.IGNORE_CASE)
+            .find(input.trim())?.groupValues?.getOrNull(1)?.lowercase(Locale.ROOT)
+        if (explicitScheme != null && explicitScheme !in setOf("http", "https", "stremio")) return false
+        val normalized = normalizeAddonUrl(input)
+        val uri = runCatching { URI(normalized) }.getOrNull() ?: return false
+        val scheme = uri.scheme?.lowercase(Locale.ROOT)
+        return scheme in setOf("http", "https") &&
+            !uri.host.isNullOrBlank() &&
+            (uri.port == -1 || uri.port in 1..65535)
+    }
+
     /** Builds a manifest URL without placing its path after a query string. */
     fun manifest(base: String): String = appendPath(base, "manifest.json")
 

@@ -1305,6 +1305,17 @@ class CoreLogicTest {
     }
 
     @Test
+    fun addonUrlValidationAcceptsSupportedManifestLinksAndRejectsMalformedUrls() {
+        assertTrue(Urls.isValidAddonUrl("https://example.com/addon/manifest.json?token=secret"))
+        assertTrue(Urls.isValidAddonUrl("stremio://example.com/addon"))
+        assertTrue(Urls.isValidAddonUrl("example.com/addon"))
+        assertTrue(Urls.isValidAddonUrl("https://user:password@example.com/addon"))
+        assertFalse(Urls.isValidAddonUrl("ftp://example.com/addon"))
+        assertFalse(Urls.isValidAddonUrl("https://example.com:70000/addon"))
+        assertFalse(Urls.isValidAddonUrl("https://example.com/has space"))
+    }
+
+    @Test
     fun globalCatalogOrderCanInterleaveRowsFromDifferentAddonsAndExtensions() {
         val original = listOf("addon-a-movie", "addon-a-series", "addon-b-movie", "external-row")
         val reordered = CatalogOrderMath.reorderAll(
@@ -1447,6 +1458,24 @@ class CoreLogicTest {
         assertEquals("SocketTimeoutException", requests.last().errorType)
         assertTrue(requests.first().addonName.contains("[URL redacted]"))
         assertFalse(requests.first().addonName.contains("secret"))
+    }
+
+    @Test
+    fun streamDiagnosticsSeparatesFoundShownAndHiddenCounts() {
+        val run = StreamDiagnostics.begin()
+        StreamDiagnostics.finish(
+            runId = run,
+            rawStreams = 8,
+            addonSubtitles = 1,
+            playableCandidates = 5,
+            keptAfterFilters = 3,
+            emittedLinks = 2,
+        )
+
+        val snapshot = StreamDiagnostics.latest()!!
+        assertEquals(8, snapshot.rawStreams)
+        assertEquals(2, snapshot.emittedLinks)
+        assertEquals(2, snapshot.hiddenBeforeEmission)
     }
 
     private fun sampleSettings() = Settings(
