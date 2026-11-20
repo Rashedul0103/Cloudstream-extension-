@@ -110,4 +110,27 @@ class SettingsSnapshotTest {
         assertFalse(snapshot.streamFormat.fields.isEmpty())
         assertEquals(listOf("en"), snapshot.subtitleLanguages)
     }
+
+    @Test
+    fun sanitizingPartialCustomSettingsPreservesChoicesAndFillsMissingCriteria() {
+        val settings = Settings(
+            sort = SortSettings(
+                preset = "CUSTOM",
+                customOrder = mutableListOf(SortCriterionSetting("size", false)),
+            ),
+            streamFormat = StreamFormatSettings(designPreset = "not-a-preset"),
+        ).sanitized()
+
+        assertEquals(
+            listOf("size", "resolution", "source", "hdr", "seeders", "addon"),
+            settings.sort.customOrder.map { it.id },
+        )
+        assertFalse(settings.sort.customOrder.first().descending)
+        assertEquals("AUTO", settings.streamFormat.designPreset)
+    }
+
+    @Test
+    fun newLinkDesignPresetDefaultsToLegacyCompatibleAuto() {
+        assertEquals("AUTO", StreamFormatSettings().designPreset)
+    }
 }
