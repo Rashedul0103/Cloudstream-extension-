@@ -1430,4 +1430,33 @@ class CoreLogicTest {
         ),
         catalogOrder = mutableListOf("hashed-addon-id|movie|top", "external:private"),
     )
+
+    @Test
+    fun customSortCriteriaUseRankedOrderAndDirection() {
+        val low = StreamParser.parsed(0, "A", RawStream(name = "Movie.720p.WEB-DL"))
+        val high = StreamParser.parsed(1, "B", RawStream(name = "Movie.1080p.WEB-DL"))
+        val streams = listOf(low, high)
+        val resolutionFirst = StreamPipeline.process(
+            streams,
+            FilterSettings(),
+            SortSettings(
+                preset = "CUSTOM",
+                customOrder = mutableListOf(
+                    SortCriterionSetting("resolution", true),
+                    SortCriterionSetting("addon", false),
+                ),
+            ),
+        )
+        assertEquals(listOf(1080, 720), resolutionFirst.map { it.info.resolution })
+
+        val ascending = StreamPipeline.process(
+            streams,
+            FilterSettings(),
+            SortSettings(
+                preset = "CUSTOM",
+                customOrder = mutableListOf(SortCriterionSetting("resolution", false)),
+            ),
+        )
+        assertEquals(listOf(720, 1080), ascending.map { it.info.resolution })
+    }
 }

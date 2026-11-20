@@ -1,28 +1,211 @@
 package com.multistremio
 
 import android.content.Context
+import android.view.ViewGroup
+import android.widget.LinearLayout
 
 internal object FiltersSettingsScreen {
-    fun show(ctx: Context) = filtersMenu(ctx)
+    fun show(ctx: Context) = filtersPage(ctx)
 
     private val RES_OPTIONS = listOf(
         2160 to "4K", 1440 to "1440p", 1080 to "1080p", 720 to "720p",
         576 to "576p", 480 to "480p", 360 to "360p", 240 to "240p", 0 to "Unknown",
     )
 
-    private fun presetLabel(value: String): String = when (value) {
-        "BEST_QUALITY" -> "Best quality"
-        "DATA_SAVER" -> "Data saver"
-        "CUSTOM" -> "Custom"
-        else -> "Balanced"
+    private fun filtersPage(ctx: Context) {
+        settingsPage(
+            ctx,
+            key = "page:filters",
+            title = "Filters",
+            description = "Decide which streams are allowed. Changes apply to the next lookup.",
+            back = { MainMenuSettingsScreen.show(ctx) },
+        ) { body, colors ->
+            filtersBody(ctx, colors, Config.snapshot(), body)
+        }
     }
 
-    private fun applyPreset(index: Int) {
+    internal fun body(
+        ctx: Context,
+        colors: Palette,
+        settings: Settings,
+        body: LinearLayout,
+    ) = filtersBody(ctx, colors, settings, body)
+
+    private fun filtersBody(ctx: Context, colors: Palette, settings: Settings, body: LinearLayout) {
+        val f = settings.filter
+        val again = { filtersPage(ctx) }
+        fun section(label: String, card: LinearLayout) {
+            body.addView(sectionLabel(ctx, colors, label))
+            body.addView(card, LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT,
+                ViewGroup.LayoutParams.WRAP_CONTENT,
+            ).apply { bottomMargin = dp(ctx, 8) })
+        }
+
+        val presetCard = settingsCard(ctx, colors)
+        val presetIndex = when (settings.filterPreset.uppercase()) {
+            "BEST_QUALITY" -> 1
+            "DATA_SAVER" -> 2
+            "CUSTOM" -> 3
+            else -> 0
+        }
+        addCardRow(ctx, colors, presetCard, controlBlock(
+            ctx, colors, "Filter preset", listOf("Balanced", "Best", "Saver", "Custom")[presetIndex],
+            "A preset changes both filtering and sorting. Manual edits switch to Custom.",
+            segmentedControl(ctx, colors, listOf("Balanced", "Best", "Saver", "Custom"), presetIndex) { index ->
+                when (index) {
+                    0 -> applyPreset(ctx, 0)
+                    1 -> applyPreset(ctx, 1)
+                    2 -> applyPreset(ctx, 2)
+                    else -> Config.update { filterPreset = "CUSTOM" }
+                }
+                again()
+            },
+        ))
+        section("Quick preset", presetCard)
+
+        val qualityCard = settingsCard(ctx, colors)
+        val allResolutions = RES_OPTIONS.map { it.first }
+        val selectedResolutions = if (f.allowedResolutions.isEmpty()) allResolutions.toSet()
+            else f.allowedResolutions.toSet()
+        addCardRow(ctx, colors, qualityCard, controlBlock(
+            ctx, colors,
+            "Allowed resolutions",
+            if (selectedResolutions.size == allResolutions.size) "Any" else "${selectedResolutions.size} selected",
+            "Choose every resolution you want to keep.",
+            choiceChipGrid(
+                ctx, colors, RES_OPTIONS.map { it.second },
+                RES_OPTIONS.indices.filterTo(mutableSetOf()) { RES_OPTIONS[it].first in selectedResolutions },
+                columns = 3,
+            ) { index ->
+                val current = Config.snapshot().filter.allowedResolutions
+                val allowed = (if (current.isEmpty()) allResolutions.toMutableSet() else current.toMutableSet())
+                val resolution = RES_OPTIONS[index].first
+                if (resolution in allowed) allowed.remove(resolution) else allowed.add(resolution)
+                Config.update {
+                    filter.allowedResolutions = if (allowed.size == allResolutions.size) {
+                        mutableListOf()
+                    } else {
+                        allResolutions.filter { it in allowed }.toMutableList()
+                    }
+                }
+                again()
+            },
+        ))
+        addCardRow(ctx, colors, qualityCard, switchRow(
+            ctx, colors, "Hide CAM / telesync", "Remove cinema recordings", f.hideCam,
+        ) { enabled -> Config.update { filter.hideCam = enabled }; again() })
+        addCardRow(ctx, colors, qualityCard, controlBlock(
+            ctx, colors, "HEVC / x265", listOf("Any", "Hide", "Only")[f.hevcMode.coerceIn(0, 2)],
+            "Control streams encoded with HEVC.",
+            segmentedControl(ctx, colors, listOf("Any", "Hide", "Only"), f.hevcMode.coerceIn(0, 2)) { mode ->
+                Config.update { filter.hevcMode = mode }
+                again()
+            },
+        ))
+        addCardRow(ctx, colors, qualityCard, controlBlock(
+            ctx, colors, "HDR / Dolby Vision", listOf("Any", "Hide", "Only")[f.hdrMode.coerceIn(0, 2)],
+            "Control HDR and Dolby Vision streams.",
+            segmentedControl(ctx, colors, listOf("Any", "Hide", "Only"), f.hdrMode.coerceIn(0, 2)) { mode ->
+                Config.update { filter.hdrMode = mode }
+                again()
+            },
+        ))
+        section("Quality", qualityCard)
+
+        val sourceCard = settingsCard(ctx, colors)
+        addCardRow(ctx, colors, sourceCard, switchRow(
+            ctx, colors, "Hide magnet links", "Remove torrent magnet links", f.hideMagnets,
+        ) { enabled -> Config.update { filter.hideMagnets = enabled }; again() })
+        addCardRow(ctx, colors, sourceCard, switchRow(
+            ctx, colors, "Hide uncached debrid links", "Keep cached debrid links and other sources", f.hideUncachedDebrid,
+        ) { enabled -> Config.update { filter.hideUncachedDebrid = enabled }; again() })
+        section("Sources", sourceCard)
+
+        val moreCard = settingsCard(ctx, colors)
+        addCardRow(ctx, colors, moreCard, valueRow(
+            ctx, colors, "Minimum file size", "Smaller files are hidden", limit(f.minSizeMb, "MB"),
+        ) {
+            number(ctx, "Minimum file size (MB; 0 = off)", f.minSizeMb, onCancel = again) { value ->
+                Config.update { filter.minSizeMb = value }; again()
+            }
+        })
+        addCardRow(ctx, colors, moreCard, valueRow(
+            ctx, colors, "Maximum file size", "Larger files are hidden", limit(f.maxSizeGb, "GB"),
+        ) {
+            number(ctx, "Maximum file size (GB; 0 = off)", f.maxSizeGb, onCancel = again) { value ->
+                Config.update { filter.maxSizeGb = value }; again()
+            }
+        })
+        addCardRow(ctx, colors, moreCard, valueRow(
+            ctx, colors, "Minimum seeders", "Streams without seeder data are kept", limit(f.minSeeders, ""),
+        ) {
+            number(ctx, "Minimum seeders (0 = off)", f.minSeeders, onCancel = again) { value ->
+                Config.update { filter.minSeeders = value }; again()
+            }
+        })
+        addCardRow(ctx, colors, moreCard, valueRow(
+            ctx, colors, "Exclude keywords",
+            if (f.excludeKeywords.isEmpty()) "No excluded terms" else f.excludeKeywords.joinToString(", "),
+            if (f.excludeKeywords.isEmpty()) "Off" else "${f.excludeKeywords.size} terms",
+        ) {
+            keywordList(
+                ctx, "Exclude keywords",
+                "Comma separated and case-insensitive. Wrap a regular expression in slashes, for example /x26[45]/. Unsafe regex patterns are rejected.",
+                f.excludeKeywords.joinToString(", "), onCancel = again,
+            ) { values -> Config.update { filter.excludeKeywords = values }; again() }
+        })
+        addCardRow(ctx, colors, moreCard, valueRow(
+            ctx, colors, "Require keywords (any)",
+            if (f.requireKeywords.isEmpty()) "No required terms" else f.requireKeywords.joinToString(", "),
+            if (f.requireKeywords.isEmpty()) "Off" else "${f.requireKeywords.size} terms",
+        ) {
+            keywordList(
+                ctx, "Require keywords",
+                "A stream must match at least one term. Leave empty to disable. Wrap a regular expression in slashes, for example /x26[45]/.",
+                f.requireKeywords.joinToString(", "), onCancel = again,
+            ) { values -> Config.update { filter.requireKeywords = values }; again() }
+        })
+        addCardRow(ctx, colors, moreCard, valueRow(
+            ctx, colors, "Required languages", "Keep streams matching at least one language",
+            if (f.requireLanguages.isEmpty()) "Any" else "${f.requireLanguages.size} selected",
+        ) {
+            stringListPicker(
+                ctx, "Required languages",
+                "A stream must match one selected language. Add a custom regional tag when needed.",
+                SettingsChoiceLists.languages, f.requireLanguages, onCancel = again,
+            ) { values -> Config.update { filter.requireLanguages = values }; again() }
+        })
+        addCardRow(ctx, colors, moreCard, switchRow(
+            ctx, colors, "Strict language", "Hide streams whose audio language is unknown", f.strictLanguage,
+        ) { enabled -> Config.update { filter.strictLanguage = enabled }; again() })
+        section("Keywords & languages", moreCard)
+
+        val limitsCard = settingsCard(ctx, colors)
+        addCardRow(ctx, colors, limitsCard, valueRow(
+            ctx, colors, "Maximum results per addon", "0 means no per-addon limit", limit(f.maxPerAddon, ""),
+        ) {
+            number(ctx, "Maximum results per addon (0 = off)", f.maxPerAddon, onCancel = again) { value ->
+                Config.update { filter.maxPerAddon = value }; again()
+            }
+        })
+        addCardRow(ctx, colors, limitsCard, valueRow(
+            ctx, colors, "Maximum results total", "Applied after filtering and sorting", limit(f.maxTotal, ""),
+        ) {
+            number(ctx, "Maximum results total (0 = off)", f.maxTotal, onCancel = again) { value ->
+                Config.update { filter.maxTotal = value }; again()
+            }
+        })
+        section("Result limits", limitsCard)
+    }
+
+    private fun applyPreset(ctx: Context, index: Int) {
+        val all = RES_OPTIONS.map { it.first }
         Config.update {
             when (index) {
                 1 -> {
                     filter = FilterSettings(
-                        allowedResolutions = RES_OPTIONS.map { it.first }.toMutableList(),
+                        allowedResolutions = all.toMutableList(),
                         hideCam = true,
                     )
                     sort = SortSettings(preset = SortPreset.BEST_QUALITY.name)
@@ -43,204 +226,5 @@ internal object FiltersSettingsScreen {
                 }
             }
         }
-    }
-
-    private fun filtersMenu(ctx: Context) {
-        val f = Config.settings.filter
-        val again = { filtersMenu(ctx) }
-        val items = listOf(
-            SettingItem(
-                "Quick preset",
-                "Applies a complete filter and sorting profile",
-                SettingItemType.Value,
-                onClick = {
-                    val choices = listOf("Balanced · current defaults", "Best quality · all resolutions", "Data saver · up to 720p")
-                    val current = when (Config.settings.filterPreset) {
-                        "BEST_QUALITY" -> 1
-                        "DATA_SAVER" -> 2
-                        else -> 0
-                    }
-                    choose(ctx, "Filter preset", choices, current, onCancel = again) {
-                        applyPreset(it)
-                        again()
-                    }
-                },
-                searchKeywords = listOf("preset", "balanced", "best quality", "data saver"),
-                valueLabel = presetLabel(Config.settings.filterPreset),
-                section = "Quick presets",
-            ),
-            SettingItem(
-                "Allowed resolutions",
-                RES_OPTIONS.filter { it.first in f.allowedResolutions }.joinToString(", ") { it.second }.ifBlank { "Any resolution" },
-                SettingItemType.Value,
-                onClick = {
-                    multi(ctx, "Allowed resolutions", RES_OPTIONS.map { it.second },
-                        RES_OPTIONS.map { it.first in f.allowedResolutions },
-                        description = "Select the resolutions to keep. Leave every box unchecked to allow any resolution.",
-                        onCancel = again) { selected ->
-                        updateAndReopen({ again() }) {
-                            f.allowedResolutions = RES_OPTIONS.filterIndexed { index, _ -> selected[index] }
-                                .map { it.first }.toMutableList()
-                        }
-                    }
-                }, searchKeywords = listOf("resolution", "4K", "2160p", "1440p", "1080p", "720p"),
-                valueLabel = if (f.allowedResolutions.isEmpty()) "Any" else "${f.allowedResolutions.size} selected",
-                section = "Quality",
-            ),
-            SettingItem(
-                "Hide CAM / telesync",
-                "Remove cinema recordings",
-                SettingItemType.Switch,
-                onClick = { updateAndReopen({ again() }) { f.hideCam = !f.hideCam } },
-                searchKeywords = listOf("cam", "telesync", "recorded cinema"),
-                checked = f.hideCam,
-                section = "Quality",
-            ),
-            SettingItem(
-                "HEVC / x265",
-                modeLabel(f.hevcMode),
-                SettingItemType.Value,
-                onClick = { choose(ctx, "HEVC / x265", listOf("Show any", "Hide HEVC", "Only HEVC"), f.hevcMode, onCancel = again) {
-                    updateAndReopen({ again() }) { f.hevcMode = it }
-                } },
-                searchKeywords = listOf("HEVC", "x265", "video codec"),
-                valueLabel = modeLabel(f.hevcMode),
-                section = "Quality",
-            ),
-            SettingItem(
-                "HDR / Dolby Vision",
-                modeLabel(f.hdrMode),
-                SettingItemType.Value,
-                onClick = { choose(ctx, "HDR / Dolby Vision", listOf("Show any", "Hide HDR/DV", "Only HDR/DV"), f.hdrMode, onCancel = again) {
-                    updateAndReopen({ again() }) { f.hdrMode = it }
-                } },
-                searchKeywords = listOf("HDR", "Dolby Vision", "DV"),
-                valueLabel = modeLabel(f.hdrMode),
-                section = "Quality",
-            ),
-            SettingItem(
-                "Hide magnet links",
-                "Remove torrent magnet links",
-                SettingItemType.Switch,
-                onClick = { updateAndReopen({ again() }) { f.hideMagnets = !f.hideMagnets } },
-                searchKeywords = listOf("magnet", "torrent"),
-                checked = f.hideMagnets,
-                section = "Sources",
-            ),
-            SettingItem(
-                "Hide uncached debrid links",
-                "Keep only cached debrid links",
-                SettingItemType.Switch,
-                onClick = { updateAndReopen({ again() }) { f.hideUncachedDebrid = !f.hideUncachedDebrid } },
-                searchKeywords = listOf("uncached", "debrid", "premium"),
-                checked = f.hideUncachedDebrid,
-                section = "Sources",
-            ),
-            SettingItem(
-                "Minimum file size",
-                limit(f.minSizeMb, "MB"),
-                SettingItemType.Value,
-                onClick = { number(ctx, "Min size (MB, 0 = off)", f.minSizeMb, onCancel = again) {
-                    updateAndReopen({ again() }) { f.minSizeMb = it }
-                } }, searchKeywords = listOf("minimum", "min", "size", "MB"),
-                valueLabel = limit(f.minSizeMb, "MB"),
-                section = "Size & seeders",
-            ),
-            SettingItem(
-                "Maximum file size",
-                limit(f.maxSizeGb, "GB"),
-                SettingItemType.Value,
-                onClick = { number(ctx, "Max size (GB, 0 = off)", f.maxSizeGb, onCancel = again) {
-                    updateAndReopen({ again() }) { f.maxSizeGb = it }
-                } }, searchKeywords = listOf("maximum", "max", "size", "GB"),
-                valueLabel = limit(f.maxSizeGb, "GB"),
-                section = "Size & seeders",
-            ),
-            SettingItem(
-                "Minimum seeders",
-                limit(f.minSeeders, ""),
-                SettingItemType.Value,
-                onClick = { number(ctx, "Min seeders (0 = off). Streams without seeder info are kept.", f.minSeeders, onCancel = again) {
-                    updateAndReopen({ again() }) { f.minSeeders = it }
-                } }, searchKeywords = listOf("seeders", "torrent"),
-                valueLabel = limit(f.minSeeders, ""),
-                section = "Size & seeders",
-            ),
-            SettingItem(
-                "Exclude keywords",
-                csv(f.excludeKeywords),
-                SettingItemType.Value,
-                onClick = {
-                    keywordList(ctx, "Exclude keywords",
-                        "Comma separated, case-insensitive. Wrap in slashes for a regex, e.g. /x26[45]/. For safety, lookarounds, backreferences and nested or very large counted repetitions are not supported.",
-                        f.excludeKeywords.joinToString(", "), onCancel = again) { values ->
-                        updateAndReopen({ again() }) { f.excludeKeywords = values }
-                    }
-                }, searchKeywords = listOf("exclude", "block", "keywords", "regex"),
-                valueLabel = if (f.excludeKeywords.isEmpty()) "Off" else "${f.excludeKeywords.size} terms",
-                section = "Keywords & language",
-            ),
-            SettingItem(
-                "Require keywords (any)",
-                csv(f.requireKeywords),
-                SettingItemType.Value,
-                onClick = {
-                    keywordList(ctx, "Require keywords",
-                        "A stream must contain at least one of these. Leave empty to disable. Wrap regex patterns in slashes, e.g. /x26[45]/. The same safe regex limits apply.",
-                        f.requireKeywords.joinToString(", "), onCancel = again) { values ->
-                        updateAndReopen({ again() }) { f.requireKeywords = values }
-                    }
-                }, searchKeywords = listOf("require", "include", "keywords", "regex"),
-                valueLabel = if (f.requireKeywords.isEmpty()) "Off" else "${f.requireKeywords.size} terms",
-                section = "Keywords & language",
-            ),
-            SettingItem(
-                "Required languages",
-                csv(f.requireLanguages),
-                SettingItemType.Value,
-                onClick = {
-                    stringListPicker(
-                        ctx, "Required languages",
-                        "A stream must match one selected language. Use Add custom for a regional tag or another language code.",
-                        SettingsChoiceLists.languages, f.requireLanguages, onCancel = again,
-                    ) { values -> updateAndReopen({ again() }) { f.requireLanguages = values } }
-                },
-                searchKeywords = listOf("language", "audio language", "Bengali", "English"),
-                valueLabel = if (f.requireLanguages.isEmpty()) "Any" else "${f.requireLanguages.size} selected",
-                section = "Keywords & language",
-            ),
-            SettingItem(
-                "Strict language",
-                "Drop streams with unknown language",
-                SettingItemType.Switch,
-                onClick = { updateAndReopen({ again() }) { f.strictLanguage = !f.strictLanguage } },
-                searchKeywords = listOf("strict", "unknown language"),
-                checked = f.strictLanguage,
-                section = "Keywords & language",
-            ),
-            SettingItem(
-                "Maximum results per addon",
-                limit(f.maxPerAddon, ""),
-                SettingItemType.Value,
-                onClick = { number(ctx, "Max results per addon (0 = off)", f.maxPerAddon, onCancel = again) {
-                    updateAndReopen({ again() }) { f.maxPerAddon = it }
-                } }, searchKeywords = listOf("limit", "per addon", "maximum"),
-                valueLabel = limit(f.maxPerAddon, ""),
-                section = "Limits",
-            ),
-            SettingItem(
-                "Maximum results total",
-                limit(f.maxTotal, ""),
-                SettingItemType.Value,
-                onClick = { number(ctx, "Max results total (0 = off)", f.maxTotal, onCancel = again) {
-                    updateAndReopen({ again() }) { f.maxTotal = it }
-                } }, searchKeywords = listOf("limit", "total", "maximum"),
-                valueLabel = limit(f.maxTotal, ""),
-                section = "Limits",
-            ),
-        )
-        settingMenu(ctx, "Filters", items, { MainMenuSettingsScreen.show(ctx) },
-            "Quick presets first, followed by grouped controls. Any manual edit changes the preset label to Custom.",
-            forceSearch = true)
     }
 }

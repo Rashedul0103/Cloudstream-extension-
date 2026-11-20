@@ -577,6 +577,25 @@ object StreamSorter {
     private fun seeders() = compareByDescending<ParsedStream> { it.info.seeders ?: -1 }
     private fun addon() = compareBy<ParsedStream> { it.addonIndex }
 
+    private fun sourceRank(value: String?): Int = when (value?.uppercase(Locale.ROOT)) {
+        "REMUX" -> 6
+        "BLURAY" -> 5
+        "WEB-DL" -> 4
+        "WEBRIP" -> 3
+        "HDTV" -> 2
+        "DVD" -> 1
+        "CAM" -> 0
+        else -> -1
+    }
+
+    private fun hdrRank(value: String?): Int = when (value?.uppercase(Locale.ROOT)) {
+        "DV" -> 4
+        "HDR10+" -> 3
+        "HDR10" -> 2
+        "HDR" -> 1
+        else -> 0
+    }
+
     private fun canonicalCodec(value: String?): String? = when (value?.trim()?.lowercase(Locale.ROOT)) {
         "hevc", "h265", "h.265", "x265" -> "HEVC"
         "av1" -> "AV1"
@@ -665,13 +684,28 @@ object StreamSorter {
             }
         }
 
-        when (SortPreset.from(s.preset)) {
-            SortPreset.BEST_QUALITY -> chain.addAll(listOf(res(), source(), hdr(), sizeDesc()))
-            SortPreset.QUALITY_SEEDERS -> chain.addAll(listOf(res(), seeders(), sizeDesc()))
-            SortPreset.LARGEST -> chain.addAll(listOf(sizeDesc(), res()))
-            SortPreset.SMALLEST -> chain.addAll(listOf(sizeAsc(), res()))
-            SortPreset.MOST_SEEDERS -> chain.addAll(listOf(seeders(), res()))
-            SortPreset.ADDON_ORDER -> chain.addAll(listOf(addon(), res(), sizeDesc()))
+        if (s.preset.equals("CUSTOM", ignoreCase = true)) {
+            chain.addAll(s.customOrder.map { criterion ->
+                val ascending = !criterion.descending
+                when (criterion.id) {
+                    "resolution" -> if (ascending) compareBy<ParsedStream> { it.info.resolution } else res()
+                    "source" -> if (ascending) compareBy<ParsedStream> { sourceRank(it.info.source) } else source()
+                    "hdr" -> if (ascending) compareBy<ParsedStream> { hdrRank(it.info.hdr) } else hdr()
+                    "seeders" -> if (ascending) compareBy<ParsedStream> { it.info.seeders ?: Int.MAX_VALUE } else seeders()
+                    "size" -> if (ascending) sizeAsc() else sizeDesc()
+                    "addon" -> if (ascending) addon() else compareByDescending<ParsedStream> { it.addonIndex }
+                    else -> addon()
+                }
+            })
+        } else {
+            when (SortPreset.from(s.preset)) {
+                SortPreset.BEST_QUALITY -> chain.addAll(listOf(res(), source(), hdr(), sizeDesc()))
+                SortPreset.QUALITY_SEEDERS -> chain.addAll(listOf(res(), seeders(), sizeDesc()))
+                SortPreset.LARGEST -> chain.addAll(listOf(sizeDesc(), res()))
+                SortPreset.SMALLEST -> chain.addAll(listOf(sizeAsc(), res()))
+                SortPreset.MOST_SEEDERS -> chain.addAll(listOf(seeders(), res()))
+                SortPreset.ADDON_ORDER -> chain.addAll(listOf(addon(), res(), sizeDesc()))
+            }
         }
         chain += addon() // final, deterministic tie-break
         return chain.reduce { a, b -> a.then(b) }
@@ -1169,25 +1203,43 @@ object StreamLabels {
         return pieces.joinToString(format.separator.take(8)).ifBlank { p.addonName }
     }
 
-    fun preview(format: StreamFormatSettings): String {
-        val example = StreamParser.parsed(
-            0,
-            "Example Addon",
-            RawStream(
-                name = "🌀 CNCVerse 4K • MovieBoxIN",
-                title = "Example.Movie.2026.2160p.WEB-DL.HDR10.HEVC.Atmos.BENG.ENG\n🛰️ Source: MovieBoxIN • HubCloud",
-                url = "https://example.invalid/movie.mkv",
-                subtitles = listOf(
-                    RawSubtitle(url = "https://example.invalid/en.vtt", lang = "eng"),
-                    RawSubtitle(url = "https://example.invalid/bn.vtt", lang = "ben"),
-                ),
-                behaviorHints = BehaviorHints(
-                    filename = "Example.Movie.2026.2160p.WEB-DL.HDR10.HEVC.Atmos.BENG.ENG.mkv",
-                    videoSize = 1_500_000_000L,
-                ),
+    private fun previewExample(): ParsedStream = StreamParser.parsed(
+        0,
+        "Example Addon",
+        RawStream(
+            name = "🌀 CNCVerse 4K • MovieBoxIN",
+            title = "Example.Movie.2026.2160p.WEB-DL.HDR10.HEVC.Atmos.BENG.ENG\n🛰️ Source: MovieBoxIN • HubCloud",
+            url = "https://example.invalid/movie.mkv",
+            subtitles = listOf(
+                RawSubtitle(url = "https://example.invalid/en.vtt", lang = "eng"),
+                RawSubtitle(url = "https://example.invalid/bn.vtt", lang = "ben"),
             ),
-        )
-        return build(example, format.copy(enabled = true))
+            behaviorHints = BehaviorHints(
+                filename = "Example.Movie.2026.2160p.WEB-DL.HDR10.HEVC.Atmos.BENG.ENG.mkv",
+                videoSize = 1_500_000_000L,
+            ),
+        ),
+    )
+
+    fun preview(format: StreamFormatSettings): String =
+        build(previewExample(), format.copy(enabled = true))
+
+    fun previewDesign(preset: String, format: StreamFormatSettings): String {
+        val example = previewExample()
+        return when (preset.uppercase(Locale.ROOT)) {
+            "SIMPLE" -> build(example, detailed = false)
+            "DETAILED" -> build(example, detailed = true)
+            "COMPACT" -> build(
+                example,
+                format.copy(
+                    enabled = true,
+                    fields = mutableListOf("addon", "quality", "codec", "size", "cache"),
+                    separator = " · ",
+                    showLabels = false,
+                ),
+            )
+            else -> preview(format)
+        }
     }
 
     /** Value for ExtractorLink.quality, or null for "unknown" (caller maps it to Qualities.Unknown). */

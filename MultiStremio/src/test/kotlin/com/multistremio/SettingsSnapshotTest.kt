@@ -106,7 +106,31 @@ class SettingsSnapshotTest {
         assertEquals(mapOf("a|movie/top" to "Mine"), snapshot.customCatalogNames)
         assertFalse(snapshot.filter.allowedResolutions.isEmpty())
         assertTrue(snapshot.sort.preferCodecs.isEmpty())
+        assertEquals(SortCriteria.defaults(), snapshot.sort.customOrder)
         assertFalse(snapshot.streamFormat.fields.isEmpty())
         assertEquals(listOf("en"), snapshot.subtitleLanguages)
+    }
+
+    @Test
+    fun sanitizingPartialCustomSettingsPreservesChoicesAndFillsMissingCriteria() {
+        val settings = Settings(
+            sort = SortSettings(
+                preset = "CUSTOM",
+                customOrder = mutableListOf(SortCriterionSetting("size", false)),
+            ),
+            streamFormat = StreamFormatSettings(designPreset = "not-a-preset"),
+        ).sanitized()
+
+        assertEquals(
+            listOf("size", "resolution", "source", "hdr", "seeders", "addon"),
+            settings.sort.customOrder.map { it.id },
+        )
+        assertFalse(settings.sort.customOrder.first().descending)
+        assertEquals("AUTO", settings.streamFormat.designPreset)
+    }
+
+    @Test
+    fun newLinkDesignPresetDefaultsToLegacyCompatibleAuto() {
+        assertEquals("AUTO", StreamFormatSettings().designPreset)
     }
 }
