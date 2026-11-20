@@ -35,6 +35,8 @@ dependencies {
     // Linear-time matching prevents user-defined stream filters from stalling playback.
     implementation("com.google.re2j:re2j:1.8")
     testImplementation("junit:junit:4.13.2")
+    // Renders Android views on the JVM to produce screenshots of settings pages for review.
+    testImplementation("org.robolectric:robolectric:4.14.1")
     testImplementation("org.jetbrains.kotlinx:kotlinx-coroutines-core-jvm:1.11.0")
 }
 
