@@ -12,6 +12,7 @@ import org.junit.Test
 import org.junit.runner.RunWith
 import org.robolectric.RobolectricTestRunner
 import org.robolectric.RuntimeEnvironment
+import org.robolectric.annotation.GraphicsMode
 
 /**
  * Draws the Behavior page to PNG files so the layout can be reviewed without installing the
@@ -21,6 +22,7 @@ import org.robolectric.RuntimeEnvironment
  */
 @RunWith(RobolectricTestRunner::class)
 @org.robolectric.annotation.Config(sdk = [34], manifest = org.robolectric.annotation.Config.NONE)
+@GraphicsMode(GraphicsMode.Mode.NATIVE)
 class BehaviorScreenshotTest {
     private val light = Palette(
         background = 0xfff7f7f8.toInt(),
@@ -40,7 +42,8 @@ class BehaviorScreenshotTest {
         ripple = 0x338ab4f8,
     )
 
-    private fun render(name: String, colors: Palette, settings: Settings): Bitmap {
+    /** Renders the page and returns the bitmap; [heightOut] receives the measured height for diagnostics. */
+    private fun render(name: String, colors: Palette, settings: Settings, heightOut: IntArray = IntArray(1)): Bitmap {
         val ctx: Context = RuntimeEnvironment.getApplication()
         val widthPx = dp(ctx, 360)
         val body = vertical(ctx, dp(ctx, 12)).apply { setBackgroundColor(colors.background) }
@@ -51,6 +54,7 @@ class BehaviorScreenshotTest {
             View.MeasureSpec.makeMeasureSpec(0, View.MeasureSpec.UNSPECIFIED),
         )
         body.layout(0, 0, body.measuredWidth, body.measuredHeight)
+        heightOut[0] = body.measuredHeight
 
         val bitmap = Bitmap.createBitmap(widthPx, body.measuredHeight.coerceAtLeast(1), Bitmap.Config.ARGB_8888)
         Canvas(bitmap).apply {
@@ -76,7 +80,9 @@ class BehaviorScreenshotTest {
 
     @Test
     fun rendersDefaultsInLightTheme() {
-        val bitmap = render("light-defaults", light, Settings())
+        val height = IntArray(1)
+        val bitmap = render("light-defaults", light, Settings(), height)
+        assertTrue("page measured ${height[0]}px tall", height[0] > 200)
         assertTrue("light page drew no content", inkPixels(bitmap, light.background) > 1_000)
     }
 
@@ -87,7 +93,9 @@ class BehaviorScreenshotTest {
             rowTitleMode = "PREFIX",
             subtitleLanguages = mutableListOf("en", "bn"),
         )
-        val bitmap = render("dark-custom", dark, settings)
+        val height = IntArray(1)
+        val bitmap = render("dark-custom", dark, settings, height)
+        assertTrue("page measured ${height[0]}px tall", height[0] > 200)
         assertTrue("dark page drew no content", inkPixels(bitmap, dark.background) > 1_000)
     }
 }
