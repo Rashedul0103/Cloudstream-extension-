@@ -36,6 +36,14 @@ class StreamsSettingsScreenshotTest {
         outline = 0x33ffffff,
         ripple = 0x338ab4f8,
     )
+    private val amoled = Palette(
+        background = 0xff000000.toInt(),
+        primary = 0xfff1f3f4.toInt(),
+        secondary = 0xffbdc1c6.toInt(),
+        accent = 0xff8ab4f8.toInt(),
+        outline = 0x44ffffff,
+        ripple = 0x338ab4f8,
+    )
 
     private fun render(
         name: String,
@@ -115,6 +123,23 @@ class StreamsSettingsScreenshotTest {
         assertVisible(filters, dark.background)
         assertVisible(sorting, dark.background)
         assertVisible(design, dark.background)
+    }
+
+    @Test
+    fun rendersStreamSettingsWithPureBlackAmoledPalette() {
+        val settings = Settings()
+        val filters = render("streams-filters-amoled", amoled) { ctx, body ->
+            FiltersSettingsScreen.body(ctx, amoled, settings, body)
+        }
+        val sorting = render("streams-sorting-amoled", amoled) { ctx, body ->
+            SortingSettingsScreen.body(ctx, amoled, settings, body)
+        }
+        val design = render("streams-link-design-amoled", amoled) { ctx, body ->
+            FormatterSettingsScreen.body(ctx, amoled, settings, body)
+        }
+        assertVisible(filters, amoled.background)
+        assertVisible(sorting, amoled.background)
+        assertVisible(design, amoled.background)
     }
 
     @Test
