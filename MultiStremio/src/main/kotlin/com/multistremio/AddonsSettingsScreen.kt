@@ -610,17 +610,15 @@ internal object AddonsSettingsScreen {
             ),
             SettingItem(
                 "Request timeout",
-                "Use the global timeout or override it for this addon",
-                SettingItemType.Value,
+                "Current: ${a.timeoutSec?.let { "$it seconds" } ?: "Global (${Config.snapshot().timeoutSec}s)"}",
+                SettingItemType.InlineChoice,
                 valueLabel = a.timeoutSec?.let { "$it seconds" } ?: "Global (${Config.snapshot().timeoutSec}s)",
-                onClick = {
+                choiceLabels = listOf("Global", "10s", "30s", "60s"),
+                selectedChoice = listOf<Int?>(null, 10, 30, 60).indexOf(a.timeoutSec),
+                onChoice = { index ->
                     val values = listOf<Int?>(null, 10, 30, 60)
-                    val labels = listOf("Global (${Config.snapshot().timeoutSec}s)", "10 seconds", "30 seconds", "60 seconds")
-                    val selected = values.indexOf(a.timeoutSec).coerceAtLeast(0)
-                    choose(ctx, "Addon request timeout", labels, selected, onCancel = again) { index ->
-                        Config.update { addons.firstOrNull { it.id == a.id }?.timeoutSec = values[index] }
-                        again()
-                    }
+                    Config.update { addons.firstOrNull { it.id == a.id }?.timeoutSec = values[index] }
+                    addonMenu(ctx, Config.snapshot().addons.firstOrNull { it.id == a.id } ?: a)
                 },
                 searchKeywords = listOf("timeout", "slow", "request", "seconds", "global"),
             ),

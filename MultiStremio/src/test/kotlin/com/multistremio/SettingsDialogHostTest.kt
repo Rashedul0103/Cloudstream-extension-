@@ -10,6 +10,7 @@ import android.widget.LinearLayout
 import android.widget.ScrollView
 import android.widget.Switch
 import android.widget.TextView
+import org.junit.Assert.assertEquals
 import org.junit.Assert.assertSame
 import org.junit.Assert.assertTrue
 import org.junit.Test
@@ -178,6 +179,47 @@ class SettingsDialogHostTest {
             assertSame(root, SettingsDialogHost.currentScreenRoot())
             assertTrue("The updated switch should remain visible", root?.let { findSwitch(it, "Catalogs and search, off") } != null)
             assertTrue("Catalog visibility should disappear when catalogs are disabled", !containsText(root!!, "Home catalogs to show"))
+        } finally {
+            SettingsDialogHost.dismiss()
+            Config.replace(previous)
+        }
+    }
+
+    @Test
+    fun addonTimeoutOptionsAreInlineAndSaveImmediately() {
+        val ctx = RuntimeEnvironment.getApplication()
+        val previous = Config.snapshot()
+        val addon = AddonConfig(id = "timeout-addon", url = "https://example.test", name = "Timeout addon")
+        try {
+            Config.replace(Settings(addons = mutableListOf(addon)))
+            AddonsSettingsScreen.showAddon(ctx, addon)
+            val root = SettingsDialogHost.currentScreenRoot()!!
+            val tenSeconds = findText(root, "10s")
+            assertTrue("The per-addon timeout option should be inline", tenSeconds != null)
+            tenSeconds!!.performClick()
+
+            assertEquals(10, Config.snapshot().addons.single().timeoutSec ?: -1)
+            assertSame("Selecting an inline timeout should keep the same settings screen", root, SettingsDialogHost.currentScreenRoot())
+            assertTrue("The selected option should be announced", findByDescription(root, "10s, selected") != null)
+        } finally {
+            SettingsDialogHost.dismiss()
+            Config.replace(previous)
+        }
+    }
+
+    @Test
+    fun hubSearchForAnAddonOpensItsDetailScreenDirectly() {
+        val ctx = RuntimeEnvironment.getApplication()
+        val previous = Config.snapshot()
+        val addon = AddonConfig(id = "deep-link-addon", url = "https://example.test", name = "Direct target")
+        try {
+            Config.replace(Settings(addons = mutableListOf(addon)))
+            val result = SettingsSearchIndex.items(ctx).first { it.title == addon.name }
+            result.onClick!!.invoke()
+
+            val root = SettingsDialogHost.currentScreenRoot()!!
+            assertTrue("Search result should open addon controls directly", containsText(root, "Request timeout"))
+            assertTrue(containsText(root, "Manifest URL"))
         } finally {
             SettingsDialogHost.dismiss()
             Config.replace(previous)

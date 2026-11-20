@@ -15,6 +15,7 @@ internal object SettingsSearchIndex {
             section: String,
             query: String,
             keywords: List<String> = emptyList(),
+            seedQuery: Boolean = true,
             navigate: () -> Unit,
         ) {
             results += SettingItem(
@@ -22,7 +23,8 @@ internal object SettingsSearchIndex {
                 summary = breadcrumb(section, title),
                 type = SettingItemType.Navigate,
                 onClick = {
-                    SettingsDialogHost.setNextMenuSearch(query)
+                    if (seedQuery) SettingsDialogHost.setNextMenuSearch(query)
+                    else SettingsDialogHost.consumeNextMenuSearch()
                     navigate()
                 },
                 searchKeywords = (listOf(title, section, query) + keywords).distinct(),
@@ -36,7 +38,8 @@ internal object SettingsSearchIndex {
                 "Addons · ${if (addon.enabled) "Enabled" else "Disabled"}",
                 addon.name,
                 listOf("addon", "source", "catalogs", "streams", "metadata", "subtitles"),
-            ) { AddonsSettingsScreen.show(ctx) }
+                seedQuery = false,
+            ) { AddonsSettingsScreen.showAddon(ctx, addon) }
         }
         add("Add addon", "Sources", "add", listOf("manifest", "URL", "paste")) {
             AddonsSettingsScreen.show(ctx)

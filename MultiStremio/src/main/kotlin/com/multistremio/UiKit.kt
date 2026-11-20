@@ -34,7 +34,7 @@ import java.net.URL
 
 internal val settingsMainHandler = Handler(Looper.getMainLooper())
 
-internal enum class SettingItemType { Navigate, Switch, Value }
+internal enum class SettingItemType { Navigate, Switch, Value, InlineChoice }
 
 internal data class SettingItem(
     val title: String,
@@ -48,6 +48,9 @@ internal data class SettingItem(
     val onToggle: ((Boolean) -> Unit)? = null,
     val danger: Boolean = false,
     val icon: String? = null,
+    val choiceLabels: List<String> = emptyList(),
+    val selectedChoice: Int = -1,
+    val onChoice: ((Int) -> Unit)? = null,
 )
 
 internal fun toast(ctx: Context, message: String) =
@@ -619,6 +622,9 @@ internal fun settingMenu(
                 append(item.title)
                 item.valueLabel?.let { append(", ").append(it) }
                 if (item.type == SettingItemType.Switch) append(if (item.checked == true) ", on" else ", off")
+                if (item.type == SettingItemType.InlineChoice) {
+                    item.choiceLabels.getOrNull(item.selectedChoice)?.let { append(", ").append(it) }
+                }
             }
             minimumHeight = dp(ctx, if (item.section == "Overview") 66 else 48)
             item.icon?.let { iconName ->
@@ -687,6 +693,25 @@ internal fun settingMenu(
                     addView(text(ctx, "›", 24f, colors.secondary).apply { gravity = Gravity.CENTER },
                         LinearLayout.LayoutParams(dp(ctx, 24), ViewGroup.LayoutParams.MATCH_PARENT))
                     setOnClickListener { item.onClick?.invoke() }
+                }
+                SettingItemType.InlineChoice -> {
+                    removeView(body)
+                    orientation = LinearLayout.VERTICAL
+                    addView(body, LinearLayout.LayoutParams(
+                        ViewGroup.LayoutParams.MATCH_PARENT,
+                        ViewGroup.LayoutParams.WRAP_CONTENT,
+                    ))
+                    val choices = segmentedControl(
+                        ctx,
+                        colors,
+                        item.choiceLabels,
+                        item.selectedChoice,
+                    ) { index -> item.onChoice?.invoke(index) }
+                    addView(choices, LinearLayout.LayoutParams(
+                        ViewGroup.LayoutParams.MATCH_PARENT,
+                        ViewGroup.LayoutParams.WRAP_CONTENT,
+                    ).apply { topMargin = dp(ctx, 7) })
+                    setOnClickListener(null)
                 }
             }
         }
