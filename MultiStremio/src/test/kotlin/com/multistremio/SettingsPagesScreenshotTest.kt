@@ -3,6 +3,7 @@ package com.multistremio
 import android.content.Context
 import android.graphics.Bitmap
 import android.graphics.Canvas
+import android.graphics.Color
 import android.view.View
 import java.io.File
 import java.io.FileOutputStream
@@ -70,6 +71,20 @@ class SettingsPagesScreenshotTest {
         } finally {
             SettingsDialogHost.dismiss()
             Config.replace(previous)
+        }
+    }
+
+    @Test
+    fun everyIconProducesVisiblePathPixels() {
+        SettingsIcons.ALL.forEach { (name, pathData) ->
+            val bitmap = Bitmap.createBitmap(48, 48, Bitmap.Config.ARGB_8888)
+            IconDrawable(pathData, colors.accent).apply {
+                setBounds(0, 0, 48, 48)
+                draw(Canvas(bitmap))
+            }
+            val pixels = IntArray(bitmap.width * bitmap.height)
+            bitmap.getPixels(pixels, 0, bitmap.width, 0, 0, bitmap.width, bitmap.height)
+            assertTrue("$name icon did not draw", pixels.count { Color.alpha(it) > 0 } > 4)
         }
     }
 

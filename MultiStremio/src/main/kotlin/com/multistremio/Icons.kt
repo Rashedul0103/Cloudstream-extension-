@@ -76,11 +76,13 @@ internal object SettingsIcons {
 }
 
 /**
- * Draws one [SettingsIcons] path. Returns an empty drawable if the path cannot be parsed, so a
- * bad icon never crashes a settings screen.
+ * Draws one [SettingsIcons] path, using hand-drawn basics if AndroidX path parsing is unavailable.
+ * A bad icon never crashes a settings screen, and its text label remains available.
  */
 internal class IconDrawable(pathData: String, color: Int) : Drawable() {
-    private val path: Path? = runCatching { PathParser.createPathFromPathData(pathData) }.getOrNull()
+    private val path: Path? = runCatching { PathParser.createPathFromPathData(pathData) }
+        .getOrNull()
+        ?: fallbackPath(pathData)
     private val paint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
         style = Paint.Style.STROKE
         strokeCap = Paint.Cap.ROUND
@@ -113,6 +115,62 @@ internal class IconDrawable(pathData: String, color: Int) : Drawable() {
 
     @Deprecated("Required by Drawable; the alpha is always reported as translucent.")
     override fun getOpacity(): Int = PixelFormat.TRANSLUCENT
+
+    /** Basic controls stay recognizable on host apps that do not expose AndroidX PathParser. */
+    private fun fallbackPath(data: String): Path? = Path().apply {
+        when (data) {
+            SettingsIcons.CHEVRON_RIGHT -> {
+                moveTo(9f, 6f); lineTo(15f, 12f); lineTo(9f, 18f)
+            }
+            SettingsIcons.ARROW_LEFT -> {
+                moveTo(5f, 12f); lineTo(19f, 12f)
+                moveTo(5f, 12f); lineTo(11f, 18f)
+                moveTo(5f, 12f); lineTo(11f, 6f)
+            }
+            SettingsIcons.CHECK -> {
+                moveTo(5f, 12f); lineTo(10f, 17f); lineTo(20f, 7f)
+            }
+            SettingsIcons.PLUS -> {
+                moveTo(12f, 5f); lineTo(12f, 19f)
+                moveTo(5f, 12f); lineTo(19f, 12f)
+            }
+            SettingsIcons.CLOSE -> {
+                moveTo(6f, 6f); lineTo(18f, 18f)
+                moveTo(18f, 6f); lineTo(6f, 18f)
+            }
+            SettingsIcons.SEARCH -> {
+                addCircle(10f, 10f, 7f, Path.Direction.CW)
+                moveTo(15f, 15f); lineTo(21f, 21f)
+            }
+            SettingsIcons.TRASH -> {
+                moveTo(4f, 7f); lineTo(20f, 7f)
+                moveTo(6f, 7f); lineTo(7f, 19f); lineTo(17f, 19f); lineTo(18f, 7f)
+                moveTo(10f, 11f); lineTo(10f, 16f)
+                moveTo(14f, 11f); lineTo(14f, 16f)
+                moveTo(9f, 7f); lineTo(9f, 4f); lineTo(15f, 4f); lineTo(15f, 7f)
+            }
+            SettingsIcons.GRIP -> {
+                listOf(6f, 12f, 18f).forEach { y ->
+                    addCircle(9f, y, 0.7f, Path.Direction.CW)
+                    addCircle(15f, y, 0.7f, Path.Direction.CW)
+                }
+            }
+            SettingsIcons.ROWS -> {
+                listOf(5f, 12f, 19f).forEach { y ->
+                    moveTo(4f, y); lineTo(20f, y)
+                }
+            }
+            SettingsIcons.FILTER -> {
+                moveTo(4f, 6f); lineTo(20f, 6f)
+                moveTo(7f, 12f); lineTo(17f, 12f)
+                moveTo(10f, 18f); lineTo(14f, 18f)
+                moveTo(8f, 4f); lineTo(8f, 8f)
+                moveTo(16f, 10f); lineTo(16f, 14f)
+                moveTo(12f, 16f); lineTo(12f, 20f)
+            }
+            else -> return null
+        }
+    }
 
     private companion object {
         const val VIEWPORT = 24f
