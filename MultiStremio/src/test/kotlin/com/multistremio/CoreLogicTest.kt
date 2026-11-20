@@ -626,6 +626,31 @@ class CoreLogicTest {
     }
 
     @Test
+    fun filterImpactReevaluatesLastLookupAndReportsFirstExclusionReason() {
+        val streams = listOf(
+            StreamParser.parsed(0, "Addon", RawStream(name = "Movie.720p.WEB-DL", url = "https://private.example/a?token=secret")),
+            StreamParser.parsed(0, "Addon", RawStream(name = "Movie.CAM", url = "https://private.example/b")),
+        )
+        val run = StreamDiagnostics.begin()
+        StreamDiagnostics.finish(run, 2, 0, 2, 2, 2, filterCandidates = streams)
+
+        val estimate = StreamDiagnostics.filterImpact(FilterSettings())
+        assertNotNull(estimate)
+        assertEquals(2, estimate!!.totalCandidates)
+        assertEquals(1, estimate.hidden)
+        assertEquals(1, estimate.reasons["CAM / telesync"])
+
+        val hideMagnets = streams + StreamParser.parsed(
+            1, "Other", RawStream(name = "Movie.1080p", infoHash = "abcdef"),
+        )
+        val nextRun = StreamDiagnostics.begin()
+        StreamDiagnostics.finish(nextRun, 3, 0, 3, 2, 2, filterCandidates = hideMagnets)
+        val magnetEstimate = StreamDiagnostics.filterImpact(FilterSettings(hideMagnets = true))
+        assertEquals(2, magnetEstimate!!.hidden)
+        assertEquals(1, magnetEstimate.reasons["Magnet links"])
+    }
+
+    @Test
     fun subtitleCompletionIsNotRecordedWhenNoSubtitleAddonWasQueried() {
         val run = StreamDiagnostics.begin()
         StreamDiagnostics.markSubtitleCompletion(run, addonCount = 0)
@@ -1197,7 +1222,7 @@ class CoreLogicTest {
     fun importedSettingsAreSanitizedBeforeUse() {
         val settings = Settings(
             addons = mutableListOf(
-                AddonConfig(url = "https://example.com/addon"),
+                AddonConfig(url = "https://example.com/addon", timeoutSec = 999, maxLinks = 90_000),
                 AddonConfig(url = "https://example.com/addon"),
                 AddonConfig(url = ""),
             ),
@@ -1213,6 +1238,8 @@ class CoreLogicTest {
             ),
             sort = SortSettings(preset = "REMOVED_PRESET"),
             timeoutSec = 999,
+            maxParallelAddonRequests = 99,
+            manifestRefreshSchedule = "invalid",
             streamFormat = StreamFormatSettings(
                 fields = mutableListOf("unknown-field", "quality", "quality"),
                 separator = "invalid separator",
@@ -1220,6 +1247,10 @@ class CoreLogicTest {
         ).sanitized()
 
         assertEquals(180, settings.timeoutSec)
+        assertEquals(180, settings.addons.first().timeoutSec)
+        assertEquals(50_000, settings.addons.first().maxLinks)
+        assertEquals(16, settings.maxParallelAddonRequests)
+        assertEquals("DAILY", settings.manifestRefreshSchedule)
         assertEquals(listOf(1080), settings.filter.allowedResolutions)
         assertEquals(MODE_ONLY, settings.filter.hevcMode)
         assertEquals(MODE_ANY, settings.filter.hdrMode)
@@ -1458,5 +1489,21 @@ class CoreLogicTest {
             ),
         )
         assertEquals(listOf(720, 1080), ascending.map { it.info.resolution })
+    }
+
+    @Test
+    fun perAddonEmissionLimitAppliesAlongsideGlobalStreamLimits() {
+        val streams = listOf(
+            StreamParser.parsed(0, "A", RawStream(name = "A1", url = "https://a/1")),
+            StreamParser.parsed(0, "A", RawStream(name = "A2", url = "https://a/2")),
+            StreamParser.parsed(1, "B", RawStream(name = "B1", url = "https://b/1")),
+            StreamParser.parsed(1, "B", RawStream(name = "B2", url = "https://b/2")),
+        )
+        val emitted = StreamEmissionTracker(FilterSettings(), mapOf(0 to 1))
+            .takeNew(streams)
+
+        assertEquals(3, emitted.size)
+        assertEquals(1, emitted.count { it.addonIndex == 0 })
+        assertEquals(2, emitted.count { it.addonIndex == 1 })
     }
 }

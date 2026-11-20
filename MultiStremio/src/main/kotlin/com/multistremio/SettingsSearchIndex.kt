@@ -19,7 +19,7 @@ internal object SettingsSearchIndex {
         ) {
             results += SettingItem(
                 title = title,
-                summary = section,
+                summary = breadcrumb(section, title),
                 type = SettingItemType.Navigate,
                 onClick = {
                     SettingsDialogHost.setNextMenuSearch(query)
@@ -103,6 +103,9 @@ internal object SettingsSearchIndex {
         add("Link design", "Streams · Simple / Detailed / Custom", "link name", listOf("formatter", "labels", "custom layout", "simple", "detailed", "custom design", "detailed default names")) {
             GeneralSettingsScreen.showLinkNameDesign(ctx)
         }
+        add("Profiles", "Streams · Active profile", "profile", listOf("home", "mobile data", "switch settings", "save snapshot")) {
+            ProfileSettingsScreen.show(ctx)
+        }
         add("Fetch subtitles", "Behavior · Subtitles", "subtitle", listOf("captions", "addons")) {
             GeneralSettingsScreen.showSubtitles(ctx)
         }
@@ -134,5 +137,16 @@ internal object SettingsSearchIndex {
             DangerZoneSettingsScreen.show(ctx)
         }
         return results
+    }
+
+    private fun breadcrumb(section: String, title: String): String = when {
+        section == "Filters" -> "Streams › Filters › $title"
+        section == "Sorting" -> "Streams › Sorting › $title"
+        section.startsWith("Custom link design") -> "Streams › Link names › $title"
+        section.startsWith("Streams") -> "Streams › $title"
+        section.startsWith("Homepage row") || section == "Sources" -> "Sources › ${if (section.startsWith("Homepage row")) "Homepage rows › " else ""}$title"
+        section.startsWith("Behavior") -> "Behavior › $title"
+        section == "App" -> "Data › $title"
+        else -> "$section › $title"
     }
 }

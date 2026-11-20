@@ -1,5 +1,7 @@
 package com.multistremio
 
+import java.util.concurrent.ConcurrentHashMap
+
 data class AddonHealthAssessment(
     val success: Boolean,
     val detail: String,
@@ -30,4 +32,28 @@ object AddonHealthClassifier {
         }
         return AddonHealthAssessment(true, "")
     }
+}
+
+data class AddonHealthState(
+    val success: Boolean,
+    val elapsedMs: Long,
+    val checkedAt: Long,
+) {
+    fun label(disabled: Boolean = false): String = when {
+        disabled -> "Disabled"
+        !success -> "Failing"
+        elapsedMs >= 3_000L -> "Slow"
+        else -> "OK"
+    }
+}
+
+/** In-memory health indicators for the settings hub and addon list; endpoint URLs are never kept. */
+object AddonHealthStore {
+    private val latest = ConcurrentHashMap<String, AddonHealthState>()
+
+    fun record(addonId: String, success: Boolean, elapsedMs: Long) {
+        latest[addonId] = AddonHealthState(success, elapsedMs.coerceAtLeast(0), System.currentTimeMillis())
+    }
+
+    fun get(addonId: String): AddonHealthState? = latest[addonId]
 }

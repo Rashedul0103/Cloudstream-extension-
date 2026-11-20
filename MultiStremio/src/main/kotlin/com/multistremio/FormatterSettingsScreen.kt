@@ -3,6 +3,7 @@ package com.multistremio
 import android.content.ClipData
 import android.content.ClipboardManager
 import android.content.Context
+import android.view.View
 import android.view.Gravity
 import android.view.ViewGroup
 import android.widget.LinearLayout
@@ -74,6 +75,16 @@ internal object FormatterSettingsScreen {
 
     private fun linkDesignBody(ctx: Context, colors: Palette, settings: Settings, body: LinearLayout) {
         val selected = currentPreset(settings)
+        val previewViews = mutableMapOf<String, TextView>()
+        fun refreshCustomPreview() {
+            val current = Config.snapshot().streamFormat
+            val lastStream = StreamDiagnostics.latestPreview()
+            previewViews["CUSTOM"]?.text = if (lastStream == null) {
+                StreamLabels.previewDesign("CUSTOM", current)
+            } else {
+                StreamLabels.previewDesign("CUSTOM", current, lastStream)
+            }
+        }
         val choices = listOf(
             Triple("SIMPLE", "Simple", "Addon name and original release text"),
             Triple("DETAILED", "Detailed", "Quality, source, HDR, codec, audio and more"),
@@ -82,7 +93,12 @@ internal object FormatterSettingsScreen {
         )
         choices.forEach { (id, title, summary) ->
             val active = id == selected
-            val preview = StreamLabels.previewDesign(id, settings.streamFormat)
+            val lastStream = StreamDiagnostics.latestPreview()
+            val preview = if (lastStream == null) {
+                StreamLabels.previewDesign(id, settings.streamFormat)
+            } else {
+                StreamLabels.previewDesign(id, settings.streamFormat, lastStream)
+            }
             val card = LinearLayout(ctx).apply {
                 orientation = LinearLayout.VERTICAL
                 setPadding(dp(ctx, 13), dp(ctx, 11), dp(ctx, 13), dp(ctx, 11))
@@ -103,11 +119,13 @@ internal object FormatterSettingsScreen {
                 addView(text(ctx, summary, 11.5f, colors.secondary).apply {
                     setPadding(0, dp(ctx, 3), 0, dp(ctx, 7))
                 })
-                addView(text(ctx, preview, 11.5f, colors.primary).apply {
+                val previewView = text(ctx, preview, 11.5f, colors.primary).apply {
                     maxLines = 3
                     setPadding(dp(ctx, 9), dp(ctx, 8), dp(ctx, 9), dp(ctx, 8))
                     background = rounded(ctx, withAlpha(colors.secondary, 18))
-                })
+                }
+                previewViews[id] = previewView
+                addView(previewView)
                 setOnClickListener {
                     if (id != selected) selectPreset(id)
                     linkDesignPage(ctx)
@@ -125,7 +143,8 @@ internal object FormatterSettingsScreen {
             val format = settings.streamFormat
             val validFields = StreamFormatFields.all.map { it.id }.toSet()
             val selectedFields = format.fields.filter { it in validFields }.toSet()
-            addCardRow(ctx, colors, card, valueRow(
+            lateinit var informationRow: View
+            informationRow = valueRow(
                 ctx, colors, "Information to show", "Choose the details included in each link",
                 "${selectedFields.size} fields",
             ) {
@@ -145,27 +164,35 @@ internal object FormatterSettingsScreen {
                         streamFormat.designPreset = "CUSTOM"
                         streamFormat.enabled = true
                     }
-                    linkDesignPage(ctx)
+                    updateValueRow(informationRow, "Information to show", "${wanted.size} fields")
+                    refreshCustomPreview()
                 }
-            })
+            }
+            addCardRow(ctx, colors, card, informationRow)
             addCardRow(ctx, colors, card, valueRow(
                 ctx, colors, "Field order", "Drag fields into the order they should appear", "Arrange",
             ) { streamFormatReorderDialog(ctx) })
             val separatorLabels = listOf("Dot ·", "Bar |", "Bullet •", "Dash —", "Slash /", "New line")
             val separators = listOf(" · ", " | ", " • ", " — ", " / ", "\n")
             val separatorIndex = separators.indexOf(format.separator).takeIf { it >= 0 } ?: 0
-            addCardRow(ctx, colors, card, controlBlock(
+            lateinit var separatorGrid: View
+            lateinit var separatorBlock: View
+            separatorGrid = choiceChipGrid(ctx, colors, separatorLabels, setOf(separatorIndex), columns = 3) { index ->
+                Config.update { streamFormat.separator = separators[index]; streamFormat.designPreset = "CUSTOM" }
+                updateControlValue(separatorBlock, "Separator", separatorLabels[index])
+                updateChoiceChipGrid(ctx, colors, separatorGrid, separatorLabels, setOf(index))
+                refreshCustomPreview()
+            }
+            separatorBlock = controlBlock(
                 ctx, colors, "Separator", separatorLabels[separatorIndex], "Text placed between each detail.",
-                choiceChipGrid(ctx, colors, separatorLabels, setOf(separatorIndex), columns = 3) { index ->
-                    Config.update { streamFormat.separator = separators[index]; streamFormat.designPreset = "CUSTOM" }
-                    linkDesignPage(ctx)
-                },
-            ))
+                separatorGrid,
+            )
+            addCardRow(ctx, colors, card, separatorBlock)
             addCardRow(ctx, colors, card, switchRow(
                 ctx, colors, "Show field names", "For example, Quality: 4K instead of 4K", format.showLabels,
             ) { enabled ->
                 Config.update { streamFormat.showLabels = enabled; streamFormat.designPreset = "CUSTOM" }
-                linkDesignPage(ctx)
+                refreshCustomPreview()
             })
             addCardRow(ctx, colors, card, valueRow(
                 ctx, colors, "Copy design", "Copy this layout as portable JSON", "Copy",

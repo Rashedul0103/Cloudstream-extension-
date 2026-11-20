@@ -3,8 +3,11 @@ package com.multistremio
 import android.content.ClipData
 import android.content.ClipboardManager
 import android.content.Context
+import android.content.Intent
 
 internal object BackupSettingsScreen {
+    private var fullBackupMode = false
+
     fun show(ctx: Context) = backupMenu(ctx)
 
     private fun backupMenu(ctx: Context) {
@@ -37,119 +40,75 @@ internal object BackupSettingsScreen {
             }
         }
 
-        val items = listOf(
-            SettingItem(
-                "Export preferences-only backup (.txt)",
-                "Save a text file without addon URLs or imported extension rows",
-                SettingItemType.Navigate,
-                onClick = {
-                    confirm(
-                        ctx,
-                        "Export preferences-only backup?",
-                        "The TXT file excludes Stremio addon URLs, cached manifests and imported homepage-row references. " +
-                            "Restoring it will not restore your sources; you will need to add them again.",
-                        onCancel = again,
-                    ) { exportBackupFile(includeAddonUrls = false) }
-                },
-                searchKeywords = listOf("export", "file", "txt", "text", "backup", "preferences"),
-            ),
-            SettingItem(
-                "Export full backup (.txt)",
-                "Save addon URLs and cached manifests too; the file may contain access keys",
-                SettingItemType.Navigate,
-                onClick = {
-                    confirm(
-                        ctx,
-                        "Export full backup?",
-                        "The TXT file includes addon endpoints and cached manifests. Addon URLs may contain debrid keys " +
-                            "or other credentials. Save it somewhere private and do not share it publicly.",
-                        onCancel = again,
-                    ) { exportBackupFile(includeAddonUrls = true) }
-                },
-                searchKeywords = listOf("export", "file", "txt", "text", "full", "backup", "source", "URLs", "access keys"),
-            ),
-            SettingItem(
-                "Copy preferences-only backup",
-                "Copies a compact text backup without source URLs",
-                SettingItemType.Navigate,
-                onClick = {
-                    confirm(
-                        ctx,
-                        "Copy preferences-only backup?",
-                        "This excludes all Stremio addon URLs, manifests and imported homepage-row references. " +
-                            "Restoring it will not restore your sources; you will need to add them again.",
-                        onCancel = again,
-                    ) { copyBackup(includeAddonUrls = false) }
-                },
-                searchKeywords = listOf("copy", "clipboard", "backup", "preferences", "private", "no URLs"),
-            ),
-            SettingItem(
-                "Copy full backup",
-                "Copies addon URLs and cached manifests too; may contain access keys",
-                SettingItemType.Navigate,
-                onClick = {
-                    confirm(
-                        ctx,
-                        "Copy full backup?",
-                        "This includes addon endpoints and cached manifests. Addon URLs may contain debrid keys or other " +
-                            "credentials. The clipboard is not encrypted. Do not share this backup publicly.",
-                        onCancel = again,
-                    ) { copyBackup(includeAddonUrls = true) }
-                },
-                searchKeywords = listOf("copy", "clipboard", "full", "backup", "source", "URLs", "access keys"),
-            ),
-            SettingItem(
-                "Import backup from TXT file",
-                "Choose a saved MultiStremio backup or older settings JSON file",
-                SettingItemType.Navigate,
-                onClick = {
-                    BackupFileTransfer.importText(ctx) { contents ->
-                        restoreBackupText(ctx, contents, again)
-                    }
-                },
-                searchKeywords = listOf("import", "file", "txt", "text", "restore", "backup", "JSON"),
-            ),
-            SettingItem(
-                "Paste backup from clipboard",
-                "Restore a copied MultiStremio backup or older settings JSON",
-                SettingItemType.Navigate,
-                onClick = {
-                    prompt(
-                        ctx,
-                        "Restore backup from clipboard",
-                        "Paste a MultiStremio backup or settings JSON copied from an older version. This replaces the current configuration.",
-                        "",
-                        false,
-                        onCancel = again,
-                    ) { pasted ->
-                        restoreBackupText(ctx, pasted, again)
-                    }
-                },
-                searchKeywords = listOf("restore", "paste", "clipboard", "import", "JSON"),
-            ),
-            SettingItem(
-                "Reset filters & sorting",
-                "Addons and homepage rows are kept",
-                SettingItemType.Value,
-                onClick = {
-                    confirm(ctx, "Reset filters & sorting?", "Addons are kept.", onCancel = again) {
-                        Config.update { filter = FilterSettings(); sort = SortSettings() }
-                        toast(ctx, "Filters and sorting reset.")
-                        again()
-                    }
-                },
-                searchKeywords = listOf("reset", "filters", "sorting", "defaults"),
-            ),
-        )
+        fun shareBackup(includeAddonUrls: Boolean) {
+            val payload = createBackup(ctx, includeAddonUrls) ?: return
+            val send = Intent(Intent.ACTION_SEND).apply {
+                type = "text/plain"
+                putExtra(Intent.EXTRA_SUBJECT, "MultiStremio backup")
+                putExtra(Intent.EXTRA_TEXT, payload)
+            }
+            runCatching { ctx.startActivity(Intent.createChooser(send, "Share MultiStremio backup")) }
+                .onFailure { toast(ctx, "Could not open the share sheet") }
+        }
 
-        settingMenu(
+        settingsPage(
             ctx,
-            "Backup & restore",
-            items,
-            { MainMenuSettingsScreen.show(ctx) },
-            "Export a TXT file or use copy/paste. Full backups may contain private access keys in addon URLs.",
-            forceSearch = true,
-        )
+            key = "backup",
+            title = "Backup and restore",
+            description = "Export a backup, restore a file or clipboard copy, or recover an earlier snapshot.",
+            back = { MainMenuSettingsScreen.show(ctx) },
+        ) { body, colors ->
+            val privacyNote = if (fullBackupMode) {
+                "Everything includes addon URLs and cached manifests, which may contain private access keys. Share carefully."
+            } else {
+                "Preferences only excludes addon URLs, cached manifests, and imported homepage row references. Sources must be added again after restore."
+            }
+            body.addView(controlBlock(
+                ctx, colors, "Backup contents", if (fullBackupMode) "Everything" else "Preferences only",
+                privacyNote,
+                segmentedControl(ctx, colors, listOf("Preferences only", "Everything"), if (fullBackupMode) 1 else 0) { index ->
+                    fullBackupMode = index == 1
+                    backupMenu(ctx)
+                },
+            ))
+            val actions = settingsCard(ctx, colors)
+            fun addAction(title: String, summary: String, value: String, action: () -> Unit) {
+                addCardRow(ctx, colors, actions, valueRow(ctx, colors, title, summary, value, action))
+            }
+            val fullWarning = "This backup contains addon URLs or access keys. Save it somewhere private."
+            addAction("Save to file", "Export a TXT backup through the system file picker", "Export") {
+                if (fullBackupMode) confirm(ctx, "Export full backup?", fullWarning, onCancel = again) {
+                    exportBackupFile(includeAddonUrls = true)
+                } else exportBackupFile(includeAddonUrls = false)
+            }
+            addAction("Share backup", "Open the system share sheet", "Share") {
+                if (fullBackupMode) confirm(ctx, "Share full backup?", fullWarning, onCancel = again) {
+                    shareBackup(includeAddonUrls = true)
+                } else shareBackup(includeAddonUrls = false)
+            }
+            addAction("Copy backup", "Copy the selected backup contents to the clipboard", "Copy") {
+                if (fullBackupMode) confirm(ctx, "Copy full backup?", fullWarning, onCancel = again) {
+                    copyBackup(includeAddonUrls = true)
+                } else copyBackup(includeAddonUrls = false)
+            }
+            body.addView(actions)
+
+            body.addView(sectionLabel(ctx, colors, "Restore"))
+            val restore = settingsCard(ctx, colors)
+            addCardRow(ctx, colors, restore, valueRow(
+                ctx, colors, "Restore from file", "Choose a backup TXT or older settings JSON", "Open",
+            ) { BackupFileTransfer.importText(ctx) { contents -> restoreBackupText(ctx, contents, again) } })
+            addCardRow(ctx, colors, restore, valueRow(
+                ctx, colors, "Paste backup", "Restore a copied backup or older settings JSON", "Paste",
+            ) {
+                prompt(ctx, "Restore backup from clipboard", "Paste a MultiStremio backup or settings JSON. This replaces current settings.", "", false,
+                    onCancel = again) { pasted -> restoreBackupText(ctx, pasted, again) }
+            })
+            addCardRow(ctx, colors, restore, valueRow(
+                ctx, colors, "Restore a previous version", "${AutomaticBackupStore(ctx).list().size} automatic snapshot(s) on this device", "History",
+            ) { restoreAutomaticSnapshot(ctx, again) })
+            body.addView(restore)
+        }
     }
 
     private fun createBackup(ctx: Context, includeAddonUrls: Boolean): String? =
@@ -159,6 +118,40 @@ internal object BackupSettingsScreen {
             toast(ctx, "Could not create the backup")
             null
         }
+
+    private fun restoreAutomaticSnapshot(ctx: Context, onCancel: () -> Unit) {
+        val snapshots = AutomaticBackupStore(ctx).list().sortedByDescending { it.createdAt }
+        if (snapshots.isEmpty()) {
+            toast(ctx, "No automatic snapshots have been saved yet.")
+            onCancel()
+            return
+        }
+        val timeFormat = java.text.SimpleDateFormat("MMM d, HH:mm", java.util.Locale.getDefault())
+        choose(ctx, "Restore previous version", snapshots.map {
+            "${timeFormat.format(java.util.Date(it.createdAt))} · ${it.reason}"
+        }, 0, onCancel = onCancel) { index ->
+            val selected = snapshots[index]
+            val backup = SettingsBackupManager.parse(selected.payload)
+            val restored = backup?.settings
+            if (restored == null) {
+                toast(ctx, "That automatic snapshot could not be read.")
+                onCancel()
+            } else {
+                confirm(ctx, "Restore this snapshot?", "This replaces current settings. An automatic backup of the current state will be saved first.", onCancel = onCancel) {
+                    if (AutomaticBackupStore(ctx).create("Before automatic snapshot restore", Config.snapshot()) == null) {
+                        toast(ctx, "Restore cancelled because a backup of the current settings could not be saved.")
+                        onCancel()
+                        return@confirm
+                    }
+                    restored.seeded = true
+                    Config.replace(restored)
+                    HomeRefreshNotice.mark()
+                    toast(ctx, "Previous version restored.")
+                    MainMenuSettingsScreen.show(ctx)
+                }
+            }
+        }
+    }
 
     private fun restoreBackupText(ctx: Context, rawText: String, onCancel: () -> Unit) {
         val backup = SettingsBackupManager.parse(rawText)
@@ -177,6 +170,11 @@ internal object BackupSettingsScreen {
                 "Restoring it will remove your current addons and imported homepage rows."
         }
         confirm(ctx, "Restore this backup?", warning, onCancel = onCancel) {
+            if (AutomaticBackupStore(ctx).create("Before backup restore", Config.snapshot()) == null) {
+                toast(ctx, "Restore cancelled because a backup of the current settings could not be saved.")
+                onCancel()
+                return@confirm
+            }
             restored.seeded = true
             Config.replace(restored)
             HomeRefreshNotice.mark()

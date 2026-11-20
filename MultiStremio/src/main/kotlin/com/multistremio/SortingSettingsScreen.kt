@@ -62,7 +62,11 @@ internal object SortingSettingsScreen {
                 ctx, colors, "Sort preset", presetNames.getOrElse(selected) { "Best quality" },
                 "Choose a predefined ranking.",
                 choiceChipGrid(ctx, colors, presetNames, setOf(selected), columns = 2) { index ->
-                    Config.update { sort.preset = SortPreset.values()[index].name }
+                    Config.update {
+                        val preset = SortPreset.values()[index]
+                        sort.preset = preset.name
+                        sort.customOrder = SortCriteria.forPreset(preset)
+                    }
                     again()
                 },
             ))
@@ -72,7 +76,7 @@ internal object SortingSettingsScreen {
         val preferenceCard = settingsCard(ctx, colors)
         addCardRow(ctx, colors, preferenceCard, switchRow(
             ctx, colors, "Cached debrid links first", "Prefer links already cached by a debrid service", s.cachedFirst,
-        ) { enabled -> Config.update { sort.cachedFirst = enabled }; again() })
+        ) { enabled -> Config.update { sort.cachedFirst = enabled } })
         addCardRow(ctx, colors, preferenceCard, valueRow(
             ctx, colors, "Prefer keywords", "Matching release names move higher",
             if (s.preferKeywords.isEmpty()) "Off" else "${s.preferKeywords.size} terms",
@@ -121,7 +125,7 @@ internal object SortingSettingsScreen {
             "Use MultiStremio's order over CloudStream's",
             "Let MultiStremio rank across resolutions instead of CloudStream's quality profile",
             s.overrideAppQuality,
-        ) { enabled -> Config.update { sort.overrideAppQuality = enabled }; again() })
+        ) { enabled -> Config.update { sort.overrideAppQuality = enabled } })
         section("CloudStream", appCard)
     }
 

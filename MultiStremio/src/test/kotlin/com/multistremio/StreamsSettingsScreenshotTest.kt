@@ -4,7 +4,9 @@ import android.content.Context
 import android.graphics.Bitmap
 import android.graphics.Canvas
 import android.view.View
+import android.view.ViewGroup
 import android.widget.LinearLayout
+import android.widget.TextView
 import java.io.File
 import java.io.FileOutputStream
 import org.junit.Assert.assertTrue
@@ -49,6 +51,9 @@ class StreamsSettingsScreenshotTest {
             View.MeasureSpec.makeMeasureSpec(0, View.MeasureSpec.UNSPECIFIED),
         )
         body.layout(0, 0, body.measuredWidth, body.measuredHeight)
+        if (ctx.resources.displayMetrics.scaledDensity >= ctx.resources.displayMetrics.density * 1.3f) {
+            assertSegmentLabelsFit(body)
+        }
         val bitmap = Bitmap.createBitmap(widthPx, body.measuredHeight.coerceAtLeast(1), Bitmap.Config.ARGB_8888)
         Canvas(bitmap).apply {
             drawColor(colors.background)
@@ -64,6 +69,14 @@ class StreamsSettingsScreenshotTest {
         bitmap.getPixels(pixels, 0, bitmap.width, 0, 0, bitmap.width, bitmap.height)
         assertTrue("Settings page rendered too little visible content", pixels.count { it != background } > 1_000)
         assertTrue("Settings page is unexpectedly short", bitmap.height > 220)
+    }
+
+    private fun assertSegmentLabelsFit(view: View) {
+        if (view is TextView && (view.tag as? String)?.startsWith("segmented-option:") == true) {
+            val requiredWidth = view.paint.measureText(view.text.toString()) + view.paddingLeft + view.paddingRight
+            assertTrue("Segment label '${view.text}' is clipped", view.width >= requiredWidth)
+        }
+        if (view is ViewGroup) for (index in 0 until view.childCount) assertSegmentLabelsFit(view.getChildAt(index))
     }
 
     @Test
@@ -101,5 +114,31 @@ class StreamsSettingsScreenshotTest {
         assertVisible(filters, dark.background)
         assertVisible(sorting, dark.background)
         assertVisible(design, dark.background)
+    }
+
+    @Test
+    fun rendersStreamSettingsAtLargeFontScales() {
+        val ctx = RuntimeEnvironment.getApplication()
+        val originalScaledDensity = ctx.resources.displayMetrics.scaledDensity
+        try {
+            listOf(1.3f, 2.0f).forEach { scale ->
+                ctx.resources.displayMetrics.scaledDensity = ctx.resources.displayMetrics.density * scale
+                val settings = Settings()
+                val filters = render("streams-filters-font-${(scale * 100).toInt()}", light) { context, body ->
+                    FiltersSettingsScreen.body(context, light, settings, body)
+                }
+                val sorting = render("streams-sorting-font-${(scale * 100).toInt()}", light) { context, body ->
+                    SortingSettingsScreen.body(context, light, settings, body)
+                }
+                val design = render("streams-link-design-font-${(scale * 100).toInt()}", light) { context, body ->
+                    FormatterSettingsScreen.body(context, light, settings, body)
+                }
+                assertVisible(filters, light.background)
+                assertVisible(sorting, light.background)
+                assertVisible(design, light.background)
+            }
+        } finally {
+            ctx.resources.displayMetrics.scaledDensity = originalScaledDensity
+        }
     }
 }

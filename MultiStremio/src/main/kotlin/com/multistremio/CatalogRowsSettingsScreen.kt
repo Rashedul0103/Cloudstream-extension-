@@ -79,10 +79,18 @@ internal object CatalogRowsSettingsScreen {
 
         val orderInputsByKey = linkedMapOf<String, EditText>()
         val rowViewsByKey = linkedMapOf<String, View>()
+        val dragHandlesByKey = linkedMapOf<String, View>()
         val rowsByKey = rows.associateBy { it.key }
         var orderedRowKeys = rows.map { it.key }.toMutableList()
         var commitFocusedPosition: (() -> Unit)? = null
         var activeQuery = ""
+        var groupBySource = false
+        val collapsedSources = rows.filter { it.external != null }.map { it.sourceLabel }.toMutableSet()
+        lateinit var appendNextPage: () -> Unit
+        var persistDragOrder: (() -> Unit)? = null
+        val scroll = IncrementalScrollView(ctx, dp(ctx, 240)) { appendNextPage() }.apply {
+            clipToPadding = false
+        }
 
         val content = vertical(ctx, dp(ctx, 8))
         content.addView(text(ctx, "GLOBAL ORDER · ALL SOURCES", 10f, colors.accent, true).apply {
@@ -91,6 +99,7 @@ internal object CatalogRowsSettingsScreen {
         })
 
         val rowList = vertical(ctx)
+        val rowViewsInOrder = mutableListOf<Pair<CatalogRow, View>>()
         if (rows.isEmpty()) {
             rowList.addView(text(
                 ctx,
@@ -100,97 +109,184 @@ internal object CatalogRowsSettingsScreen {
             ).apply {
                 setPadding(dp(ctx, 12), dp(ctx, 14), dp(ctx, 12), dp(ctx, 14))
             })
-        } else {
-            rows.forEachIndexed { index, row ->
-                val positionInput = EditText(ctx).apply {
-                    setSingleLine(true)
-                    inputType = InputType.TYPE_CLASS_NUMBER
-                    imeOptions = EditorInfo.IME_ACTION_DONE
-                    textSize = 13f
+        }
+        fun createRow(index: Int, row: CatalogRow): View {
+            val handle = text(ctx, "⋮⋮", 16f, colors.accent, true).apply {
+                gravity = Gravity.CENTER
+                minHeight = dp(ctx, 48)
+                contentDescription = "Drag to change position of ${row.displayName}"
+                isFocusable = true
+            }
+            dragHandlesByKey[row.key] = handle
+            val positionInput = EditText(ctx).apply {
+                setSingleLine(true)
+                inputType = InputType.TYPE_CLASS_NUMBER
+                imeOptions = EditorInfo.IME_ACTION_DONE
+                textSize = 13f
+                gravity = Gravity.CENTER
+                setText((index + 1).toString())
+                setSelectAllOnFocus(true)
+                setPadding(dp(ctx, 3), 0, dp(ctx, 3), 0)
+                background = rounded(ctx, colors.background, colors.outline)
+                contentDescription = "Global position of ${row.displayName}"
+                isFocusable = true
+                isFocusableInTouchMode = true
+            }
+            orderInputsByKey[row.key] = positionInput
+
+            val name = text(ctx, row.displayName, 13.5f, colors.primary, true).apply {
+                setPadding(dp(ctx, 2), 0, 0, 0)
+                setOnClickListener { commitFocusedPosition?.invoke(); catalogRowMenu(ctx, row) }
+                isClickable = true
+            }
+            val source = text(ctx, "From ${row.sourceLabel}", 11f, colors.secondary).apply {
+                setPadding(dp(ctx, 2), dp(ctx, 2), 0, 0)
+            }
+            val details = vertical(ctx, dp(ctx, 1)).apply {
+                addView(name)
+                addView(source)
+            }
+
+            val manageImported = if (row.external != null) {
+                text(ctx, "⋮", 20f, colors.secondary, true).apply {
                     gravity = Gravity.CENTER
-                    setText((index + 1).toString())
-                    setSelectAllOnFocus(true)
-                    setPadding(dp(ctx, 3), 0, dp(ctx, 3), 0)
-                    background = rounded(ctx, colors.background, colors.outline)
-                    contentDescription = "Global position of ${row.displayName}"
-                    isFocusable = true
-                    isFocusableInTouchMode = true
-                }
-                orderInputsByKey[row.key] = positionInput
-
-                val name = text(ctx, row.displayName, 13.5f, colors.primary, true).apply {
-                    setPadding(dp(ctx, 2), 0, 0, 0)
+                    contentDescription = "Manage or remove imported row ${row.displayName}"
                     setOnClickListener { commitFocusedPosition?.invoke(); catalogRowMenu(ctx, row) }
-                    isClickable = true
                 }
-                val source = text(ctx, "From ${row.sourceLabel}", 11f, colors.secondary).apply {
-                    setPadding(dp(ctx, 2), dp(ctx, 2), 0, 0)
-                }
-                val details = vertical(ctx, dp(ctx, 1)).apply {
-                    addView(name)
-                    addView(source)
-                }
+            } else null
 
-                val manageImported = if (row.external != null) {
-                    text(ctx, "⋮", 20f, colors.secondary, true).apply {
-                        gravity = Gravity.CENTER
-                        contentDescription = "Manage or remove imported row ${row.displayName}"
-                        setOnClickListener { commitFocusedPosition?.invoke(); catalogRowMenu(ctx, row) }
-                    }
-                } else null
-
-                val visibility = CheckBox(ctx).apply {
-                    isChecked = row.rowEnabled
+            val visibility = CheckBox(ctx).apply {
+                isChecked = row.rowEnabled
+                buttonTintList = android.content.res.ColorStateList.valueOf(
+                    if (isChecked) colors.accent else colors.secondary,
+                )
+                contentDescription = if (row.rowEnabled) {
+                    "Hide homepage row ${row.displayName}"
+                } else {
+                    "Show homepage row ${row.displayName}"
+                }
+                setOnCheckedChangeListener { _, checked ->
+                    commitFocusedPosition?.invoke()
+                    setRowVisibility(ctx, row, checked)
                     buttonTintList = android.content.res.ColorStateList.valueOf(
-                        if (isChecked) colors.accent else colors.secondary,
+                        if (checked) colors.accent else colors.secondary,
                     )
-                    contentDescription = if (row.rowEnabled) {
+                    contentDescription = if (checked) {
                         "Hide homepage row ${row.displayName}"
                     } else {
                         "Show homepage row ${row.displayName}"
                     }
-                    setOnCheckedChangeListener { _, checked ->
-                        commitFocusedPosition?.invoke()
-                        setRowVisibility(ctx, row, checked)
-                        buttonTintList = android.content.res.ColorStateList.valueOf(
-                            if (checked) colors.accent else colors.secondary,
-                        )
-                        contentDescription = if (checked) {
-                            "Hide homepage row ${row.displayName}"
-                        } else {
-                            "Show homepage row ${row.displayName}"
-                        }
-                    }
                 }
+            }
 
-                val item = LinearLayout(ctx).apply {
+            val item = LinearLayout(ctx).apply {
+                orientation = LinearLayout.HORIZONTAL
+                gravity = Gravity.CENTER_VERTICAL
+                setPadding(dp(ctx, 8), dp(ctx, 6), dp(ctx, 4), dp(ctx, 6))
+                background = rounded(ctx, colors.background, colors.outline)
+                minimumHeight = dp(ctx, 58)
+                tag = row.key
+                addView(handle, LinearLayout.LayoutParams(dp(ctx, 30), dp(ctx, 48)))
+                addView(positionInput, LinearLayout.LayoutParams(dp(ctx, 46), dp(ctx, 38)).apply {
+                    marginEnd = dp(ctx, 7)
+                })
+                addView(details, LinearLayout.LayoutParams(
+                    0,
+                    ViewGroup.LayoutParams.WRAP_CONTENT,
+                    1f,
+                ))
+                manageImported?.let {
+                    addView(it, LinearLayout.LayoutParams(dp(ctx, 30), dp(ctx, 40)))
+                }
+                addView(visibility, LinearLayout.LayoutParams(dp(ctx, 40), dp(ctx, 40)))
+            }
+
+            rowViewsByKey[row.key] = item
+            return item
+        }
+
+        fun renderRows() {
+            rowList.removeAllViews()
+            dragHandlesByKey.values.forEach { handle ->
+                handle.visibility = if (groupBySource || activeQuery.isNotBlank()) View.GONE else View.VISIBLE
+            }
+            if (!groupBySource) {
+                orderedRowKeys.mapNotNull { rowViewsByKey[it] }.forEach { view ->
+                    rowList.addView(view, LinearLayout.LayoutParams(
+                        ViewGroup.LayoutParams.MATCH_PARENT,
+                        ViewGroup.LayoutParams.WRAP_CONTENT,
+                    ).apply { bottomMargin = dp(ctx, 5) })
+                }
+                return
+            }
+            orderedRowKeys.mapNotNull { key -> rowsByKey[key]?.let { row -> rowViewsByKey[key]?.let { row to it } } }
+                .groupBy { it.first.sourceLabel }.forEach { (source, sourceRows) ->
+                val header = LinearLayout(ctx).apply {
                     orientation = LinearLayout.HORIZONTAL
                     gravity = Gravity.CENTER_VERTICAL
-                    setPadding(dp(ctx, 8), dp(ctx, 6), dp(ctx, 4), dp(ctx, 6))
-                    background = rounded(ctx, colors.background, colors.outline)
-                    minimumHeight = dp(ctx, 58)
-                    tag = row.key
-                    addView(positionInput, LinearLayout.LayoutParams(dp(ctx, 46), dp(ctx, 38)).apply {
-                        marginEnd = dp(ctx, 7)
+                    minimumHeight = dp(ctx, 44)
+                    setPadding(dp(ctx, 8), 0, dp(ctx, 4), 0)
+                    val collapsed = source in collapsedSources
+                    val sourceCount = rows.count { it.sourceLabel == source }
+                    addView(text(ctx, "${if (collapsed) "▸" else "▾"}  $source ($sourceCount)", 13f, colors.primary, true).apply {
+                        isFocusable = true
+                        contentDescription = "$source group, ${if (collapsed) "collapsed" else "expanded"}"
+                        setOnClickListener {
+                            if (collapsed && rows.any { it.sourceLabel == source && it.key !in rowViewsByKey }) {
+                                while (rowViewsByKey.size < rows.size) appendNextPage()
+                            }
+                            if (!collapsedSources.add(source)) collapsedSources.remove(source)
+                            renderRows()
+                        }
+                    }, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.MATCH_PARENT, 1f))
+                    addView(text(ctx, "Hide all", 11f, colors.accent, true).apply {
+                        gravity = Gravity.CENTER
+                        isFocusable = true
+                        contentDescription = "Hide all rows from $source"
+                        setPadding(dp(ctx, 6), 0, dp(ctx, 6), 0)
+                        setOnClickListener { setSourceRowsVisibility(ctx, rows.filter { it.sourceLabel == source }, false); catalogRowsMenu(ctx, installedRows) }
                     })
-                    addView(details, LinearLayout.LayoutParams(
-                        0,
-                        ViewGroup.LayoutParams.WRAP_CONTENT,
-                        1f,
-                    ))
-                    manageImported?.let {
-                        addView(it, LinearLayout.LayoutParams(dp(ctx, 30), dp(ctx, 40)))
-                    }
-                    addView(visibility, LinearLayout.LayoutParams(dp(ctx, 40), dp(ctx, 40)))
+                    addView(text(ctx, "Show all", 11f, colors.accent, true).apply {
+                        gravity = Gravity.CENTER
+                        isFocusable = true
+                        contentDescription = "Show all rows from $source"
+                        setPadding(dp(ctx, 6), 0, dp(ctx, 6), 0)
+                        setOnClickListener { setSourceRowsVisibility(ctx, rows.filter { it.sourceLabel == source }, true); catalogRowsMenu(ctx, installedRows) }
+                    })
                 }
-
-                rowViewsByKey[row.key] = item
-                rowList.addView(item, LinearLayout.LayoutParams(
-                    ViewGroup.LayoutParams.MATCH_PARENT,
-                    ViewGroup.LayoutParams.WRAP_CONTENT,
-                ).apply { bottomMargin = dp(ctx, 5) })
+                rowList.addView(header)
+                if (source !in collapsedSources) sourceRows.forEach { (_, view) ->
+                    rowList.addView(view, LinearLayout.LayoutParams(
+                        ViewGroup.LayoutParams.MATCH_PARENT,
+                        ViewGroup.LayoutParams.WRAP_CONTENT,
+                    ).apply { bottomMargin = dp(ctx, 5) })
+                }
             }
         }
+        val pageSize = 50
+        appendNextPage = {
+            val nextKeys = orderedRowKeys.filter { it !in rowViewsByKey }.take(pageSize)
+            nextKeys.forEach { key ->
+                val row = rowsByKey[key] ?: return@forEach
+                val view = createRow(orderedRowKeys.indexOf(key), row)
+                rowViewsInOrder += row to view
+                view.visibility = if (activeQuery.isBlank() || row.displayName.contains(activeQuery, true) || row.sourceLabel.contains(activeQuery, true) || row.status.contains(activeQuery, true)) View.VISIBLE else View.GONE
+                dragHandlesByKey[key]?.let { handle ->
+                    installDragReordering(ctx, handle, view, rowList, scroll, colors,
+                        onDrop = { persistDragOrder?.invoke() }, onMoved = {})
+                }
+            }
+            renderRows()
+        }
+        appendNextPage()
+        val groupSwitch = CheckBox(ctx).apply {
+            text = "Group by source"
+            textSize = 13f
+            isChecked = false
+            contentDescription = "Group homepage rows by source"
+            setOnCheckedChangeListener { _, checked -> groupBySource = checked; renderRows() }
+        }
+        content.addView(groupSwitch)
         content.addView(rowList)
 
         content.addView(text(ctx, "MORE ACTIONS", 10f, colors.accent, true).apply {
@@ -260,6 +356,20 @@ internal object CatalogRowsSettingsScreen {
             return true
         }
 
+        persistDragOrder = {
+            val loadedOrder = (0 until rowList.childCount).mapNotNull { rowList.getChildAt(it).tag as? String }
+            val loaded = loadedOrder.toSet()
+            val completeOrder = loadedOrder + orderedRowKeys.filter { it !in loaded }
+            if (persistVisibleOrder(completeOrder)) {
+                orderedRowKeys = completeOrder.toMutableList()
+                renumberPositionInputs()
+                renderRows()
+            } else {
+                renderRows()
+                toast(ctx, "Could not save the homepage row order.")
+            }
+        }
+
         fun applyRequestedPosition(key: String) {
             val input = orderInputsByKey[key] ?: return
             val rawPosition = input.text.toString().trim()
@@ -295,14 +405,7 @@ internal object CatalogRowsSettingsScreen {
             }
 
             orderedRowKeys = newOrder.toMutableList()
-            newOrder.forEachIndexed { targetIndex, rowKey ->
-                val rowView = rowViewsByKey[rowKey] ?: return@forEachIndexed
-                val currentIndex = rowList.indexOfChild(rowView)
-                if (currentIndex >= 0 && currentIndex != targetIndex) {
-                    rowList.removeViewAt(currentIndex)
-                    rowList.addView(rowView, targetIndex)
-                }
-            }
+            renderRows()
             renumberPositionInputs()
             toast(ctx, "Moved to position $requestedPosition. Other rows renumbered.")
         }
@@ -333,10 +436,6 @@ internal object CatalogRowsSettingsScreen {
             }
         }
 
-        addAction(
-            "Add rows from installed extensions",
-            "Import a homepage row from another CloudStream extension.",
-        ) { addExternalRowsMenu(ctx) }
         addAction(
             "Reset row order",
             "Return to the default addon/source order. Visibility and custom row names are unchanged.",
@@ -370,6 +469,11 @@ internal object CatalogRowsSettingsScreen {
 
         val rowSearch = searchBox(ctx, "Search homepage rows", colors) { query ->
             activeQuery = query.trim()
+            if (activeQuery.isNotBlank()) while (rowViewsByKey.size < rows.size) appendNextPage()
+            if (activeQuery.isNotBlank()) {
+                collapsedSources.clear()
+                renderRows()
+            }
             rows.forEach { row ->
                 val matches = activeQuery.isBlank() ||
                     row.displayName.contains(activeQuery, true) ||
@@ -379,15 +483,30 @@ internal object CatalogRowsSettingsScreen {
                     if (activeQuery.isBlank() || matches) View.VISIBLE else View.GONE
             }
         }
-        root.addView(rowSearch, LinearLayout.LayoutParams(
+        val searchBar = LinearLayout(ctx).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER_VERTICAL
+            addView(rowSearch, LinearLayout.LayoutParams(0, dp(ctx, 48), 1f).apply {
+                marginEnd = dp(ctx, 6)
+            })
+            addView(text(ctx, "+", 23f, colors.accent, true).apply {
+                gravity = Gravity.CENTER
+                minWidth = dp(ctx, 48)
+                minHeight = dp(ctx, 48)
+                contentDescription = "Add rows from installed extensions"
+                background = ripple(ctx, colors.background, colors)
+                isFocusable = true
+                setOnClickListener { addExternalRowsMenu(ctx) }
+            }, LinearLayout.LayoutParams(dp(ctx, 48), dp(ctx, 48)))
+        }
+        root.addView(searchBar, LinearLayout.LayoutParams(
             ViewGroup.LayoutParams.MATCH_PARENT,
-            dp(ctx, 42),
+            dp(ctx, 48),
         ).apply { bottomMargin = dp(ctx, 6) })
         val initialSearch = SettingsDialogHost.consumeNextMenuSearch()
         if (initialSearch.isNotBlank()) rowSearch.setText(initialSearch)
 
-        val scroll = ScrollView(ctx).apply {
-            clipToPadding = false
+        scroll.apply {
             addView(content, ViewGroup.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT,
                 ViewGroup.LayoutParams.WRAP_CONTENT,
@@ -395,8 +514,9 @@ internal object CatalogRowsSettingsScreen {
         }
         root.addView(scroll, LinearLayout.LayoutParams(
             ViewGroup.LayoutParams.MATCH_PARENT,
-            minOf(dp(ctx, 460), dp(ctx, maxOf(180, rows.size * 72 + 170))),
+            minOf(dp(ctx, 460), dp(ctx, maxOf(180, minOf(rows.size, pageSize) * 72 + 170))),
         ))
+        if (initialSearch.isNotBlank()) while (rowViewsByKey.size < rows.size) appendNextPage()
         addFooter(ctx, root, "Done", {
             commitFocusedPosition?.invoke()
             MainMenuSettingsScreen.show(ctx)
@@ -425,6 +545,28 @@ internal object CatalogRowsSettingsScreen {
             }
         }
         HomeRefreshNotice.mark()
+    }
+
+    private fun setSourceRowsVisibility(ctx: Context, rows: List<CatalogRow>, visible: Boolean) {
+        val beforeChange = Config.snapshot()
+        Config.update {
+            rows.forEach { row ->
+                if (row.external != null) {
+                    externalRows.firstOrNull { it.key == row.external.key }?.enabled = visible
+                } else {
+                    val addon = addons.firstOrNull { it.id == row.addon?.id } ?: return@forEach
+                    val key = "${row.type}/${row.id}"
+                    if (visible) addon.hiddenCatalogs.remove(key)
+                    else if (key !in addon.hiddenCatalogs) addon.hiddenCatalogs.add(key)
+                }
+            }
+        }
+        HomeRefreshNotice.mark()
+        showUndoSnackbar(ctx, if (visible) "Rows shown" else "Rows hidden") {
+            Config.replace(beforeChange)
+            HomeRefreshNotice.mark()
+            catalogRowsMenu(ctx)
+        }
     }
 
     private fun addExternalRowsMenu(ctx: Context) {
@@ -533,10 +675,15 @@ internal object CatalogRowsSettingsScreen {
                             "This only removes the row from MultiStremio. The source extension remains installed.",
                             onCancel = { catalogRowsMenu(ctx) },
                         ) {
+                            val beforeRemoval = Config.snapshot()
                             Config.update { removeExternalHomeRow(external.key) }
                             HomeRefreshNotice.mark()
-                            toast(ctx, "Homepage row removed from MultiStremio. The source extension is unchanged.")
                             catalogRowsMenu(ctx)
+                            showUndoSnackbar(ctx, "Homepage row removed") {
+                                Config.replace(beforeRemoval)
+                                HomeRefreshNotice.mark()
+                                catalogRowsMenu(ctx)
+                            }
                         }
                     } else {
                         row.addon?.let { AddonsSettingsScreen.showAddon(ctx, it) } ?: catalogRowsMenu(ctx)

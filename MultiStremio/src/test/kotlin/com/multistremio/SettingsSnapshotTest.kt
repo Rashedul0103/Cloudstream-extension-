@@ -24,6 +24,13 @@ class SettingsSnapshotTest {
         externalRows = mutableListOf(ExternalRowConfig(key = "ext1", rowName = "Row")),
         customCatalogNames = mutableMapOf("a|movie/top" to "Mine"),
         subtitleLanguages = mutableListOf("en"),
+        profiles = mutableMapOf(
+            "Home" to ProfileSnapshot(
+                filter = FilterSettings(excludeKeywords = mutableListOf("CAM")),
+                subtitleLanguages = mutableListOf("en"),
+            ),
+        ),
+        activeProfile = "Home",
     )
 
     private fun isOurDataClass(type: Class<*>): Boolean =
@@ -109,6 +116,7 @@ class SettingsSnapshotTest {
         assertEquals(SortCriteria.defaults(), snapshot.sort.customOrder)
         assertFalse(snapshot.streamFormat.fields.isEmpty())
         assertEquals(listOf("en"), snapshot.subtitleLanguages)
+        assertEquals(listOf("CAM"), snapshot.profiles["Home"]!!.filter.excludeKeywords)
     }
 
     @Test
@@ -132,5 +140,22 @@ class SettingsSnapshotTest {
     @Test
     fun newLinkDesignPresetDefaultsToLegacyCompatibleAuto() {
         assertEquals("AUTO", StreamFormatSettings().designPreset)
+    }
+
+    @Test
+    fun legacySettingsGainOneDefaultProfileWithoutLosingCurrentPreferences() {
+        val legacy = Settings(
+            filter = FilterSettings(minSeeders = 7),
+            subtitleLanguages = mutableListOf("en", "bn"),
+        ).sanitized()
+
+        assertEquals("Default", legacy.activeProfile)
+        assertEquals(setOf("Default"), legacy.profiles.keys)
+        assertEquals(7, legacy.profiles.getValue("Default").filter.minSeeders)
+        assertEquals(listOf("en", "bn"), legacy.profiles.getValue("Default").subtitleLanguages)
+
+        val copy = legacy.snapshot()
+        copy.profiles.getValue("Default").filter.minSeeders = 99
+        assertEquals(7, legacy.profiles.getValue("Default").filter.minSeeders)
     }
 }

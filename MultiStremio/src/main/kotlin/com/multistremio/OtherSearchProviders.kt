@@ -3,6 +3,9 @@ package com.multistremio
 import com.lagradost.cloudstream3.*
 import com.lagradost.cloudstream3.MainActivity.Companion.afterPluginsLoadedEvent
 import com.lagradost.cloudstream3.utils.ExtractorLink
+import java.util.concurrent.Executors
+import java.util.concurrent.ScheduledFuture
+import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicReference
 
 /** A Stremio homepage catalog exposed as its own CloudStream search row. */
@@ -135,6 +138,8 @@ private class OtherSearchMainAPI(
             current.type,
             current.catalogId,
             "search=${Urls.encodeComponent(query)}",
+            timeoutSec = addon.timeoutSec ?: settings.timeoutSec,
+            retryOnce = settings.retryFailedAddonOnce,
         )
         val unique = SearchMetaDeduplication.unique(
             metas.map { Triple(addon.id, current.type, it) },
@@ -158,6 +163,10 @@ private class OtherSearchMainAPI(
 
 internal object OtherSearchProviders {
     private val providers = linkedMapOf<String, OtherSearchMainAPI>()
+    private val refreshExecutor = Executors.newSingleThreadScheduledExecutor { task ->
+        Thread(task, "multistremio-search-refresh").apply { isDaemon = true }
+    }
+    private var pendingRefresh: ScheduledFuture<*>? = null
     @Volatile private var registrar: ((MainAPI) -> Unit)? = null
 
     /**
@@ -224,6 +233,16 @@ internal object OtherSearchProviders {
         }
     }
 
+    /** Coalesce rapid settings toggles so provider reconciliation runs once per quiet window. */
+    @Synchronized
+    fun refreshDebounced() {
+        pendingRefresh?.cancel(false)
+        pendingRefresh = refreshExecutor.schedule({
+            synchronized(this) { pendingRefresh = null }
+            refresh()
+        }, 400, TimeUnit.MILLISECONDS)
+    }
+
     private fun configureActiveRows(settings: Settings): Boolean {
         val activeRows = OtherSearchRows.resolve(settings).associateBy { it.key }
         var changed = false
@@ -235,6 +254,8 @@ internal object OtherSearchProviders {
 
     @Synchronized
     fun detach() {
+        pendingRefresh?.cancel(false)
+        pendingRefresh = null
         providers.clear()
         registrar = null
     }
