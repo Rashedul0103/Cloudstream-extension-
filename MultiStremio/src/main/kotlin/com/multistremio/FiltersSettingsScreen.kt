@@ -208,7 +208,7 @@ internal object FiltersSettingsScreen {
                         allowedResolutions = all.toMutableList(),
                         hideCam = true,
                     )
-                    sort.preset = SortPreset.BEST_QUALITY.name
+                    sort = SortSettings(preset = SortPreset.BEST_QUALITY.name)
                     filterPreset = "BEST_QUALITY"
                 }
                 2 -> {
@@ -216,12 +216,12 @@ internal object FiltersSettingsScreen {
                         allowedResolutions = mutableListOf(720, 576, 480, 360, 240),
                         hideCam = true,
                     )
-                    sort.preset = SortPreset.SMALLEST.name
+                    sort = SortSettings(preset = SortPreset.SMALLEST.name)
                     filterPreset = "DATA_SAVER"
                 }
                 else -> {
                     filter = FilterSettings()
-                    sort.preset = SortPreset.BEST_QUALITY.name
+                    sort = SortSettings()
                     filterPreset = "BALANCED"
                 }
             }

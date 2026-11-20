@@ -51,8 +51,9 @@ internal object SortingSettingsScreen {
         ))
         if (isCustom) {
             addCardRow(ctx, colors, orderCard, valueRow(
-                ctx, colors, "Custom priority", "First criterion wins; later criteria break ties",
+                ctx, colors, "Custom priority",
                 s.customOrder.joinToString(" → ") { SortCriteria.all.firstOrNull { d -> d.id == it.id }?.title ?: it.id },
+                "${s.customOrder.size} rules",
             ) { customOrderDialog(ctx, s.customOrder) })
         } else {
             val presetNames = SortPreset.values().map { it.label.substringBefore(" (") }
