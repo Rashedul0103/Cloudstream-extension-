@@ -57,7 +57,7 @@ internal object FiltersSettingsScreen {
                     0 -> applyPreset(ctx, 0)
                     1 -> applyPreset(ctx, 1)
                     2 -> applyPreset(ctx, 2)
-                    else -> Unit
+                    else -> Config.update { filterPreset = "CUSTOM" }
                 }
                 again()
             },
