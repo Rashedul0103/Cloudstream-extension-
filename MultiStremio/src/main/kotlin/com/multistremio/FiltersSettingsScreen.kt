@@ -107,7 +107,7 @@ internal object FiltersSettingsScreen {
                 0 -> { applyPreset(ctx, 0); again() }
                 1 -> { applyPreset(ctx, 1); again() }
                 2 -> { applyPreset(ctx, 2); again() }
-                else -> { Config.update { filterPreset = "CUSTOM" }; refreshFilterIndicators() }
+                else -> { saveSettings(ctx) { filterPreset = "CUSTOM" }; refreshFilterIndicators() }
             }
         }
         presetBlock = controlBlock(
@@ -157,7 +157,7 @@ internal object FiltersSettingsScreen {
             val allowed = (if (current.isEmpty()) allResolutions.toMutableSet() else current.toMutableSet())
             val resolution = RES_OPTIONS[index].first
             if (resolution in allowed) allowed.remove(resolution) else allowed.add(resolution)
-            Config.update {
+            saveSettings(ctx) {
                 filter.allowedResolutions = if (allowed.size == allResolutions.size) {
                     mutableListOf()
                 } else {
@@ -176,9 +176,9 @@ internal object FiltersSettingsScreen {
         addCardRow(ctx, colors, qualityCard, resolutionBlock)
         addCardRow(ctx, colors, qualityCard, switchRow(
             ctx, colors, "Hide CAM / telesync", "Remove cinema recordings", f.hideCam,
-        ) { enabled -> Config.update { filter.hideCam = enabled }; refreshFilterIndicators() })
+        ) { enabled -> saveSettings(ctx) { filter.hideCam = enabled }; refreshFilterIndicators() })
         hevcSegment = segmentedControl(ctx, colors, modeOptions, f.hevcMode.coerceIn(0, 2)) { mode ->
-            Config.update { filter.hevcMode = mode }
+            saveSettings(ctx) { filter.hevcMode = mode }
             refreshFilterIndicators()
         }
         hevcBlock = controlBlock(
@@ -188,7 +188,7 @@ internal object FiltersSettingsScreen {
         )
         addCardRow(ctx, colors, qualityCard, hevcBlock)
         hdrSegment = segmentedControl(ctx, colors, modeOptions, f.hdrMode.coerceIn(0, 2)) { mode ->
-            Config.update { filter.hdrMode = mode }
+            saveSettings(ctx) { filter.hdrMode = mode }
             refreshFilterIndicators()
         }
         hdrBlock = controlBlock(
@@ -202,10 +202,10 @@ internal object FiltersSettingsScreen {
         val sourceCard = settingsCard(ctx, colors)
         addCardRow(ctx, colors, sourceCard, switchRow(
             ctx, colors, "Hide magnet links", "Remove torrent magnet links", f.hideMagnets,
-        ) { enabled -> Config.update { filter.hideMagnets = enabled }; refreshFilterIndicators() })
+        ) { enabled -> saveSettings(ctx) { filter.hideMagnets = enabled }; refreshFilterIndicators() })
         addCardRow(ctx, colors, sourceCard, switchRow(
             ctx, colors, "Hide uncached debrid links", "Keep cached debrid links and other sources", f.hideUncachedDebrid,
-        ) { enabled -> Config.update { filter.hideUncachedDebrid = enabled }; refreshFilterIndicators() })
+        ) { enabled -> saveSettings(ctx) { filter.hideUncachedDebrid = enabled }; refreshFilterIndicators() })
         section("Sources", sourceCard)
 
         val moreCard = settingsCard(ctx, colors)
@@ -214,7 +214,7 @@ internal object FiltersSettingsScreen {
         ) {
             boundedNumber(ctx, "Minimum file size (MB; 0 = off)", f.minSizeMb, 0, 1_000_000,
                 "Enter a whole number from 0 to 1,000,000 MB.", onCancel = again) { value ->
-                Config.update { filter.minSizeMb = value }; again()
+                saveSettings(ctx) { filter.minSizeMb = value }; again()
             }
         })
         addCardRow(ctx, colors, moreCard, valueRow(
@@ -222,7 +222,7 @@ internal object FiltersSettingsScreen {
         ) {
             boundedNumber(ctx, "Maximum file size (GB; 0 = off)", f.maxSizeGb, 0, 1_000_000,
                 "Enter a whole number from 0 to 1,000,000 GB.", onCancel = again) { value ->
-                Config.update { filter.maxSizeGb = value }; again()
+                saveSettings(ctx) { filter.maxSizeGb = value }; again()
             }
         })
         addCardRow(ctx, colors, moreCard, valueRow(
@@ -230,7 +230,7 @@ internal object FiltersSettingsScreen {
         ) {
             boundedNumber(ctx, "Minimum seeders (0 = off)", f.minSeeders, 0, 10_000_000,
                 "Enter a whole number from 0 to 10,000,000.", onCancel = again) { value ->
-                Config.update { filter.minSeeders = value }; again()
+                saveSettings(ctx) { filter.minSeeders = value }; again()
             }
         })
         addCardRow(ctx, colors, moreCard, keywordEditor(
@@ -238,9 +238,9 @@ internal object FiltersSettingsScreen {
             f.excludeKeywords,
             suggestions = listOf("TS", "Hardsub", "3D", "Dub"),
             editDescription = "Comma separated and case-insensitive. Wrap regex in slashes, such as /x26[45]/.",
-            onEdit = { values -> Config.update { filter.excludeKeywords = values }; again() },
+            onEdit = { values -> saveSettings(ctx) { filter.excludeKeywords = values }; again() },
             onSuggestion = { value ->
-                Config.update {
+                saveSettings(ctx) {
                     val current = filter.excludeKeywords.toMutableList()
                     val existing = current.firstOrNull { it.equals(value, ignoreCase = true) }
                     if (existing != null) current.remove(existing) else current.add(value)
@@ -253,7 +253,7 @@ internal object FiltersSettingsScreen {
             ctx, colors, "Require keywords (any)", "A stream must match at least one term",
             f.requireKeywords,
             editDescription = "Comma separated. Wrap regex in slashes, such as /x26[45]/. Leave empty to disable.",
-            onEdit = { values -> Config.update { filter.requireKeywords = values }; again() },
+            onEdit = { values -> saveSettings(ctx) { filter.requireKeywords = values }; again() },
             onSuggestion = {},
         ))
         addCardRow(ctx, colors, moreCard, valueRow(
@@ -264,11 +264,11 @@ internal object FiltersSettingsScreen {
                 ctx, "Required languages",
                 "A stream must match one selected language. Add a custom regional tag when needed.",
                 SettingsChoiceLists.languages, f.requireLanguages, onCancel = again,
-            ) { values -> Config.update { filter.requireLanguages = values }; again() }
+            ) { values -> saveSettings(ctx) { filter.requireLanguages = values }; again() }
         })
         addCardRow(ctx, colors, moreCard, switchRow(
             ctx, colors, "Strict language", "Hide streams whose audio language is unknown", f.strictLanguage,
-        ) { enabled -> Config.update { filter.strictLanguage = enabled }; refreshFilterIndicators() })
+        ) { enabled -> saveSettings(ctx) { filter.strictLanguage = enabled }; refreshFilterIndicators() })
         section("Keywords & languages", moreCard)
 
         val limitsCard = settingsCard(ctx, colors)
@@ -277,7 +277,7 @@ internal object FiltersSettingsScreen {
         ) {
             boundedNumber(ctx, "Maximum results per addon (0 = off)", f.maxPerAddon, 0, 50_000,
                 "Enter a whole number from 0 to 50,000.", onCancel = again) { value ->
-                Config.update { filter.maxPerAddon = value }; again()
+                saveSettings(ctx) { filter.maxPerAddon = value }; again()
             }
         })
         addCardRow(ctx, colors, limitsCard, valueRow(
@@ -285,7 +285,7 @@ internal object FiltersSettingsScreen {
         ) {
             boundedNumber(ctx, "Maximum results total (0 = off)", f.maxTotal, 0, 50_000,
                 "Enter a whole number from 0 to 50,000.", onCancel = again) { value ->
-                Config.update { filter.maxTotal = value }; again()
+                saveSettings(ctx) { filter.maxTotal = value }; again()
             }
         })
         section("Result limits", limitsCard)
@@ -293,7 +293,7 @@ internal object FiltersSettingsScreen {
 
     private fun applyPreset(ctx: Context, index: Int) {
         val all = RES_OPTIONS.map { it.first }
-        Config.update {
+        saveSettings(ctx) {
             when (index) {
                 1 -> {
                     filter = FilterSettings(

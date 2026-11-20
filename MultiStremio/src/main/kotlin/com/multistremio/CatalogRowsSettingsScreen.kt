@@ -364,6 +364,7 @@ internal object CatalogRowsSettingsScreen {
                 orderedRowKeys = completeOrder.toMutableList()
                 renumberPositionInputs()
                 renderRows()
+                toastSaved(ctx)
             } else {
                 renderRows()
                 toast(ctx, "Could not save the homepage row order.")
@@ -446,7 +447,7 @@ internal object CatalogRowsSettingsScreen {
                 "Rows will return to their default addon/source order. Visibility settings are unchanged.",
                 onCancel = { catalogRowsMenu(ctx) },
             ) {
-                Config.update { catalogOrder.clear() }
+                saveSettings(ctx) { catalogOrder.clear() }
                 HomeRefreshNotice.mark()
                 catalogRowsMenu(ctx, installedRows)
             }
@@ -461,7 +462,7 @@ internal object CatalogRowsSettingsScreen {
                 "This clears row-level hiding. Disabled addons and disabled catalog use remain inactive. Imported extension rows are unchanged.",
                 onCancel = { catalogRowsMenu(ctx) },
             ) {
-                Config.update { addons.forEach { it.hiddenCatalogs.clear() } }
+                saveSettings(ctx) { addons.forEach { it.hiddenCatalogs.clear() } }
                 HomeRefreshNotice.mark()
                 catalogRowsMenu(ctx, installedRows)
             }
@@ -529,7 +530,7 @@ internal object CatalogRowsSettingsScreen {
         row: CatalogRow,
         visible: Boolean,
     ) {
-        Config.update {
+        saveSettings(ctx) {
             val external = row.external
             if (external != null) {
                 externalRows.firstOrNull { it.key == external.key }?.let { it.enabled = visible }
@@ -652,7 +653,7 @@ internal object CatalogRowsSettingsScreen {
                     val current = Config.settings.customCatalogNames[row.key] ?: row.name
                     prompt(ctx, "Rename homepage row", "Leave blank to restore the original title.", current, false,
                         onCancel = { catalogRowMenu(ctx, row) }) { newName ->
-                        Config.update {
+                        saveSettings(ctx) {
                             if (newName.isBlank()) customCatalogNames.remove(row.key)
                             else customCatalogNames[row.key] = newName
                         }

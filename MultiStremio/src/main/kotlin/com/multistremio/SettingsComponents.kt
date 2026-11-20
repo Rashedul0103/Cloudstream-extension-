@@ -17,6 +17,7 @@ import android.widget.LinearLayout
 import android.widget.ScrollView
 import android.widget.Switch
 import android.widget.TextView
+import android.widget.Toast
 
 /**
  * Building blocks for the redesigned settings pages. They are plain code-built views, like the
@@ -55,6 +56,16 @@ internal const val PAGE_MAX_HEIGHT_FRACTION = 0.62f
 
 private val MATCH = ViewGroup.LayoutParams.MATCH_PARENT
 private val WRAP = ViewGroup.LayoutParams.WRAP_CONTENT
+
+/** Persists a user edit and confirms it briefly without replacing the home-refresh notice. */
+internal fun saveSettings(ctx: Context, update: Settings.() -> Unit) {
+    Config.update(update)
+    toastSaved(ctx)
+}
+
+internal fun toastSaved(ctx: Context) {
+    Toast.makeText(ctx, "Saved", Toast.LENGTH_SHORT).show()
+}
 
 /** Brief in-app undo action for destructive changes. */
 internal fun showUndoSnackbar(ctx: Context, message: String, undo: () -> Unit) {

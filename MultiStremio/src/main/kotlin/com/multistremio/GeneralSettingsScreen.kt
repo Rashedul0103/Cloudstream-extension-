@@ -53,7 +53,7 @@ internal fun behaviorBody(
         settings.fetchSubtitles,
     ) { enabled ->
         if (enabled != Config.settings.fetchSubtitles) {
-            Config.update { fetchSubtitles = enabled }
+            saveSettings(ctx) { fetchSubtitles = enabled }
         }
     })
     lateinit var subtitleLanguagesRow: View
@@ -67,7 +67,7 @@ internal fun behaviorBody(
             SettingsChoiceLists.languages, settings.subtitleLanguages,
             onCancel = again,
         ) { values ->
-            Config.update { subtitleLanguages = values }
+            saveSettings(ctx) { subtitleLanguages = values }
             updateValueRow(subtitleLanguagesRow, "Languages", BehaviorOptions.subtitleLanguagesValue(values))
         }
     }
@@ -83,7 +83,7 @@ internal fun behaviorBody(
     timeoutSegment = segmentedControl(ctx, colors, timeoutOptions, timeoutIndex) { index ->
         val preset = BehaviorOptions.timeoutSeconds(index)
         if (preset != null) {
-            Config.update { timeoutSec = preset }
+            saveSettings(ctx) { timeoutSec = preset }
             updateControlValue(timeoutBlock, "Addon timeout", BehaviorOptions.timeoutValueLabel(preset))
             updateSegmentedControl(ctx, colors, timeoutSegment, timeoutOptions, index)
         } else {
@@ -92,7 +92,7 @@ internal fun behaviorBody(
                 "Enter a value from 5 to 180 seconds.",
                 onCancel = again,
             ) { value ->
-                Config.update { timeoutSec = value }
+                saveSettings(ctx) { timeoutSec = value }
                 updateControlValue(timeoutBlock, "Addon timeout", BehaviorOptions.timeoutValueLabel(value))
                 updateSegmentedControl(ctx, colors, timeoutSegment, timeoutOptions, BehaviorOptions.timeoutIndex(value))
             }
@@ -106,10 +106,10 @@ internal fun behaviorBody(
     addCardRow(ctx, colors, requests, timeoutBlock)
     addCardRow(ctx, colors, requests, switchRow(
         ctx, colors, "Retry a failed addon once", "Retry timeouts and failed requests once", settings.retryFailedAddonOnce,
-    ) { enabled -> Config.update { retryFailedAddonOnce = enabled } })
+    ) { enabled -> saveSettings(ctx) { retryFailedAddonOnce = enabled } })
     addCardRow(ctx, colors, requests, switchRow(
         ctx, colors, "Show links as they arrive", "Progressively send playable links before every addon finishes", settings.progressiveLinks,
-    ) { enabled -> Config.update { progressiveLinks = enabled } })
+    ) { enabled -> saveSettings(ctx) { progressiveLinks = enabled } })
     val parallelOptions = listOf(1, 2, 4, 8, 16)
     lateinit var parallelGrid: View
     lateinit var parallelBlock: View
@@ -118,7 +118,7 @@ internal fun behaviorBody(
         setOf(parallelOptions.indexOf(settings.maxParallelAddonRequests).coerceAtLeast(0)),
         columns = 5,
     ) { index ->
-        Config.update { maxParallelAddonRequests = parallelOptions[index] }
+        saveSettings(ctx) { maxParallelAddonRequests = parallelOptions[index] }
         updateControlValue(parallelBlock, "Parallel addon requests", "${parallelOptions[index]} at a time")
         updateChoiceChipGrid(ctx, colors, parallelGrid, parallelOptions.map(Int::toString), setOf(index))
     }
@@ -134,7 +134,7 @@ internal fun behaviorBody(
     lateinit var refreshBlock: View
     lateinit var refreshSegment: View
     refreshSegment = segmentedControl(ctx, colors, refreshLabels, refreshIndex) { index ->
-        Config.update { manifestRefreshSchedule = refreshValues[index] }
+        saveSettings(ctx) { manifestRefreshSchedule = refreshValues[index] }
         Config.refreshManifestsIfDue()
         updateControlValue(refreshBlock, "Refresh addon manifests", refreshLabels[index])
         updateSegmentedControl(ctx, colors, refreshSegment, refreshLabels, index)
@@ -156,7 +156,7 @@ internal fun behaviorBody(
     ) { index ->
         val mode = BehaviorOptions.rowTitleMode(index)
         if (mode != Config.settings.rowTitleMode.uppercase()) {
-            Config.update { rowTitleMode = mode }
+            saveSettings(ctx) { rowTitleMode = mode }
             HomeRefreshNotice.mark()
         }
         updateSegmentedControl(ctx, colors, rowTitleSegment, rowTitleOptions, index)

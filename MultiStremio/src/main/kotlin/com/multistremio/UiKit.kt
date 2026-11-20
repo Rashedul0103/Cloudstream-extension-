@@ -69,7 +69,7 @@ internal object HomeRefreshNotice {
             gravity = Gravity.CENTER_VERTICAL
             setPadding(dp(ctx, 12), dp(ctx, 9), dp(ctx, 8), dp(ctx, 9))
             background = rounded(ctx, withAlpha(colors.accent, 16), colors.accent)
-            addView(text(ctx, "Changes saved. Refresh the home page to apply.", 12f, colors.primary),
+            addView(text(ctx, "Refresh the home page to apply changes.", 12f, colors.primary),
                 LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
             addView(text(ctx, "Dismiss", 11f, colors.accent, true).apply {
                 setPadding(dp(ctx, 8), dp(ctx, 6), dp(ctx, 6), dp(ctx, 6))

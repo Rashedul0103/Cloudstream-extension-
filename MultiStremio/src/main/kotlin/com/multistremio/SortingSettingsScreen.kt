@@ -43,7 +43,7 @@ internal object SortingSettingsScreen {
             ctx, colors, "Ordering mode", if (isCustom) "Custom" else "Preset",
             "Preset is simpler. Custom lets you rank each comparison rule.",
             segmentedControl(ctx, colors, listOf("Preset", "Custom"), if (isCustom) 1 else 0) { index ->
-                Config.update {
+                saveSettings(ctx) {
                     sort.preset = if (index == 1) "CUSTOM" else SortPreset.BEST_QUALITY.name
                 }
                 again()
@@ -62,7 +62,7 @@ internal object SortingSettingsScreen {
                 ctx, colors, "Sort preset", presetNames.getOrElse(selected) { "Best quality" },
                 "Choose a predefined ranking.",
                 choiceChipGrid(ctx, colors, presetNames, setOf(selected), columns = 2) { index ->
-                    Config.update {
+                    saveSettings(ctx) {
                         val preset = SortPreset.values()[index]
                         sort.preset = preset.name
                         sort.customOrder = SortCriteria.forPreset(preset)
@@ -76,7 +76,7 @@ internal object SortingSettingsScreen {
         val preferenceCard = settingsCard(ctx, colors)
         addCardRow(ctx, colors, preferenceCard, switchRow(
             ctx, colors, "Cached debrid links first", "Prefer links already cached by a debrid service", s.cachedFirst,
-        ) { enabled -> Config.update { sort.cachedFirst = enabled } })
+        ) { enabled -> saveSettings(ctx) { sort.cachedFirst = enabled } })
         addCardRow(ctx, colors, preferenceCard, valueRow(
             ctx, colors, "Prefer keywords", "Matching release names move higher",
             if (s.preferKeywords.isEmpty()) "Off" else "${s.preferKeywords.size} terms",
@@ -85,7 +85,7 @@ internal object SortingSettingsScreen {
                 ctx, "Prefer keywords",
                 "Streams containing any term are ranked higher. Comma separated; slash-delimited regex is supported with safety limits.",
                 s.preferKeywords.joinToString(", "), onCancel = again,
-            ) { values -> Config.update { sort.preferKeywords = values }; again() }
+            ) { values -> saveSettings(ctx) { sort.preferKeywords = values }; again() }
         })
         addCardRow(ctx, colors, preferenceCard, valueRow(
             ctx, colors, "Preferred languages", "Earlier languages have higher priority",
@@ -95,7 +95,7 @@ internal object SortingSettingsScreen {
                 ctx, "Preferred languages",
                 "The first language has the highest priority. Choose common languages or add a regional tag.",
                 SettingsChoiceLists.languages, s.preferLanguages, onCancel = again, orderSensitive = true,
-            ) { values -> Config.update { sort.preferLanguages = values }; again() }
+            ) { values -> saveSettings(ctx) { sort.preferLanguages = values }; again() }
         })
         addCardRow(ctx, colors, preferenceCard, valueRow(
             ctx, colors, "Preferred video codecs", "Rank codecs such as AV1, HEVC and AVC",
@@ -105,7 +105,7 @@ internal object SortingSettingsScreen {
                 ctx, "Preferred video codecs",
                 "Earlier codecs have higher priority. Unlisted codecs follow these.",
                 SettingsChoiceLists.codecs, s.preferCodecs, onCancel = again, orderSensitive = true,
-            ) { values -> Config.update { sort.preferCodecs = values }; again() }
+            ) { values -> saveSettings(ctx) { sort.preferCodecs = values }; again() }
         })
         addCardRow(ctx, colors, preferenceCard, valueRow(
             ctx, colors, "Preferred audio formats", "Rank Atmos, TrueHD, DTS-HD, DD+ and AAC",
@@ -115,7 +115,7 @@ internal object SortingSettingsScreen {
                 ctx, "Preferred audio formats",
                 "Earlier formats have higher priority.",
                 SettingsChoiceLists.audioFormats, s.preferAudio, onCancel = again, orderSensitive = true,
-            ) { values -> Config.update { sort.preferAudio = values }; again() }
+            ) { values -> saveSettings(ctx) { sort.preferAudio = values }; again() }
         })
         section("Preferences", preferenceCard)
 
@@ -125,7 +125,7 @@ internal object SortingSettingsScreen {
             "Use MultiStremio's order over CloudStream's",
             "Let MultiStremio rank across resolutions instead of CloudStream's quality profile",
             s.overrideAppQuality,
-        ) { enabled -> Config.update { sort.overrideAppQuality = enabled } })
+        ) { enabled -> saveSettings(ctx) { sort.overrideAppQuality = enabled } })
         section("CloudStream", appCard)
     }
 
@@ -222,7 +222,7 @@ internal object SortingSettingsScreen {
                 directions[id]?.let { SortCriterionSetting(id, it) }
             }
             if (result.size == SortCriteria.all.size && result.map { it.id }.toSet() == definitions.keys) {
-                Config.update {
+                saveSettings(ctx) {
                     sort.customOrder = result.toMutableList()
                     sort.preset = "CUSTOM"
                 }

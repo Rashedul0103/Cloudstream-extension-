@@ -17,6 +17,7 @@ import org.junit.Test
 import org.junit.runner.RunWith
 import org.robolectric.RobolectricTestRunner
 import org.robolectric.RuntimeEnvironment
+import org.robolectric.shadows.ShadowToast
 
 @RunWith(RobolectricTestRunner::class)
 @org.robolectric.annotation.Config(sdk = [34], manifest = org.robolectric.annotation.Config.NONE)
@@ -78,6 +79,7 @@ class SettingsDialogHostTest {
             originalSwitch!!.performClick()
 
             assertTrue("Filter change should persist immediately", Config.snapshot().filter.hideMagnets)
+            assertEquals("Saved", ShadowToast.getTextOfLatestToast())
             assertSame("A simple filter toggle must not rebuild its view", root, SettingsDialogHost.currentScreenRoot())
             assertSame("The changed switch should remain attached", originalSwitch, findSwitch(root, "Hide magnet links, on"))
         } finally {
@@ -244,6 +246,21 @@ class SettingsDialogHostTest {
         } finally {
             SettingsDialogHost.dismiss()
             Config.replace(previous)
+        }
+    }
+
+    @Test
+    fun homeRefreshNoticeOnlyDescribesTheRefreshAction() {
+        val ctx = RuntimeEnvironment.getApplication()
+        HomeRefreshNotice.mark()
+        try {
+            settingsPage(ctx, "test:refresh-notice", "Refresh-dependent settings", null, null, showRefreshNotice = true) { _, _ -> }
+            val root = SettingsDialogHost.currentScreenRoot()!!
+            assertTrue(containsText(root, "Refresh the home page to apply changes."))
+            assertTrue(!containsText(root, "Changes saved"))
+        } finally {
+            SettingsDialogHost.dismiss()
+            HomeRefreshNotice.clear()
         }
     }
 

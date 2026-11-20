@@ -184,6 +184,7 @@ internal object ProfileSettingsScreen {
                     if (value != null) profiles[newName] = value
                     if (activeProfile == oldName) activeProfile = newName
                 }
+                toast(ctx, "Renamed profile to $newName.")
             }
             show(ctx)
         }

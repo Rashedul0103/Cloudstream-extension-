@@ -40,8 +40,8 @@ internal object FormatterSettingsScreen {
         }
     }
 
-    private fun selectPreset(preset: String) {
-        Config.update {
+    private fun selectPreset(ctx: Context, preset: String) {
+        saveSettings(ctx) {
             when (preset) {
                 "SIMPLE" -> {
                     detailedLabels = false
@@ -127,7 +127,7 @@ internal object FormatterSettingsScreen {
                 previewViews[id] = previewView
                 addView(previewView)
                 setOnClickListener {
-                    if (id != selected) selectPreset(id)
+                    if (id != selected) selectPreset(ctx, id)
                     linkDesignPage(ctx)
                 }
             }
@@ -159,7 +159,7 @@ internal object FormatterSettingsScreen {
                         .map { it.id }.toSet()
                     val existingOrder = format.fields.filter { it in wanted }
                     val newlySelected = StreamFormatFields.all.map { it.id }.filter { it in wanted && it !in existingOrder }
-                    Config.update {
+                    saveSettings(ctx) {
                         streamFormat.fields = (existingOrder + newlySelected).toMutableList()
                         streamFormat.designPreset = "CUSTOM"
                         streamFormat.enabled = true
@@ -178,7 +178,7 @@ internal object FormatterSettingsScreen {
             lateinit var separatorGrid: View
             lateinit var separatorBlock: View
             separatorGrid = choiceChipGrid(ctx, colors, separatorLabels, setOf(separatorIndex), columns = 3) { index ->
-                Config.update { streamFormat.separator = separators[index]; streamFormat.designPreset = "CUSTOM" }
+                saveSettings(ctx) { streamFormat.separator = separators[index]; streamFormat.designPreset = "CUSTOM" }
                 updateControlValue(separatorBlock, "Separator", separatorLabels[index])
                 updateChoiceChipGrid(ctx, colors, separatorGrid, separatorLabels, setOf(index))
                 refreshCustomPreview()
@@ -191,7 +191,7 @@ internal object FormatterSettingsScreen {
             addCardRow(ctx, colors, card, switchRow(
                 ctx, colors, "Show field names", "For example, Quality: 4K instead of 4K", format.showLabels,
             ) { enabled ->
-                Config.update { streamFormat.showLabels = enabled; streamFormat.designPreset = "CUSTOM" }
+                saveSettings(ctx) { streamFormat.showLabels = enabled; streamFormat.designPreset = "CUSTOM" }
                 refreshCustomPreview()
             })
             addCardRow(ctx, colors, card, valueRow(
@@ -208,7 +208,7 @@ internal object FormatterSettingsScreen {
                     "This restores the default field order and separator. The Simple, Detailed and Compact presets are unchanged.",
                     onCancel = { linkDesignPage(ctx) },
                 ) {
-                    Config.update {
+                    saveSettings(ctx) {
                         streamFormat = StreamFormatSettings(
                             enabled = true,
                             designPreset = "CUSTOM",
@@ -355,7 +355,7 @@ internal object FormatterSettingsScreen {
         addFooter(ctx, root, "Save order", {
             val order = (0 until list.childCount).mapNotNull { list.getChildAt(it).tag as? String }
             if (order.size == orderedIds.size && order.toSet() == orderedIds.toSet()) {
-                Config.update {
+                saveSettings(ctx) {
                     streamFormat.fields = order.toMutableList()
                     streamFormat.designPreset = "CUSTOM"
                     streamFormat.enabled = true

@@ -65,7 +65,7 @@ internal object AddonsSettingsScreen {
                 isFocusable = true
                 contentDescription = "${addon.name}, ${if (addon.enabled) "enabled" else "disabled"}"
                 setOnCheckedChangeListener { _, enabled ->
-                    Config.update { this.setAddonEnabled(addon.id, enabled) }
+                    saveSettings(ctx) { this.setAddonEnabled(addon.id, enabled) }
                     HomeRefreshNotice.mark()
                     contentDescription = "${addon.name}, ${if (enabled) "enabled" else "disabled"}"
                     val current = Config.snapshot().addons.firstOrNull { it.id == addon.id } ?: addon.copy(enabled = enabled)
@@ -554,7 +554,7 @@ internal object AddonsSettingsScreen {
                 "Keep this addon saved; change only whether it is used",
                 SettingItemType.Switch,
                 onToggle = { enabled ->
-                    Config.update { this.setAddonEnabled(a.id, enabled) }
+                    saveSettings(ctx) { this.setAddonEnabled(a.id, enabled) }
                     HomeRefreshNotice.mark()
                 },
                 checked = a.enabled,
@@ -563,7 +563,7 @@ internal object AddonsSettingsScreen {
             SettingItem(
                 "Catalogs and search", "Use this addon for homepage catalogs and search", SettingItemType.Switch,
                 onToggle = { enabled ->
-                    updateCapability(a) { useCatalogs = enabled }
+                    updateCapability(ctx, a) { useCatalogs = enabled }
                     a.useCatalogs = enabled
                     // Rebuild this screen in place so its conditional catalog control follows the
                     // capability switch while keeping the dialog, scroll position and focus.
@@ -573,22 +573,22 @@ internal object AddonsSettingsScreen {
             ),
             SettingItem(
                 "Separate search rows", "Include this addon's catalogs in its own search section", SettingItemType.Switch,
-                onToggle = { enabled -> updateCapability(a) { useOther = enabled } },
+                onToggle = { enabled -> updateCapability(ctx, a) { useOther = enabled } },
                 checked = a.useOther, searchKeywords = listOf("other", "separate", "search rows"),
             ),
             SettingItem(
                 "Metadata", "Use this addon for titles, details and episode lists", SettingItemType.Switch,
-                onToggle = { enabled -> updateCapability(a) { useMeta = enabled } },
+                onToggle = { enabled -> updateCapability(ctx, a) { useMeta = enabled } },
                 checked = a.useMeta, searchKeywords = listOf("metadata", "details", "episodes"),
             ),
             SettingItem(
                 "Streams", "Use this addon to find playable links", SettingItemType.Switch,
-                onToggle = { enabled -> updateCapability(a) { useStreams = enabled } },
+                onToggle = { enabled -> updateCapability(ctx, a) { useStreams = enabled } },
                 checked = a.useStreams, searchKeywords = listOf("streams", "links", "playback"),
             ),
             SettingItem(
                 "Subtitles", "Use this addon to find subtitles", SettingItemType.Switch,
-                onToggle = { enabled -> updateCapability(a) { useSubtitles = enabled } },
+                onToggle = { enabled -> updateCapability(ctx, a) { useSubtitles = enabled } },
                 checked = a.useSubtitles, searchKeywords = listOf("subtitles", "captions"),
             ),
             SettingItem(
@@ -617,7 +617,7 @@ internal object AddonsSettingsScreen {
                 selectedChoice = listOf<Int?>(null, 10, 30, 60).indexOf(a.timeoutSec),
                 onChoice = { index ->
                     val values = listOf<Int?>(null, 10, 30, 60)
-                    Config.update { addons.firstOrNull { it.id == a.id }?.timeoutSec = values[index] }
+                    saveSettings(ctx) { addons.firstOrNull { it.id == a.id }?.timeoutSec = values[index] }
                     addonMenu(ctx, Config.snapshot().addons.firstOrNull { it.id == a.id } ?: a)
                 },
                 searchKeywords = listOf("timeout", "slow", "request", "seconds", "global"),
@@ -633,7 +633,7 @@ internal object AddonsSettingsScreen {
                         "Enter a whole number from 0 to 50,000. 0 means no per-addon limit.",
                         onCancel = again,
                     ) { value ->
-                        Config.update { addons.firstOrNull { it.id == a.id }?.maxLinks = value }
+                        saveSettings(ctx) { addons.firstOrNull { it.id == a.id }?.maxLinks = value }
                         again()
                     }
                 },
@@ -782,8 +782,8 @@ internal object AddonsSettingsScreen {
         return true
     }
 
-    private fun updateCapability(addon: AddonConfig, update: AddonConfig.() -> Unit) {
-        Config.update { addons.firstOrNull { it.id == addon.id }?.update() }
+    private fun updateCapability(ctx: Context, addon: AddonConfig, update: AddonConfig.() -> Unit) {
+        saveSettings(ctx) { addons.firstOrNull { it.id == addon.id }?.update() }
         HomeRefreshNotice.mark()
     }
 
