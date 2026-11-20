@@ -199,7 +199,11 @@ internal object ProfileSettingsScreen {
         }
         confirm(ctx, "Delete $name profile?", "This removes the saved snapshot. The current playback settings stay in effect.", onCancel = { show(ctx) }) {
             val beforeDeletion = Config.snapshot()
-            AutomaticBackupStore(ctx).create("Before deleting $name profile", beforeDeletion)
+            if (AutomaticBackupStore(ctx).create("Before deleting $name profile", beforeDeletion) == null) {
+                toast(ctx, "Profile deletion cancelled because the automatic backup could not be saved.")
+                show(ctx)
+                return@confirm
+            }
             Config.update {
                 profiles.remove(name)
                 if (activeProfile == name) activeProfile = profiles.keys.first()
