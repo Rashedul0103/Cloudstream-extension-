@@ -58,6 +58,15 @@ jobs:
           cd src
           gradle testDebugUnitTest make makePluginsJson
 
+      - name: Upload settings screenshots
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: settings-screenshots
+          path: src/MultiStremio/build/screenshots/
+          if-no-files-found: ignore
+          retention-days: 7
+
       - name: Prepare plugin artifacts
         run: |
           mkdir -p publish-artifact

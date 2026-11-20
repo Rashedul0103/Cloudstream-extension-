@@ -65,11 +65,11 @@ internal object MainMenuSettingsScreen {
                 searchKeywords = listOf("formatter", "format", "labels", "link name", "layout", "design", "simple", "detailed", "custom design", "detailed default names"),
             ),
             SettingItem(
-                title = "General",
-                summary = "Request timeout, subtitles and homepage display options",
+                title = "Behavior",
+                summary = "Subtitles, request timeout and homepage titles",
                 onClick = { GeneralSettingsScreen.show(ctx) },
                 section = "App",
-                searchKeywords = listOf("general", "timeout", "labels", "display", "subtitle", "language"),
+                searchKeywords = listOf("behavior", "general", "timeout", "labels", "display", "subtitle", "language"),
             ),
             SettingItem(
                 title = "Backup and restore",
