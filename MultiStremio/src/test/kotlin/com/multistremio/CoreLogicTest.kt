@@ -1430,7 +1430,7 @@ class CoreLogicTest {
         ),
         catalogOrder = mutableListOf("hashed-addon-id|movie|top", "external:private"),
     )
-}
+
     @Test
     fun customSortCriteriaUseRankedOrderAndDirection() {
         val low = StreamParser.parsed(0, "A", RawStream(name = "Movie.720p.WEB-DL"))
@@ -1459,4 +1459,4 @@ class CoreLogicTest {
         )
         assertEquals(listOf(720, 1080), ascending.map { it.info.resolution })
     }
-
+}
