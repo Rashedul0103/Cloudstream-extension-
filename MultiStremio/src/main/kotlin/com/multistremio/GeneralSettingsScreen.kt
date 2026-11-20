@@ -14,44 +14,8 @@ internal object GeneralSettingsScreen {
     /** Subtitles now live on the Behavior page, so the old sub-menu entry points open it. */
     fun showSubtitles(ctx: Context) = behaviorPage(ctx)
 
-    fun showLinkNameDesign(ctx: Context) {
-        // This is a choice dialog rather than a searchable settings menu; consume the routed query.
-        SettingsDialogHost.consumeNextMenuSearch()
-        val settings = Config.snapshot()
-        val currentStyle = when {
-            settings.streamFormat.enabled -> "Custom design"
-            settings.detailedLabels -> "Detailed"
-            else -> "Simple"
-        }
-        val choices = listOf("Simple", "Detailed", "Custom design")
-        val selected = when (currentStyle) {
-            "Detailed" -> 1
-            "Custom design" -> 2
-            else -> 0
-        }
-        choose(ctx, "Link name design", choices, selected, onCancel = {
-            MainMenuSettingsScreen.show(ctx)
-        }) { index ->
-            Config.update {
-                when (index) {
-                    0 -> {
-                        detailedLabels = false
-                        streamFormat.enabled = false
-                    }
-                    1 -> {
-                        detailedLabels = true
-                        streamFormat.enabled = false
-                    }
-                    else -> {
-                        detailedLabels = false
-                        streamFormat.enabled = true
-                    }
-                }
-            }
-            if (index == 2) FormatterSettingsScreen.show(ctx)
-            else MainMenuSettingsScreen.show(ctx)
-        }
-    }
+    fun showLinkNameDesign(ctx: Context) = FormatterSettingsScreen.show(ctx)
+
 
     private fun behaviorPage(ctx: Context) {
         val again = { behaviorPage(ctx) }

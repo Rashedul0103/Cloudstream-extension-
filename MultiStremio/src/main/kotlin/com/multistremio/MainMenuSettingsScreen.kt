@@ -60,7 +60,7 @@ internal object MainMenuSettingsScreen {
             SettingItem(
                 title = "Link design",
                 summary = "Choose Simple, Detailed or Custom design",
-                onClick = { GeneralSettingsScreen.showLinkNameDesign(ctx) },
+                onClick = { FormatterSettingsScreen.show(ctx) },
                 section = "Streams",
                 searchKeywords = listOf("formatter", "format", "labels", "link name", "layout", "design", "simple", "detailed", "custom design", "detailed default names"),
             ),

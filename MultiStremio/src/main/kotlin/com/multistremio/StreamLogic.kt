@@ -1165,8 +1165,25 @@ object StreamLabels {
     fun build(p: ParsedStream, format: StreamFormatSettings): String =
         build(p, detailed = true, format = format)
 
+    private val compactFormat = StreamFormatSettings(
+        enabled = true,
+        fields = mutableListOf("addon", "quality", "codec", "size", "cache"),
+        separator = " · ",
+        showLabels = false,
+        designPreset = "COMPACT",
+    )
+
     fun build(p: ParsedStream, detailed: Boolean, format: StreamFormatSettings): String {
+        when (format.designPreset.uppercase()) {
+            "SIMPLE" -> return build(p, detailed = false)
+            "DETAILED" -> return build(p, detailed = true)
+            "COMPACT" -> return buildCustom(p, compactFormat)
+        }
         if (!format.enabled) return build(p, detailed = detailed)
+        return buildCustom(p, format)
+    }
+
+    private fun buildCustom(p: ParsedStream, format: StreamFormatSettings): String {
         val pieces = format.fields.asSequence()
             .distinct()
             .mapNotNull { field ->
@@ -1186,25 +1203,32 @@ object StreamLabels {
         return pieces.joinToString(format.separator.take(8)).ifBlank { p.addonName }
     }
 
-    fun preview(format: StreamFormatSettings): String {
-        val example = StreamParser.parsed(
-            0,
-            "Example Addon",
-            RawStream(
-                name = "🌀 CNCVerse 4K • MovieBoxIN",
-                title = "Example.Movie.2026.2160p.WEB-DL.HDR10.HEVC.Atmos.BENG.ENG\n🛰️ Source: MovieBoxIN • HubCloud",
-                url = "https://example.invalid/movie.mkv",
-                subtitles = listOf(
-                    RawSubtitle(url = "https://example.invalid/en.vtt", lang = "eng"),
-                    RawSubtitle(url = "https://example.invalid/bn.vtt", lang = "ben"),
-                ),
-                behaviorHints = BehaviorHints(
-                    filename = "Example.Movie.2026.2160p.WEB-DL.HDR10.HEVC.Atmos.BENG.ENG.mkv",
-                    videoSize = 1_500_000_000L,
-                ),
+    private fun exampleStream(): ParsedStream = StreamParser.parsed(
+        0,
+        "Example Addon",
+        RawStream(
+            name = "🌀 CNCVerse 4K • MovieBoxIN",
+            title = "Example.Movie.2026.2160p.WEB-DL.HDR10.HEVC.Atmos.BENG.ENG\n🛰️ Source: MovieBoxIN • HubCloud",
+            url = "https://example.invalid/movie.mkv",
+            subtitles = listOf(
+                RawSubtitle(url = "https://example.invalid/en.vtt", lang = "eng"),
+                RawSubtitle(url = "https://example.invalid/bn.vtt", lang = "ben"),
             ),
-        )
-        return build(example, format.copy(enabled = true))
+            behaviorHints = BehaviorHints(
+                filename = "Example.Movie.2026.2160p.WEB-DL.HDR10.HEVC.Atmos.BENG.ENG.mkv",
+                videoSize = 1_500_000_000L,
+            ),
+        ),
+    )
+
+    fun preview(format: StreamFormatSettings): String =
+        build(exampleStream(), format.copy(enabled = true, designPreset = "CUSTOM"))
+
+    fun previewDesign(preset: String, format: StreamFormatSettings): String = when (preset.uppercase()) {
+        "SIMPLE" -> build(exampleStream(), detailed = false)
+        "DETAILED" -> build(exampleStream(), detailed = true)
+        "COMPACT" -> buildCustom(exampleStream(), compactFormat)
+        else -> build(exampleStream(), detailed = true, format = format.copy(enabled = true, designPreset = "CUSTOM"))
     }
 
     /** Value for ExtractorLink.quality, or null for "unknown" (caller maps it to Qualities.Unknown). */
