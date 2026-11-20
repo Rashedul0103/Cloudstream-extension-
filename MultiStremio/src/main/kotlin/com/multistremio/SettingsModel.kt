@@ -88,8 +88,22 @@ data class SortCriterionSetting(
     var descending: Boolean = true,
 )
 
+data class SortCriterionDefinition(
+    val id: String,
+    val title: String,
+    val description: String,
+)
+
 object SortCriteria {
-    val ids = listOf("resolution", "source", "hdr", "seeders", "size", "addon")
+    val all = listOf(
+        SortCriterionDefinition("resolution", "Resolution", "Higher or lower video resolution"),
+        SortCriterionDefinition("source", "Source", "REMUX, BluRay, WEB-DL and other source types"),
+        SortCriterionDefinition("hdr", "HDR", "Dolby Vision, HDR10+ and other HDR formats"),
+        SortCriterionDefinition("seeders", "Seeders", "Number of available torrent seeders"),
+        SortCriterionDefinition("size", "File size", "Larger or smaller files"),
+        SortCriterionDefinition("addon", "Addon order", "Position of the addon in your priority list"),
+    )
+    val ids = all.map { it.id }
     fun defaults() = mutableListOf(
         SortCriterionSetting("resolution", true),
         SortCriterionSetting("source", true),
@@ -327,6 +341,8 @@ data class StreamFormatSettings(
     var fields: MutableList<String> = StreamFormatFields.defaultOrder.toMutableList(),
     var separator: String = " · ",
     var showLabels: Boolean = false,
+    /** AUTO preserves behavior from settings saved before named layouts were introduced. */
+    var designPreset: String = "AUTO",
 )
 
 data class Settings(
