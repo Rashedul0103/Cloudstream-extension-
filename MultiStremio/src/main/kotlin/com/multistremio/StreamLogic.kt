@@ -1203,25 +1203,43 @@ object StreamLabels {
         return pieces.joinToString(format.separator.take(8)).ifBlank { p.addonName }
     }
 
-    fun preview(format: StreamFormatSettings): String {
-        val example = StreamParser.parsed(
-            0,
-            "Example Addon",
-            RawStream(
-                name = "🌀 CNCVerse 4K • MovieBoxIN",
-                title = "Example.Movie.2026.2160p.WEB-DL.HDR10.HEVC.Atmos.BENG.ENG\n🛰️ Source: MovieBoxIN • HubCloud",
-                url = "https://example.invalid/movie.mkv",
-                subtitles = listOf(
-                    RawSubtitle(url = "https://example.invalid/en.vtt", lang = "eng"),
-                    RawSubtitle(url = "https://example.invalid/bn.vtt", lang = "ben"),
-                ),
-                behaviorHints = BehaviorHints(
-                    filename = "Example.Movie.2026.2160p.WEB-DL.HDR10.HEVC.Atmos.BENG.ENG.mkv",
-                    videoSize = 1_500_000_000L,
-                ),
+    private fun previewExample(): ParsedStream = StreamParser.parsed(
+        0,
+        "Example Addon",
+        RawStream(
+            name = "🌀 CNCVerse 4K • MovieBoxIN",
+            title = "Example.Movie.2026.2160p.WEB-DL.HDR10.HEVC.Atmos.BENG.ENG\n🛰️ Source: MovieBoxIN • HubCloud",
+            url = "https://example.invalid/movie.mkv",
+            subtitles = listOf(
+                RawSubtitle(url = "https://example.invalid/en.vtt", lang = "eng"),
+                RawSubtitle(url = "https://example.invalid/bn.vtt", lang = "ben"),
             ),
-        )
-        return build(example, format.copy(enabled = true))
+            behaviorHints = BehaviorHints(
+                filename = "Example.Movie.2026.2160p.WEB-DL.HDR10.HEVC.Atmos.BENG.ENG.mkv",
+                videoSize = 1_500_000_000L,
+            ),
+        ),
+    )
+
+    fun preview(format: StreamFormatSettings): String =
+        build(previewExample(), format.copy(enabled = true))
+
+    fun previewDesign(preset: String, format: StreamFormatSettings): String {
+        val example = previewExample()
+        return when (preset.uppercase(Locale.ROOT)) {
+            "SIMPLE" -> build(example, detailed = false)
+            "DETAILED" -> build(example, detailed = true)
+            "COMPACT" -> build(
+                example,
+                format.copy(
+                    enabled = true,
+                    fields = mutableListOf("addon", "quality", "codec", "size", "cache"),
+                    separator = " · ",
+                    showLabels = false,
+                ),
+            )
+            else -> preview(format)
+        }
     }
 
     /** Value for ExtractorLink.quality, or null for "unknown" (caller maps it to Qualities.Unknown). */
