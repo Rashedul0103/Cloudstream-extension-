@@ -816,7 +816,12 @@ internal fun prompt(
             contentDescription = if (manifestSuggestion) "Use detected addon manifest link from clipboard" else "Paste from clipboard"
             setPadding(dp(ctx, 10), dp(ctx, 8), dp(ctx, 10), dp(ctx, 8))
             minHeight = dp(ctx, 40)
-            background = focusAwareBackground(ctx, colors, plainRipple(ctx, colors))
+            background = StateListDrawable().apply {
+                addState(intArrayOf(android.R.attr.state_focused), rounded(ctx, colors.background).apply {
+                    setStroke(dp(ctx, 2), colors.accent)
+                })
+                addState(intArrayOf(), ripple(ctx, colors.background, colors))
+            }
             setOnClickListener {
                 val pasted = if (manifestSuggestion) clipboardText else runCatching {
                     clipboard?.primaryClip?.takeIf { it.itemCount > 0 }
