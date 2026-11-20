@@ -402,7 +402,9 @@ internal fun choiceChipGrid(
     columns: Int = 3,
     onSelect: (Int) -> Unit,
 ): LinearLayout = vertical(ctx).apply {
-    val safeColumns = columns.coerceIn(1, 4)
+    val requestedColumns = columns.coerceIn(1, 4)
+    val fontScale = ctx.resources.displayMetrics.scaledDensity / ctx.resources.displayMetrics.density
+    val safeColumns = responsiveChoiceChipColumns(requestedColumns, fontScale)
     options.forEachIndexed { index, label ->
         val rowIndex = index / safeColumns
         val columnIndex = index % safeColumns
@@ -446,6 +448,11 @@ internal fun choiceChipGrid(
             })
         }
     }
+}
+
+internal fun responsiveChoiceChipColumns(requestedColumns: Int, fontScale: Float): Int {
+    val requested = requestedColumns.coerceIn(1, 4)
+    return if (fontScale >= 1.6f) minOf(requested, 2) else requested
 }
 
 internal fun updateChoiceChipGrid(

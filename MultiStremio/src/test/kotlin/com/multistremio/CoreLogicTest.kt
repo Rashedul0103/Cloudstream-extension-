@@ -10,6 +10,13 @@ import org.junit.Test
 
 class CoreLogicTest {
     @Test
+    fun choiceChipGridReducesColumnsAtLargeFontScale() {
+        assertEquals(3, responsiveChoiceChipColumns(3, 1.3f))
+        assertEquals(2, responsiveChoiceChipColumns(3, 2.0f))
+        assertEquals(1, responsiveChoiceChipColumns(1, 2.0f))
+    }
+
+    @Test
     fun languageTagsNormalizeAcrossCodesAndRegions() {
         assertEquals("en", Langs.normalize("English (US)"))
         assertEquals("en", Langs.normalize("eng"))
